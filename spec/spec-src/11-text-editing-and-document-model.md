@@ -45,7 +45,7 @@ The text editing subsystem provides a multi-line code editor widget (`TextArea`)
 | `showCursor` | `boolean` | `true` | Whether cursor is visible |
 | `suggestion` | `string \| null` | `null` | Autocomplete suggestion displayed at cursor |
 | `hideSuggestionOnBlur` | `boolean` | `true` | Hide suggestion when widget loses focus |
-| `placeholder` | `string` | `""` | Placeholder text when document is empty |
+| `placeholder` | `string \| Content` | `""` | Placeholder text when document is empty |
 
 ### Key bindings
 
@@ -128,6 +128,23 @@ TextArea.-read-only > .text-area--cursor {
 - Unknown theme → throws `ThemeDoesNotExist`.
 - Unknown language → throws `LanguageDoesNotExist`.
 - Registrations are per-instance, not global.
+
+## Line Rendering Pipeline
+
+For each visible row `y` after scroll translation, `TextArea` produces a rich-js `Strip`:
+
+1. **Base style**: start with `theme.base` applied to the full line.
+2. **Tab expansion**: expand tabs using rich-js-aware cell-width measurement so visual columns match render width.
+3. **Syntax tokens**: when `language` is set, Shiki tokenizes the line. Each token maps to a rich-js `Style` via `theme.syntaxStyles`, overriding the base style for that token's range.
+4. **Cursor-line highlight**: when `highlightCursorLine` is true and the cursor is on this row, merge `theme.cursorLine` over the full line.
+5. **Selection overlay**: when the row intersects the selection range, merge `theme.selection` over the selected columns.
+6. **Matching bracket overlay**: when bracket matching returns a pair on this row, merge `theme.matchingBracket` over those character positions.
+7. **Cursor overlay**: when the cursor is on this row, merge `theme.cursor` over the cursor cell.
+8. **Suggestion overlay**: when `suggestion` is set and the cursor is at end-of-line on this row, append the suggestion text as a `Segment` with `theme.suggestion`. Suggestion text is not part of the document; accepting it inserts new document text through `edit()`.
+9. **Placeholder**: when the document is empty, placeholder is set, and this is row 0, render placeholder content with `theme.placeholder`.
+10. **Gutter**: when `showLineNumbers` is enabled, prepend gutter segments styled with `theme.gutter` (or the cursor-line gutter style for the active row).
+
+Each overlay is applied via rich-js `Style` merge, with later overlays winning. The final rendered row is a `Strip` of `Segment`s, which the framework converts to Ink `<Text>` elements grouped by consecutive style run.
 
 ## Document Model
 
@@ -230,7 +247,7 @@ Ink outputs styled text to terminal
 1. When `language` is set, Shiki loads the corresponding TextMate grammar.
 2. Shiki tokenizes the document content line by line.
 3. Each token carries a color/style from the active Shiki theme.
-4. TextArea renders the tokenized output using Ink `<Text>` with color props.
+4. The token stream feeds the TextArea line-rendering pipeline, which converts tokens into rich-js `Style` overlays before the final `Strip` is translated to Ink `<Text>`.
 5. When the document changes, affected lines are re-tokenized.
 
 ### Theme mapping
@@ -240,17 +257,19 @@ Shiki themes provide color values for token types. `TextAreaTheme.syntaxStyles` 
 ```tsx
 interface TextAreaTheme {
   name: string;
-  base: Style;               // Default text style
-  gutter: Style;             // Line number gutter
-  cursor: Style;             // Cursor element
-  cursorLine: Style;         // Highlighted cursor line
-  selection: Style;          // Selected text
-  matchingBracket: Style;    // Bracket matching
-  suggestion: Style;         // Autocomplete suggestion
-  placeholder: Style;        // Placeholder text
-  syntaxStyles: Map<string, Style>; // Token type → style mapping
+  base: Style;               // rich-js Style — default text style
+  gutter: Style;             // rich-js Style — line number gutter
+  cursor: Style;             // rich-js Style — cursor element
+  cursorLine: Style;         // rich-js Style — highlighted cursor line
+  selection: Style;          // rich-js Style — selected text overlay
+  matchingBracket: Style;    // rich-js Style — matching-bracket overlay
+  suggestion: Style;         // rich-js Style — autocomplete suggestion
+  placeholder: Style;        // rich-js Style — placeholder text
+  syntaxStyles: Map<string, Style>; // Shiki token scope → rich-js Style
 }
 ```
+
+All `TextAreaTheme` style fields are rich-js `Style` instances, including `syntaxStyles`.
 
 ### Language and theme registration
 
@@ -310,14 +329,15 @@ findMatchingBracket(document, cursorLocation):
 
 | Condition | Result |
 |-----------|--------|
-| Cursor adjacent to opening bracket with balanced pair | Both brackets styled with `text-area--matching-bracket`. |
-| Cursor adjacent to closing bracket with balanced pair | Both brackets styled. Scan runs backward. |
+| Cursor adjacent to opening bracket with balanced pair | Both bracket positions receive `theme.matchingBracket` as a rich-js `Style` overlay. |
+| Cursor adjacent to closing bracket with balanced pair | Both bracket positions receive the overlay. Scan runs backward. |
 | Cursor not adjacent to any bracket | No highlight. |
 | Unbalanced document (no match found) | No highlight, no error, no log. |
 | `matchCursorBracket: false` | Bracket scan never runs. |
 | Bracket inside a string or comment | Still matched by this algorithm — language-aware matching is **not** a base contract. Widgets can override by subclassing and consulting the Shiki token stream. |
 
 Scan complexity is O(N) in the worst case over unbalanced documents. The framework may bound scan distance for performance; unbounded documents that do not contain a match within the bound are treated as unmatched.
+The match result is `{ start: Location, end: Location } | null`. When non-null, the line renderer overlays `theme.matchingBracket` at those two character positions during `Strip` construction. There is no separate render path for matched brackets; the match result is just another input to the line pipeline.
 
 // [LAW:dataflow-not-control-flow] Bracket matching always runs when `matchCursorBracket: true` — the output is either a pair of locations or `null`. Rendering applies the class unconditionally based on that value; there is no "skip bracket matching" branch.
 
@@ -360,6 +380,7 @@ The two-stage form (`expandTextTabsFromWidths`) exists because Shiki-tokenized o
 ## Navigation Semantics
 
 `DocumentNavigator` provides wrapping-aware cursor movement. It wraps a `WrappedDocument` and its source `Document`.
+All column and width math uses rich-js cell-width helpers (`cellLength`, `columnIndex`, `cellIndex`), not JavaScript `str.length`. Wrap boundaries, cursor placement, `lastXOffset`, and click-to-position hit-testing all measure terminal cells, so CJK, emoji, tabs, ANSI escapes, and combining characters behave correctly.
 
 ### Position translation
 

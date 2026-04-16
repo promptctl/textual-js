@@ -224,11 +224,11 @@ Subscribers must be lightweight: every message in the system fires this signal, 
 | `MouseScrollRight` | `x`, `y` | No |
 | `Enter` | — (verbose) | No |
 | `Leave` | — (verbose) | No |
-| `TextSelected` | `text: string`, `range` | No |
+| `TextSelected` | `text: Content`, `range: { start: { widget, offset }, end: { widget, offset } }` | No |
 
 `Click` is synthesized by the framework when `MouseDown` and `MouseUp` occur on the same widget.
 
-`TextSelected` bubbles when the user completes a text selection across one or more widgets with `ALLOW_SELECT: true` (via click+drag). The message carries the selected text and its bounds.
+`TextSelected` bubbles when the user completes a text selection across one or more widgets with `ALLOW_SELECT: true` (via click+drag). The message carries the selected rich-js `Content` and a selection range describing the start/end widget and offset pair. See spec 09's text-selection contract for gesture ownership and range construction.
 
 Mouse capture: `MouseCapture` and `MouseRelease` (non-bubbling) manage mouse capture state — while captured, all mouse events route to the capturing widget regardless of position.
 
@@ -262,6 +262,7 @@ Key events are translated from Ink's input system. Key names are normalized: `"c
 | `Paste` | `text: string` | Yes |
 
 `Paste` is emitted when Ink detects a bracketed-paste sequence from the terminal. The `text` field carries the full pasted string as a single message — widgets must not treat a paste as a stream of individual `Key` events.
+The `text` field may contain ANSI escape sequences (for example when pasting from another terminal or styled source). Consumers that want to preserve styling can parse it via rich-js `parseAnsi()` into `Content`; consumers that want plain text can strip ANSI via rich-js `stripAnsi()`.
 
 ### Cursor and terminal events (non-bubbling)
 
@@ -289,6 +290,8 @@ Key events are translated from Ink's input system. Key names are normalized: `"c
 |---------|---------|------------|-------------|
 | `Callback` | No (verbose) | No | Wraps a `callLater` callback |
 | `Timer` | No (verbose) | No | Wraps a timer callback |
+| `Notify` | No | No | Carries a `Notification` payload from `notify(message, options?)`; the notification's `message` and optional `title` may be `string | Content` (see specs 01 and 12) |
+| `Print` | No (verbose) | No | Carries captured process output as `{ text: string, stderr: boolean }`; `text` may include ANSI escape sequences |
 | `CloseMessages` | No | No | Signals the queue to shut down |
 | `ExitApp` | No | No | Signals app exit |
 

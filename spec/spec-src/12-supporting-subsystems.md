@@ -12,19 +12,21 @@ This spec covers cross-cutting support modules used across the framework. Each s
 interface Theme {
   name: string;
   dark: boolean;
-  primary: string;
-  secondary: string;
-  accent: string;
-  background: string;
-  surface: string;
-  panel: string;
-  foreground: string;
-  warning: string;
-  error: string;
-  success: string;
-  variables?: Record<string, string>;  // Additional CSS variables
+  primary: string | Color;
+  secondary: string | Color;
+  accent: string | Color;
+  background: string | Color;
+  surface: string | Color;
+  panel: string | Color;
+  foreground: string | Color;
+  warning: string | Color;
+  error: string | Color;
+  success: string | Color;
+  variables?: Record<string, string | number | Color>;  // Additional CSS variables
 }
 ```
+
+Palette strings are parsed into rich-js `Color` at theme registration. Internally, active theme palettes are stored as `Color` instances, and derived variables such as `$primary-lighten-2` are computed via `Color.lighten()`, `Color.darken()`, and `Color.blend()`.
 
 ### Built-in themes
 
@@ -37,7 +39,9 @@ interface Theme {
 | `"textual-light"` | `false` | Textual-branded light |
 | `"textual-dark"` | `true` | Textual-branded dark |
 
-### Color type
+### Color type (rich-js Color)
+
+The framework's `Color` value type is re-exported from rich-js. It is the single color representation used by TCSS cascade output, theme palettes, content styling, renderables, animation interpolation, and output filters. Strings are parsed at input boundaries; `Color` is the internal representation everywhere else.
 
 A single `Color` type is used across the entire stack (CSS, styles, renderables, themes):
 
@@ -93,13 +97,16 @@ Additional entries in `variables` are exposed as `--<key>` and `$<key>`.
 ```tsx
 interface Notification {
   id: string;                                    // Unique identifier (auto-generated)
-  message: string;                               // Display text
-  title?: string;                                // Optional title
+  message: string | Content;                     // Display text
+  title?: string | Content;                      // Optional title
   severity: 'information' | 'warning' | 'error'; // Severity level
   timeout: number;                               // Auto-dismiss timeout in ms (0 = no auto-dismiss)
+  markup: boolean;                               // Parse string fields as rich-js markup
   createdAt: number;                             // Timestamp (Date.now())
 }
 ```
+
+This matches spec 01's notification model. Notifications are rendered by the internal `ToastRack` widget; severity maps to rich-js `Color` values from the active theme.
 
 ### Notification lifecycle
 
@@ -155,12 +162,14 @@ interface ValidationResult {
 }
 
 interface ValidationFailure {
-  message: string;        // Human-readable error message
+  message: string | Content; // Human-readable error message
   value?: unknown;        // The value that failed
   description?: string;   // Additional context
   validator: Validator;   // Which validator produced this failure
 }
 ```
+
+Validators may return styled messages using markup or pre-built `Content`; Input renders them through rich-js.
 
 ### Built-in validators
 
@@ -219,6 +228,7 @@ abstract class Suggester {
 ```
 
 When a suggestion is available, a `SuggestionReady` message is posted to the requesting widget. The widget displays the suggestion as ghost text at the cursor.
+The returned suggestion remains a plain string at the API boundary, but the requesting widget typically renders it as inline styled content by applying the `suggestion` component class so rich-js resolves a dim or italic `Style`.
 
 ### SuggestFromList
 
@@ -263,6 +273,8 @@ uFuzzy provides:
 
 ### Text measurement
 
+Cell-width measurement is provided by rich-js. The framework re-exports these helpers for widget authors.
+
 Terminal-aware text measurement accounts for:
 
 | Concern | Description |
@@ -279,14 +291,24 @@ Terminal-aware text measurement accounts for:
 | `columnIndex(text, cellIndex)` | String index at a given cell position |
 | `cellIndex(text, stringIndex)` | Cell position at a given string index |
 
-### Content primitives
+### Content primitives (rich-js)
 
-| Primitive | Description |
-|-----------|-------------|
-| `StyledText` | Text with inline styles (bold, color, etc.) |
-| `Bar` | Horizontal bar renderable (for progress bars) |
-| `Blank` | Empty space renderable |
-| `Gradient` | Color gradient renderable |
+All content primitives and renderables are provided by rich-js and re-exported from textual-js. The framework does not fork or wrap them.
+
+| Primitive | Kind | Purpose |
+|-----------|------|---------|
+| `Content` | rich-js value type | Immutable styled text. The lingua franca for widget content. |
+| `StyledText` | rich-js value type | Single styled text span; `Content` holds a sequence of these. |
+| `Segment` | rich-js value type | `(text, style)` pair; a rendered line's atomic unit. |
+| `Strip` | rich-js value type | Immutable line-of-segments with cached width; Line API widgets produce these. |
+| `Style` | rich-js value type | Composable text style (fg, bg, bold, italic, underline, strike, dim, link). |
+| `Bar` | rich-js renderable | Horizontal progress bar used by `ProgressBar`. |
+| `Blank` | rich-js renderable | Empty space of a given size. |
+| `Gradient` / `LinearGradient` / `VerticalGradient` | rich-js renderables | Color gradients used by header and progress chrome. |
+| `Sparkline` | rich-js renderable | Inline chart primitive wrapped by the `Sparkline` widget. |
+| `Digits` | rich-js renderable | Tall-glyph numeric display. |
+| `Tint` | rich-js renderable | Color overlay renderable. |
+| `TextOpacity` | rich-js renderable | Opacity-adjusted text renderable. |
 
 ### Slug generation
 
@@ -373,6 +395,8 @@ The animator runs a `setInterval` loop (terminal has no `requestAnimationFrame`)
 3. `observer()` picks up changes → React re-renders → Ink updates terminal.
 4. On completion: set final value, remove animation entry, schedule `onComplete`.
 
+Color-valued animated properties interpolate via rich-js `Color.blend(from, to, t)` per tick. Numeric properties use linear interpolation (or the configured easing function), and object-valued properties interpolate component-wise before the result is written back to the observable.
+
 // [LAW:one-source-of-truth] Single timing authority. No widget runs its own animation loop.
 
 ### ETA computation
@@ -428,7 +452,7 @@ The framework supports a `LineFilter` pipeline at the output boundary — the se
 ```tsx
 abstract class LineFilter {
   // Transform a rendered output line (segments with styles) and return the result.
-  abstract process(line: OutputSegment[]): OutputSegment[];
+  abstract process(line: Segment[]): Segment[];
 }
 ```
 
@@ -469,7 +493,7 @@ Custom filters extend `LineFilter` and implement `process(line)`:
 
 ```tsx
 class StripEmoji extends LineFilter {
-  process(line: OutputSegment[]): OutputSegment[] {
+  process(line: Segment[]): Segment[] {
     return line.map(segment => ({
       ...segment,
       text: segment.text.replace(EMOJI_REGEX, ''),
@@ -478,7 +502,7 @@ class StripEmoji extends LineFilter {
 }
 ```
 
-A filter receives rendered output segments and returns rendered output segments. Filters do not reach back into the widget tree, the styles system, or the compositor — they operate only on post-render output.
+A filter receives rich-js `Segment[]` and returns rich-js `Segment[]`. Filters can inspect or modify `Style` values (for example, stripping color while preserving bold/italic) before Ink converts the transformed segments back to ANSI. Filters do not reach back into the widget tree, the styles system, or the compositor — they operate only on post-render output.
 
 // [LAW:one-way-deps] Filters consume rendered output; they do not call back into rendering or style resolution.
 

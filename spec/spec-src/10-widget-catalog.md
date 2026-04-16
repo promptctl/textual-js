@@ -3,6 +3,7 @@
 This catalog covers the built-in widget set. Base widget behavior (lifecycle, messaging, styling, focus, disabled/loading state) is owned by spec 09. This catalog lists the per-widget surface: static properties, bindings, posted messages, reactives, public methods, and composition assumptions. TextArea's editing engine is owned by spec 11. Markdown parsing uses **marked**. Syntax highlighting uses **Shiki**.
 
 All widgets are React function components wrapped in `observer()` from mobx-react-lite. They render using Ink primitives (`<Box>`, `<Text>`) with TCSS-resolved styles via `useStyles()`.
+Displayed-text surfaces across the catalog accept `string | Content` unless noted otherwise. Plain strings render with the ambient widget style, markup strings are parsed by rich-js at render time, and pre-built `Content` is used directly.
 
 ## Shared Characteristics
 
@@ -67,7 +68,7 @@ Base content widget for displaying text and rich content.
 | Reactives | `content` |
 | Messages | — |
 
-- `update(content, layout?)` replaces the displayed content. If `layout` is true, triggers a layout refresh.
+- `update(content, layout?)` replaces the displayed content. `content` is `string | Content`. If `layout` is true, triggers a layout refresh.
 - Parent type for `Label`, `Link`, and most Markdown-generated blocks.
 - Renders content as `<Text>` with TCSS styles.
 
@@ -81,6 +82,8 @@ Single-line text with inline-block default styling. Thin wrapper over `Static`.
 | Reactives | Inherited from `Static` |
 | Messages | — |
 
+`Label` inherits `content: string | Content` from `Static`.
+
 ### `Link`
 
 Focusable text that opens a URL.
@@ -92,7 +95,7 @@ Focusable text that opens a URL.
 | Reactives | `text`, `url` |
 | Messages | — |
 
-`action_open_link` opens the `url`. How the URL is opened depends on the platform (e.g., `open` command on macOS).
+`action_open_link` opens the `url`. How the URL is opened depends on the platform (e.g., `open` command on macOS). `text` is `string | Content`; `url` remains a plain `string`.
 
 ### `Pretty`
 
@@ -105,8 +108,9 @@ Formatted display of any JS value (objects, arrays, primitives).
 | Messages | — |
 
 - `update(value)` replaces the displayed value.
-- Renders with syntax coloring and indentation.
+- Renders rich-js `Content` with syntax coloring and indentation.
 - Nested objects and arrays may be collapsible.
+- TCSS component classes such as `pretty--string`, `pretty--number`, and `pretty--key` resolve to the rich-js `Style` overlays used for strings, numbers, and object keys.
 
 ### `Rule`
 
@@ -130,6 +134,20 @@ Inline data visualization using block characters (▁▂▃▄▅▆▇█).
 - `width: null` uses available render width.
 - Default reduction is `max`.
 - Each cell maps a data value to one of 8 block heights.
+- The widget is a thin wrapper around the rich-js `Sparkline` renderable. Reactive `data`, `summaryFunction`, `min`, `max`, `color`, and `colorEnd` inputs flow to the renderable; the framework adds the outer TCSS box and reactive invalidation. Color-valued inputs accept `string | Color` and are parsed into rich-js `Color`.
+
+### `Digits`
+
+Tall-glyph numeric display.
+
+| Property | Value |
+|----------|-------|
+| `canFocus` | `false` |
+| Reactives | `value: number \| string` |
+| Messages | — |
+
+- Wraps the rich-js `Digits` renderable.
+- Height is always 3 rows; width is 3 cells per rendered character.
 
 ### `ProgressBar`
 
@@ -143,7 +161,8 @@ Progress display with bar, percentage, and optional ETA.
 - `advance(amount)` increments progress.
 - `update({ progress?, total?, ... })` sets progress values.
 - `total: null` → indeterminate mode (animated bar).
-- Composed internally of a bar widget, percentage label, and ETA label.
+- Internally composes a rich-js `Bar` renderable plus percentage / ETA labels rendered as rich-js `Content` with TCSS-resolved `Style`.
+- Color-valued inputs such as gradient stops accept `string | Color` and resolve to rich-js `Color`.
 
 ### `LoadingIndicator`
 
@@ -164,6 +183,7 @@ App title bar.
 
 - Reads `App.title` and `App.subTitle` from the app context.
 - Optionally shows a clock display.
+- Rendered title, subtitle, and clock segments are rich-js `Content` with TCSS-resolved styles.
 
 ```css
 Header {
@@ -187,6 +207,7 @@ Active key binding display.
 - Subscribes to `bindings_updated_signal` to refresh when focus or bindings change.
 - Shows key → description pairs for visible bindings.
 - Optionally shows a command palette hint.
+- Binding keys and descriptions are rendered as rich-js `Content`; binding descriptions accept markup.
 
 ```css
 Footer {
@@ -208,7 +229,7 @@ Clickable button with variant styling.
 |----------|-------|
 | `canFocus` | `true` |
 | Bindings | `enter` → `press`, `space` → `press` |
-| Reactives | `label`, `variant`, `compact`, `flat` |
+| Reactives | `label: string \| Content`, `variant`, `compact`, `flat` |
 | Messages | `Button.Pressed(button)` |
 | Variants | `"default"`, `"primary"`, `"success"`, `"warning"`, `"error"` |
 
@@ -293,7 +314,7 @@ Single-line text input with cursor, selection, validation, and suggestions.
 |----------|-------|
 | `canFocus` | `true` |
 | Bindings | Caret navigation (left/right/home/end), word motion (ctrl+left/right), selection (shift+arrows), deletion (backspace/delete/ctrl+backspace/ctrl+delete), submit (enter), suggestion (tab) |
-| Reactives | `value`, `selection`, `placeholder`, `password`, `cursorBlink`, `compact` |
+| Reactives | `value`, `selection`, `placeholder: string \| Content`, `password`, `cursorBlink`, `compact` |
 | Messages | `Input.Changed(input, value)`, `Input.Submitted(input, value)` |
 
 Configuration props:
@@ -333,7 +354,7 @@ Multi-line text editor. Widget surface only — the editing engine (Document mod
 |----------|-------|
 | `canFocus` | `true` |
 | Bindings | Motion (arrows, home/end, ctrl+home/end, page up/down), selection (shift+motion), deletion (backspace/delete, ctrl+backspace/delete), indent (tab/shift+tab), undo/redo (ctrl+z/ctrl+shift+z), clipboard (ctrl+c/x/v) |
-| Reactives | `language`, `theme`, `selection`, `showLineNumbers`, `indentWidth`, `softWrap`, `readOnly`, `showCursor`, `suggestion`, `placeholder` |
+| Reactives | `language`, `theme`, `selection`, `showLineNumbers`, `indentWidth`, `softWrap`, `readOnly`, `showCursor`, `suggestion`, `placeholder: string \| Content` |
 | Messages | `TextArea.Changed(textArea)`, `TextArea.SelectionChanged(textArea, selection)` |
 
 ---
@@ -385,7 +406,7 @@ Expandable/collapsible content region.
 
 | Property | Value |
 |----------|-------|
-| Reactives | `collapsed: boolean`, `title: string` |
+| Reactives | `collapsed: boolean`, `title: string \| Content` |
 | Messages | `Collapsible.Toggled(collapsible)` |
 
 - Composes a focusable title bar (with enter/space toggle binding) plus a contents container.
@@ -404,7 +425,7 @@ Tab bar with keyboard navigation.
 
 Public methods: `addTab`, `removeTab`, `clear`, `disable(id)`, `enable(id)`, `hide(id)`, `show(id)`.
 
-`Tab` is the individual clickable tab widget. Accepts `label` and `id`.
+`Tab` is the individual clickable tab widget. `label` is `string | Content`; `id` remains a string.
 
 ### `TabbedContent`
 
@@ -419,7 +440,7 @@ Tabs + content panes in one component.
 - Public methods: `addPane`, `removePane`, `clearPanes`, `getTab(id)`, `getPane(id)`, `disableTab(id)`, `enableTab(id)`, `hideTab(id)`, `showTab(id)`.
 - `Tabs.hide()`/`show()` and `TabbedContent.hideTab()`/`showTab()` are layered APIs on different objects.
 
-`TabPane` holds a titled pane body. Accepts `title`, `id`, `disabled`.
+`TabPane` holds a titled pane body. `title` is `string | Content`; `id` remains a string.
 
 ### Usage example
 
@@ -449,6 +470,8 @@ Individual item in a `ListView`.
 |----------|-------|
 | `canFocus` | `false` |
 | Reactives | `highlighted: boolean` |
+
+`ListItem` content is its JSX children; when those children render text, the text flow is rich-js-driven like any other content widget.
 
 ### `ListView`
 
@@ -480,6 +503,7 @@ Scrollable list of options with separators.
 Public methods: `addOption(option)`, `addOptions(options)`, `removeOption(index)`, `enableOption(index)`, `disableOption(index)`, `getOption(index)`, `clearOptions()`.
 
 Building block for `Select`.
+Each `OptionList.Option.prompt` is `string | Content`.
 
 ### `SelectionList<T>`
 
@@ -533,10 +557,11 @@ Rich content log with formatting.
 | Bindings | Scroll bindings |
 | Constructor options | `maxLines`, `minWidth`, `wrap`, `highlight`, `markup`, `autoScroll` |
 
-- `write(content, ...)` appends styled content (text, renderables).
+- `write(content: string | Content | Renderable, ...)` appends styled content.
 - `clear()` removes all content.
 - `maxLines` prunes oldest content when exceeded.
 - `autoScroll` keeps the view at the bottom when new content is appended (anchor behavior from spec 09).
+- Strings are parsed as markup when `markup: true`; `Content` is appended directly; rich-js renderables such as `Bar`, `Gradient`, and `Sparkline` render to `Content` at append time. A single write may produce multiple visual lines.
 
 ---
 
@@ -643,21 +668,31 @@ Renders markdown content as a tree of textual-js widgets. Parses via **marked**.
 | Reactives | `tableOfContents` |
 | Messages | `Markdown.TableOfContentsUpdated`, `Markdown.TableOfContentsSelected(id)`, `Markdown.LinkClicked(href)` |
 
-Markdown token → widget mapping:
+Markdown token → widget / content mapping:
+
+Block-level tokens → widgets:
 
 | Markdown token | Widget |
 |----------------|--------|
-| Heading | `<Text bold>` with size-based styling |
-| Paragraph | `<Text>` |
-| Code block | Styled `<Box>` with syntax highlighting via **Shiki** |
-| Inline code | `<Text>` with background |
-| Unordered list | `<Box>` with bullet prefixes |
-| Ordered list | `<Box>` with number prefixes |
-| Link | `<Link>` (focusable, clickable) |
-| Table | Grid of `<Box>` / `<Text>` elements |
-| Blockquote | Indented `<Box>` with left border |
+| Heading | Styled `Static` rendering rich-js `Content` |
+| Paragraph | `Static` rendering rich-js `Content` |
+| Code block | Styled `<Box>` with Shiki-highlighted rich-js `Content` |
+| Unordered / ordered list | `<Box>` with list-item children |
+| Table | `DataTable`-style grid of textual-js cells |
+| Blockquote | `<Box>` wrapping inner blocks with quote styling |
 | Horizontal rule | `<Rule>` |
 | Image | Alt text display (terminal cannot render images) |
+
+Inline tokens → rich-js `Content` segments within a block:
+
+| Markdown token | Rich-js mapping |
+|----------------|-----------------|
+| Strong / emphasis | `Segment` with bold / italic `Style` |
+| Inline code | `Segment` with code-background `Style` |
+| Strikethrough | `Segment` with strike `Style` |
+| Link text | Styled `Content` span; blocks that expose clickability wrap the span in a focusable `Link` widget |
+
+`marked` produces the markdown AST. Block-level tokens map to widgets; inline tokens map to rich-js `Content` spans inside the enclosing block's rendered content.
 
 Public methods: `update(markdown)`, `append(markdown)`, `gotoAnchor(anchor)`.
 
@@ -704,8 +739,8 @@ The following widgets are real React components participating in the widget regi
 
 | Widget | Owner / Trigger | Purpose |
 |--------|-----------------|---------|
-| `Toast` / `ToastHolder` / `ToastRack` | `App.notify()` (spec 01) | Notification display. `ToastRack` is mounted once per app; `ToastHolder` slots per severity; individual `Toast` widgets auto-appear and auto-dismiss. |
-| `Tooltip` | Widget `tooltip` reactive + hover dwell timer (spec 07) | Displayed near the mouse pointer when a widget with a `tooltip` property is hovered for the configured dwell interval. |
+| `Toast` / `ToastHolder` / `ToastRack` | `App.notify()` (spec 01) | Notification display. `Toast` renders `message: string \| Content` and optional `title: string \| Content`; `ToastRack` is mounted once per app; `ToastHolder` slots per severity; individual `Toast` widgets auto-appear and auto-dismiss. |
+| `Tooltip` | Widget `tooltip` reactive + hover dwell timer (spec 07) | Displayed near the mouse pointer when a widget with a `tooltip` property (`string \| Content`) is hovered for the configured dwell interval. |
 | `LoadingOverlay` | Widget `loading: true` reactive (spec 09) | Rendered over a widget while it is in loading state; wraps `LoadingIndicator` and swallows input. |
 | `HelpPanel` | `f1` default binding (app-level) | Pop-out panel showing currently active bindings for the focused widget chain. |
 | `KeyPanel` | Bound by app or used internally by `HelpPanel` | Scrollable table of active bindings (key / description / action). |

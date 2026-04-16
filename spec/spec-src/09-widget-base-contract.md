@@ -45,6 +45,8 @@ MyWidget.canFocus = true;
 MyWidget.canFocusChildren = true;
 ```
 
+`useStyles()` returns the widget's resolved style bundle: `{ box, text, style, components }`. `box` and `text` are Ink-compatible props for compose-mode widgets. `style` is the widget's ambient rich-js `Style` for content segments, and `components` maps component-class names to rich-js `Style` overlays for line-based rendering.
+
 ## Static Configuration Surface
 
 Static properties on the widget component:
@@ -196,9 +198,26 @@ Good.DEFAULT_CSS = `
 
 ### Border rendering
 
-- `BORDER_TITLE` and `BORDER_SUBTITLE` are rendered inside the widget's border.
+- `BORDER_TITLE` and `BORDER_SUBTITLE` are reactive values of type `string | Content`, rendered inside the widget's border.
 - `border-title-align` and `border-subtitle-align` TCSS properties control positioning (left, center, right).
+- Plain strings render with the ambient border style; markup strings are parsed via rich-js at render time; `Content` is used directly.
+- At render time, the framework replaces a span of the top or bottom border row with the title/subtitle content. Placement uses rich-js `cellLength`, so wide and combining characters align correctly within the border row.
 - Border titles are reactive — changing them triggers a re-render.
+
+## Line API Widgets
+
+Widgets that manage their own per-line rendering rather than composing child widgets are Line API widgets. The base type is `ScrollView`; common subclasses include `Input`, `TextArea`, `Log`, `RichLog`, `OptionList`, `Tree`, `DataTable`, and `Markdown`.
+
+Line API widgets implement this surface:
+
+- `renderLine(y: number): Strip` — return the rich-js `Strip` for visual row `y`.
+- `renderLines(range: Region): Strip[]` (optional) — batch form for efficient multi-line rendering.
+- `getContentWidth()` / `getContentHeight()` — compute virtual content dimensions.
+- `virtualSize` — reactive size that drives scrollbars and scroll clamping.
+- `refreshLine(y)` / `refreshLines(yStart, count)` — invalidate specific rows without rebuilding unrelated rows.
+
+The framework renders a Line API widget by reading `virtualSize` and `scrollOffset`, requesting visible rows via `renderLine()` or `renderLines()`, converting each `Strip` into Ink `<Text>` elements (one per consecutive style run), and arranging those rows as a column inside the widget's outer `<Box>`.
+Invalidation granularity for line content is row-based: `refreshLine()` and `refreshLines()` identify which rows need to be rebuilt, instead of expressing per-character changes as child-widget composition.
 
 ## Geometry and Size
 
@@ -273,6 +292,8 @@ Scrollbar styles read from the parent's `scrollbar-*` TCSS tokens and select `ac
 | `mouseHover && !grabbed` | `hover` |
 | otherwise | `normal` |
 
+Scrollbar rendering uses the Line API: each visual row is a one-cell-wide rich-js `Strip` whose `Segment` uses a scrollbar block character (`▁▂▃▄▅▆▇█` and full-block variants) and a rich-js `Style` resolved from the parent's `scrollbar-color`, `scrollbar-background`, `scrollbar-color-hover`, and `scrollbar-color-active` tokens. `Scrollbar.renderer` is pluggable via a static `ScrollBarRender` class for custom character sets.
+
 #### Scroll messages
 
 Scroll intents are `Message` subclasses with `bubble: false`. They are posted by the scrollbar and handled by the scrollable parent widget:
@@ -321,6 +342,7 @@ Button:disabled {
 ```
 
 Disabled state on a parent also suppresses input to children. The check walks ancestors — any disabled ancestor blocks the event.
+Visual dimming is driven by TCSS rules targeting `.-disabled`; the resolved rich-js `Style` typically applies dimming, opacity reduction, or muted colors to the widget's rendered content.
 
 ## Loading State
 
@@ -330,6 +352,7 @@ When `loading` is `true`:
 - The `-loading` CSS class is toggled.
 - A loading overlay may be rendered (framework-provided, not a public widget).
 - Loading state on a parent suppresses input to children.
+- The loading overlay renders rich-js content or renderables (spinner / pulsing dots) with `Style` from TCSS and swallows all input while visible.
 
 ```css
 DataTable.-loading {
@@ -339,8 +362,9 @@ DataTable.-loading {
 
 ## Tooltip
 
-- `tooltip` reactive property (string or null). When set and the mouse hovers over the widget for `TOOLTIP_DELAY` milliseconds, a tooltip message is posted.
+- `tooltip` reactive property (`string | Content | null`). When set and the mouse hovers over the widget for `TOOLTIP_DELAY` milliseconds, a tooltip message is posted.
 - The app renders the tooltip near the mouse position.
+- Plain strings render with the ambient tooltip style; markup strings are parsed via rich-js; `Content` is used directly by the internal tooltip overlay widget.
 - Moving the mouse away dismisses the tooltip.
 
 ## Text Selection
@@ -381,7 +405,7 @@ Button.ALLOW_SELECT = false;
 | Double-click on a widget | `ALLOW_SELECT: true` | `textSelectAll()` on that widget |
 | Triple-click on a widget | `ALLOW_SELECT: true` | `selectContainer()` on that widget |
 
-On completion, the framework posts the `TextSelected` message (payload `{ text, range }`) — see spec 03 for its dispatch semantics. Selection gestures over widgets where `ALLOW_SELECT` is `false` are ignored; they do not suppress other mouse handling.
+On completion, the framework posts the `TextSelected` message (payload `{ text, range }`) — see spec 03 for its dispatch semantics. The selected text is represented in-memory as rich-js `Content` spanning the selection range across widgets, so styled selections preserve their segment styles. Plain-text copy flattens via `Content.plainText`; rich clipboard paths preserve styles where the destination supports them. Selection gestures over widgets where `ALLOW_SELECT` is `false` are ignored; they do not suppress other mouse handling.
 
 // [LAW:single-enforcer] `Screen._selectAllInWidget` is the sole enforcer of selection state for a screen. Widgets call `textSelectAll()` which delegates; they never mutate selection directly.
 

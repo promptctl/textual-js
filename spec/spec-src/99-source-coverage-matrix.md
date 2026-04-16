@@ -26,17 +26,17 @@ Each spec file (`spec-src/NN-*.md`) is consumed by one or more phases. Phases re
 | `01-runtime-app-and-lifecycle.md` | App lifecycle, TextualApp props, modes, screen stack, theming, notifications, shutdown | 1, 3, 4 |
 | `02-dom-reactivity-and-query.md` | Widget registration, MobX reactivity (validate/watch/compute), query API, data binding | 1, 2 |
 | `03-message-event-and-dispatch.md` | Message dispatch, bubbling, coalescing, handler resolution, event taxonomy | 1 |
-| `04-styling-and-css-engine.md` | TCSS parsing via css-tree, selectors, cascade, specificity, variables, TCSS-to-Ink translation | 2 |
-| `05-layout-render-and-compositor.md` | Layout (Ink/Yoga), fr unit resolution, dock, scroll, render flow (React + MobX) | 2, 3 |
+| `04-styling-and-css-engine.md` | TCSS parsing via css-tree, selectors, cascade, specificity, variables, rich-js `Color` resolution, rich-js `Style` output, TCSS-to-Ink translation | 2 |
+| `05-layout-render-and-compositor.md` | Layout (Ink/Yoga), fr unit resolution, dock, scroll, render flow, Line API mode, rich-js `Strip` → Ink conversion, output-filter pipeline | 2, 3 |
 | `06-input-bindings-actions-and-commands.md` | Bindings, actions, key normalization, command palette (uFuzzy), built-in actions | 3, 4 |
 | `07-workers-timers-and-signals.md` | Workers (AbortController), timers, signals (pub/sub), MobX integration | 4 |
 | `08-drivers-io-and-platform-behavior.md` | Ink integration, input translation, mouse processing, suspend/resume | 1 |
-| `09-widget-base-contract.md` | Widget anatomy, lifecycle, focus, scroll, disabled/loading, tooltip, screen contract | 3 |
-| `10-widget-catalog.md` | All built-in widgets | 5, 6 |
-| `11-text-editing-and-document-model.md` | Document, WrappedDocument, Navigator, EditHistory, TextArea, Shiki highlighting | 6 |
-| `12-supporting-subsystems.md` | Themes, notifications, validation, suggestions, Color, geometry, Animator, logger, errors | 1, 4, 7 |
+| `09-widget-base-contract.md` | Widget anatomy, lifecycle, Line API widget contract, rich-js rendering, focus, scroll, disabled/loading, tooltip, screen contract | 3 |
+| `10-widget-catalog.md` | Built-in widgets, markup-accepting content types, rich-js renderable wrapping, markdown token/widget mapping | 5, 6 |
+| `11-text-editing-and-document-model.md` | Document, WrappedDocument, Navigator, EditHistory, TextArea, Shiki highlighting, rich-js `Style` overlays | 6 |
+| `12-supporting-subsystems.md` | Themes, notifications, validation, suggestions, rich-js as content/color/renderable provider, geometry, Animator, logger, errors | 1, 4, 7 |
 | `13-testability-and-automation-surfaces.md` | runTest, Pilot, ink-testing-library, query helpers, Vitest integration | 1 |
-| `14-renderer-integration-seams.md` | React/Ink integration stack, MobX observer bridge, hooks, context providers | 1 |
+| `14-renderer-integration-seams.md` | React/Ink integration stack, MobX observer bridge, hooks, context providers, Content → Ink bridge, output-filter boundary | 1 |
 
 ### Why some specs span multiple phases
 
@@ -46,10 +46,10 @@ Some specs span phases because their subsystems are introduced incrementally:
 |------|---------------------|
 | `01` | App shell in Phase 1, modes/screens in Phase 3, notifications/themes/commands in Phase 4 |
 | `02` | MobX reactive pipeline in Phase 1, selector-based query API in Phase 2 (needs TCSS) |
-| `05` | Rendering bridge in Phase 2 (TCSS → Ink props), scroll UX in Phase 3 (needs widget base contract) |
+| `05` | Rendering bridge in Phase 2 (TCSS → Ink props and rich-js `Strip` → Ink conversion), scroll UX in Phase 3 (needs widget base contract) |
 | `06` | Bindings/actions in Phase 3, command palette in Phase 4 (needs workers for async providers) |
 | `10` | Core widgets in Phase 5, advanced/data-rich widgets in Phase 6 |
-| `12` | Color/geometry/errors in Phase 1, notifications/themes/validation/suggestions in Phase 4, Animator in Phase 7 |
+| `12` | Color/geometry/errors in Phase 1, notifications/themes/validation/suggestions in Phase 4, Animator in Phase 7; all three rely on the same rich-js `Color` / content primitives |
 
 ## Spec-Tests to Phase Mapping
 
@@ -75,7 +75,7 @@ Each `spec-tests/NN.md` file is owned by exactly one phase. That phase's exit cr
 | `css_nested.md` | Nested rule expansion, `&` merging |
 | `dom.md` | Query API (query, queryOne, etc.), DOMQuery chaining, traversal |
 | `borders.md` | Border rendering, border titles |
-| `color.md` | Color type: parse, blend, conversion, opacity |
+| `color.md` | Color type: parse, blend, conversion, opacity — via rich-js `Color` |
 
 ### Phase 3 — Focus, Screens, Bindings
 
@@ -134,9 +134,9 @@ Each `spec-tests/NN.md` file is owned by exactly one phase. That phase's exit cr
 | `markdown.md` | Markdown widget, marked parsing, token → widget mapping |
 | `rich_log.md` | RichLog, append, auto-scroll, maxLines |
 | `sparkline.md` | Sparkline, width=null, max reduction, block characters |
-| `content_and_strip.md` | Content primitives, strip rendering (internal helpers) |
-| `markup.md` | Rich text markup parsing |
-| `renderables.md` | Renderable primitives (bar, gradient, styled text) |
+| `content_and_strip.md` | rich-js `Content` / `Segment` / `Strip` primitives and strip rendering helpers |
+| `markup.md` | rich-js markup parsing for content-bearing widgets |
+| `renderables.md` | rich-js renderables (`Bar`, `Gradient`, `Sparkline`, `Digits`, styled text) |
 
 ### Phase 7 — Animation & Conformance
 

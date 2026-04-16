@@ -6,6 +6,15 @@ Layout and rendering are handled by **Ink** (Yoga flexbox) and **React's reconci
 
 // [LAW:single-enforcer] Ink and React own rendering, layout, and tree diffing. The framework layer produces style props and observable state; it does not directly write to the terminal.
 
+## Rendering Modes
+
+Widgets render through one of two modes:
+
+- **Compose mode**: the widget returns a JSX child tree. Ink/Yoga arranges the children directly. This is the default for containers and chrome widgets such as `Button`, `Switch`, and general layout containers.
+- **Line API mode**: the widget renders line-by-line. Each visible line is a rich-js `Strip` composed of `Segment`s carrying rich-js `Style`. The framework converts each `Strip` to Ink `<Text>` runs inside a one-line `<Box>`. This mode is used by widgets such as `TextArea`, `Input`, `DataTable`, `Tree`, `OptionList`, `Log`, `RichLog`, and `Markdown`.
+
+See spec 09 for the shared base contract line-based widgets implement.
+
 ## Layout Model
 
 Ink provides Yoga flexbox layout via `<Box>` component props. The framework's TCSS engine resolves styles per widget (see spec 04), translates them to Ink layout props, and the widget passes them to `<Box>`:
@@ -65,6 +74,10 @@ TCSS supports `fr` units (like CSS Grid). Since Yoga does not natively understan
 4. Pass the computed cell value to Ink as a fixed width/height.
 
 This resolution runs during style application, before React renders. The computed values are stored on `ResolvedStyles` and translated to Ink props.
+
+### Cell-width-aware measurement
+
+All display-width calculations use rich-js `cellLength(text)`, not JavaScript `str.length`. Wide characters (CJK, emoji) count as 2 cells; combining characters count as 0; tabs expand per `indentWidth`; ANSI escape sequences count as 0. This rule applies to content width in `fr` resolution, scrollport width, scroll offset clamping, cursor column tracking, and line-wrap break points.
 
 ### Percentage units (`%`)
 
@@ -188,7 +201,7 @@ Scrollable widgets (`overflow: scroll | auto`) provide scrolling within their co
 - Scroll offset changes update the MobX observable → `observer()` triggers re-render → content is rendered at the new offset.
 - Scroll is implemented by rendering content in a container with `overflow: hidden` and translating the content position by the scroll offset.
 - Virtual size is computed from the content's natural size. When content changes, virtual size is recalculated.
-- Scrollbars are rendered as framework widgets (not Ink built-ins) positioned at the right edge (vertical) and bottom edge (horizontal) of the scrollport.
+- Scrollbars are rendered as framework widgets (not Ink built-ins) positioned at the right edge (vertical) and bottom edge (horizontal) of the scrollport. Scrollbar chrome is drawn as rich-js `Segment`s using scrollbar block characters (`▔▁▂▃▄▅▆▇█` and full-block variants); segment styles are resolved from the parent widget's `scrollbar-color`, `scrollbar-background`, and active/hover variants.
 
 ### Scroll input handling
 
@@ -216,9 +229,21 @@ React's reconciler handles all rendering. The framework's role is to produce the
 1. **State change**: a MobX observable changes (reactive property, TCSS style recalculation, focus change, scroll offset, etc.).
 2. **observer() detection**: `mobx-react-lite`'s `observer()` wrapper detects which observables were read during the last render and re-renders only affected widgets.
 3. **Widget render**: the widget's function body runs, calling `useStyles()` for TCSS-resolved Ink props and reading any other MobX observables for content.
-4. **Ink diffing**: Ink's React reconciler diffs the component tree against the previous render.
-5. **Yoga layout**: Ink runs Yoga layout on the updated tree, computing positions and dimensions.
-6. **Terminal output**: Ink writes ANSI escape sequences for changed cells only.
+4. **Compose mode**: the widget returns a JSX child tree directly.
+5. **Line API mode**: the widget produces rich-js `Strip`s (one per visible line). The framework converts each `Strip` to a sequence of Ink `<Text>` elements, one per consecutive style run, wrapped in a `<Box>` representing that line. Each `<Text>` receives Ink color/style props translated from the segment's rich-js `Style`.
+6. **Ink diffing**: Ink's React reconciler diffs the component tree against the previous render.
+7. **Yoga layout**: Ink runs Yoga layout on the updated tree, computing positions and dimensions.
+8. **Terminal output**: Ink writes ANSI escape sequences for changed cells only.
+
+When widget content is a rich-js `Content` built from an ANSI-containing string (via `parseAnsi()`), the embedded styles are preserved in the `Segment` stream. The framework does not double-interpret ANSI: raw ANSI at string level becomes structured rich-js `Style` values first, then Ink re-emits terminal escape sequences from those styles.
+
+### Border titles and subtitles
+
+`BORDER_TITLE` and `BORDER_SUBTITLE` are reactive widget properties with type `string | Content`. At render time, the framework draws the border row so title and subtitle content can be embedded at positions controlled by `border-title-align` and `border-subtitle-align`. The behavioral contract is that the visible border row is a rich-js `Strip` combining border characters and title/subtitle `Content`, even if the implementation uses Ink border props plus an overlay to achieve that result.
+
+### Output filter pipeline
+
+After Ink converts widget JSX to terminal output, the framework's `LineFilter` pipeline (spec 12) post-processes each rendered line at the Ink-to-terminal boundary. Filters operate on the rendered segment stream, not on individual widgets. Built-in filters such as `Monochrome`, `NoColor`, `DimFilter`, and `ANSIToTruecolor` are applied in declaration order. The pipeline is always evaluated; an empty filter list is a no-op.
 
 ### What the framework does NOT do
 

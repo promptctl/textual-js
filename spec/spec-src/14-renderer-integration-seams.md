@@ -20,10 +20,12 @@ This spec documents the integration points between the framework and its React/I
 │   Hooks: useTextual, useStyles, useWorker, etc.      │
 │   Stores: FocusManager, ScreenStack, WidgetRegistry  │
 │   Engines: TCSS cascade, Binding resolver, Animator  │
-├──────────────────────────────────────────────────────┤
-│ MobX                                                 │
-│   Observable state, observer(), reaction(), computed │
-├──────────────────────────────────────────────────────┤
+├──────────────────────┬───────────────────────────────┤
+│ MobX                 │ rich-js                       │
+│ Observable state,    │ Content, Style, Color,        │
+│ observer(),          │ Segment, Strip, markup,       │
+│ reaction(), computed │ renderables, cell measurement │
+├──────────────────────┴───────────────────────────────┤
 │ React                                                │
 │   Component tree, reconciler, hooks, context         │
 ├──────────────────────────────────────────────────────┤
@@ -34,7 +36,7 @@ This spec documents the integration points between the framework and its React/I
 └──────────────────────────────────────────────────────┘
 ```
 
-Each layer depends only on the layers below it. User code depends on the framework. The framework depends on MobX and React/Ink. Neither MobX nor React/Ink knows about the framework.
+Each layer depends only on the layers below it. User code depends on the framework. The framework depends on MobX, rich-js, and React/Ink. MobX and rich-js are peer dependencies under the framework; neither depends on the other.
 
 ## Widgets Are React Components
 
@@ -89,7 +91,7 @@ Public hooks that widget authors use:
 | Hook | Returns | Purpose |
 |------|---------|---------|
 | `useTextual()` | `{ register, postMessage, query, queryOne, runAction, log, ... }` | Primary widget API |
-| `useStyles()` | `{ box: InkBoxProps, text: InkTextProps }` | TCSS-resolved Ink props |
+| `useStyles()` | `{ box: InkBoxProps, text: InkTextProps, style: Style, components: Map<string, Style> }` | Full TCSS-resolved output: Ink props plus rich-js styles for content segments and component classes |
 | `useApp()` | App context (theme, notifications, signals, suspend) | App-level services |
 | `useScreen()` | Active screen reference + stack operations | Screen navigation |
 | `useWorker(fn, options?)` | `{ worker, start, cancel }` | Managed async tasks |
@@ -130,7 +132,7 @@ The TCSS engine produces resolved styles per widget. These are translated to Ink
 
 Properties with no direct Ink equivalent (e.g., `dock`, `layers`, `hatch`) are stored on the resolved styles for the framework to interpret.
 
-`useStyles()` returns `{ box, text }` objects ready to spread onto Ink primitives.
+`useStyles()` returns `{ box, text, style, components }`. `box` and `text` are ready to spread onto Ink primitives; `style` and `components` feed Line API widgets that render rich-js content.
 
 ## Reactivity → Re-render Bridge
 
@@ -168,6 +170,41 @@ Ink writes ANSI escape sequences for changed cells
 | **Glitch-free** | MobX's reaction scheduler prevents intermediate inconsistent states |
 
 // [LAW:single-enforcer] `observer()` is the single bridge. Framework state changes never directly call React APIs — they mutate observables and let MobX handle the rest.
+
+## Content → Ink Bridge
+
+Line API widgets produce rich-js `Strip`s, one per visible row. The framework converts a `Strip` to Ink JSX by emitting one `<Text>` element per consecutive style run:
+
+```tsx
+// Conceptual — framework-internal
+function stripToInk(strip: Strip): ReactNode {
+  return strip.mergedStyleRuns.map((run, i) => (
+    <Text key={i} {...styleToInkProps(run.style)}>
+      {run.text}
+    </Text>
+  ));
+}
+```
+
+`styleToInkProps` maps a rich-js `Style` to Ink `<Text>` props:
+
+- `style.fg` → `color` (via `Color.toAnsi(colorDepth)`)
+- `style.bg` → `backgroundColor`
+- `style.bold` → `bold`
+- `style.italic` → `italic`
+- `style.underline` → `underline`
+- `style.strike` → `strikethrough`
+- `style.dim` → `dimColor`
+
+This is the single seam between rich-js content and Ink rendering. No widget performs its own `Strip`-to-Ink conversion.
+
+// [LAW:single-enforcer] Content → Ink conversion is centralized in one bridge function. Widgets hand the framework `Strip` or `Content` values; the framework produces Ink JSX.
+
+## Output Filter Pipeline (Ink → Terminal)
+
+After Ink's reconciler produces the component tree and Yoga lays it out, Ink prepares ANSI output for stdout. Before those bytes reach the terminal, the framework's `LineFilter` pipeline transforms the per-line rich-js `Segment[]` stream.
+
+Filters operate on rendered segments rather than on widgets. They may strip colors (`Monochrome`), remove color while preserving bold/italic (`NoColor`), dim styles (`DimFilter`), or normalize color output. Filters compose in declaration order through `App.filters`, and environment-driven filters such as `NO_COLOR` are prepended during app startup. The pipeline always runs; an empty filter list is a no-op.
 
 ## Event Integration
 
@@ -311,6 +348,14 @@ These are the stable APIs that user code may depend on:
 | `useStyles()` | Apply TCSS-resolved styles to Ink components |
 | `useWorker()` | Managed async task |
 | `useFocusManager()` | Programmatic focus control |
+
+### Re-exported rich-js surface
+
+The framework re-exports rich-js types and helpers unchanged as part of its public integration surface:
+
+- `Content`, `StyledText`, `Style`, `Segment`, `Strip`, `Color`
+- Renderables: `Bar`, `Gradient`, `LinearGradient`, `VerticalGradient`, `Sparkline`, `Digits`, `Tint`, `TextOpacity`
+- Helpers: `parseAnsi`, `stripAnsi`, `cellLength`, `columnIndex`, `cellIndex`
 
 ### User-facing conventions
 

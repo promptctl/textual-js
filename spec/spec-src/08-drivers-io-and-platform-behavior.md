@@ -96,6 +96,12 @@ The framework layers additional behavior on top of raw mouse events:
 | **Mouse capture** | While captured, all mouse events route to the capturing widget regardless of position |
 | **Drag detection** | Mouse-down followed by mouse-move with button held may generate drag events |
 
+### Paste
+
+Ink detects bracketed-paste sequences (`ESC [ 200 ~` ... `ESC [ 201 ~`) when the terminal supports them. The pasted text is delivered as a `Paste` message (see spec 03) with `text: string`.
+
+The text may contain ANSI escape sequences if pasted from a styled source. The framework does not pre-process it; consumers such as `Input`, `TextArea`, and `RichLog` decide whether to call rich-js `stripAnsi()` for plain text or `parseAnsi()` to preserve styling as `Content`.
+
 ### Resize events
 
 Ink detects terminal resize (via `SIGWINCH` on Unix, polling on Windows) and re-renders the component tree with new dimensions. The framework receives resize information via:
@@ -112,6 +118,10 @@ The framework does not produce terminal output directly. The rendering path is:
 2. Ink's React reconciler diffs the tree.
 3. Ink runs Yoga layout on the updated tree.
 4. Ink computes changed cells and writes ANSI escape sequences to stdout.
+
+### Output filter pipeline
+
+Between Ink's ANSI output and terminal stdout, the framework's `LineFilter` pipeline (spec 12) post-processes rendered lines. Built-in filters include `Monochrome` (strips all colors), `NoColor` (respects `NO_COLOR`), `DimFilter`, and `ANSIToTruecolor`. The pipeline is registered on the app (`App.filters`) and runs unconditionally; an empty filter list is a no-op. It is the final boundary where rich-js-originated styled output is flattened into the ANSI stream actually written to the terminal.
 
 ### What Ink renders
 
@@ -153,10 +163,12 @@ const editFile = async (path: string) => {
 
 1. Publish `app_suspend_signal`.
 2. Ink exits raw mode and alternate screen (restoring normal terminal state).
-3. Call the suspend callback. The terminal is available for external use.
-4. When the callback returns, Ink re-enters raw mode and alternate screen.
-5. Publish `app_resume_signal`.
-6. Trigger a full re-render (all widgets re-render to repaint the screen).
+3. The framework pauses the Animator (no frames scheduled) and pauses notification-expiry timers plus other deferred UI timers.
+4. Call the suspend callback. The terminal is available for external use.
+5. When the callback returns, Ink re-enters raw mode and alternate screen.
+6. Animator and paused timers resume.
+7. Publish `app_resume_signal`.
+8. Trigger a full re-render (all widgets re-render to repaint the screen).
 
 ### Suspend support
 
@@ -173,7 +185,7 @@ The framework queries platform capabilities via the app context:
 | `isInline` | `boolean` | Ink is in inline mode (not alternate screen) |
 | `canSuspend` | `boolean` | Whether `suspend()` is available |
 | `terminalSize` | `{ columns: number, rows: number }` | Current terminal dimensions (MobX observable — updates on resize) |
-| `colorDepth` | `number` | Color support level (1 = none, 4 = 16 colors, 8 = 256 colors, 24 = true color) |
+| `colorDepth` | `number` | Color support level (1 = none, 4 = 16 colors, 8 = 256 colors, 24 = true color). Read at startup from `TEXTUAL_COLOR_DEPTH` or terminal capability detection, then passed to rich-js `Color.toAnsi(depth)` at each render boundary so colors downgrade to the active terminal capability. Lower configured values force downgrade even on a higher-capability terminal. |
 
 These are read-only MobX observables on the app context. `terminalSize` changes trigger `Resize` messages and TCSS recalculation (viewport units `vw`/`vh` may change).
 

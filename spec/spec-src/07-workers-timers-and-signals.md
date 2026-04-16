@@ -72,7 +72,7 @@ Workers are constructed in `PENDING`, transition to `RUNNING` when started, and 
 | `error` | `Error \| undefined` | Error (on `ERROR` or `CANCELLED`) |
 | `name` | `string` | Worker name |
 | `group` | `string \| undefined` | Group for exclusive cancellation |
-| `description` | `string` | Human-readable description |
+| `description` | `string \| Content` | Human-readable description |
 | `node` | `Widget` | Owning widget |
 | `progress` | `number` | 0–100, clamped |
 | `completedSteps` | `number` | Steps completed so far |
@@ -81,6 +81,8 @@ Workers are constructed in `PENDING`, transition to `RUNNING` when started, and 
 | `wait()` | `Promise<T>` | Await result. Throws `WorkerFailed` on ERROR, `WorkerCancelled` on CANCELLED. Throws `WorkerError` if called before start. |
 | `update(completed, total?)` | `void` | Update progress |
 | `advance(steps?)` | `void` | Increment `completedSteps` by `steps` (default 1) |
+
+Worker descriptions may use markup or pre-built `Content` when displayed in rich contexts such as devtools or command palettes. Contexts that do not support styling flatten the description to plain text.
 
 ### Cancellation
 
@@ -178,6 +180,7 @@ Timer cleanup on widget unmount is automatic via `useEffect` cleanup.
 ## Signal Pub/Sub
 
 `Signal<T>` is a typed pub/sub primitive. A signal has a single owning widget and a subscriber map.
+Signal type parameters are unconstrained and frequently carry rich-js types. Examples in the framework include `theme_changed_signal: Signal<Theme>` (where `Theme` contains rich-js `Color` values), `notification_added_signal: Signal<Notification>` (where `Notification` may contain `Content`), and `workers_changed_signal: Signal<Worker[]>`.
 
 ### Creating and using signals
 

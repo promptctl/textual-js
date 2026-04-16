@@ -52,10 +52,13 @@ interface TestHandle<T> {
   app: AppInstance;                 // Reference to the running app
   lastFrame(): string;              // Raw ANSI-encoded last rendered frame
   queryText(selector: string): string | null; // Text content of a queried widget
+  queryContent(selector: string): Content | null; // Rendered rich-js Content of a queried widget
   unmount(): void;                  // Tear down the app
   result: T | undefined;            // Value from app.exit(result)
 }
 ```
+
+When `mockClipboard` is true, cut/copy/paste use an in-memory clipboard that stores both plain-text and rich-js `Content` representations. Paste delivers whichever representation matches the consuming widget: plain text for `Input`/`TextArea`, rich content for widgets such as `RichLog`.
 
 ### Guarantees
 
@@ -106,6 +109,8 @@ await pilot.press('tab');           // Focus next widget
 await pilot.press('ctrl+c', 'ctrl+v'); // Copy then paste
 await pilot.type('Hello, world!');  // Type text into focused input
 ```
+
+`pilot.type(text)` sends plain characters only. No markup parsing occurs: the characters reach the focused widget's `checkConsumeKey` logic and are inserted as-is. To inject styled content, use the widget's API directly (for example `textArea.insertTextAtCursor(...)` or `richLog.write(content)`).
 
 ### Pointer
 
@@ -193,24 +198,31 @@ await pilot.waitForScheduledAnimations();
 
 | Method | Description |
 |--------|-------------|
-| `queryText(selector)` | Returns the text content of the queried widget (or `null` if not found) |
+| `queryText(selector)` | Returns the queried widget's plain text (`Content.plainText` semantics; styles stripped) or `null` |
+| `queryContent(selector)` | Returns the queried widget's rendered rich-js `Content` (styles preserved) or `null` |
 | `queryExists(selector)` | Returns `true` if a widget matches the selector |
 | `queryAll(selector)` | Returns all matching widgets |
 | `lastFrame()` | Returns the raw ANSI-encoded last rendered frame (for snapshot tests) |
-| `getStyles(selector)` | Returns the resolved TCSS styles for a widget (for asserting on computed styles) |
+| `getStyles(selector)` | Returns the widget's resolved style bundle: `{ box, text, style, components }` |
 
 ```tsx
 // Assert widget existence and content
 expect(queryExists('#error-banner')).toBe(true);
 expect(queryText('#error-banner')).toContain('Failed to save');
 
+// Assert styled content
+const content = queryContent('#error-banner');
+expect(content?.plainText).toContain('Failed to save');
+
 // Assert computed styling
 const styles = getStyles('#error-banner');
-expect(styles.background).toEqual(Color.parse('$error'));
+expect(styles.style.backgroundColor).toEqual(Color.parse('$error'));
 
 // Snapshot test of the full rendered frame
 expect(lastFrame()).toMatchSnapshot();
 ```
+
+Snapshot tests using `lastFrame()` capture the exact ANSI output, which is sensitive to rich-js `Color.toAnsi()` and the active output-filter pipeline. For stable snapshots across environments, keep terminal color depth deterministic in the test harness or install `NoColor` in the app's filter list for ASCII-only snapshots. Prefer `queryContent()` and `getStyles()` for structural assertions that should not depend on terminal escape bytes.
 
 ## Message Observation
 

@@ -43,16 +43,18 @@ App input router
 interface Binding {
   key: string;              // Key name or comma-separated list: "ctrl+s", "f1,question_mark"
   action: string;           // Action string: "save", "app.quit", "focus('input')"
-  description?: string;     // Human-readable description (shown in Footer)
+  description?: string | Content; // Human-readable description (shown in Footer)
   show?: boolean;           // Whether to show in Footer (default: true, forced false if description empty)
   priority?: boolean;       // Priority bindings are checked before the event reaches widgets
   system?: boolean;         // System bindings are hidden from the key panel
   keyDisplay?: string;      // Override display text (e.g., "?" instead of "question_mark")
-  tooltip?: string;         // Tooltip text for the binding
+  tooltip?: string | Content; // Tooltip text for the binding
   id?: string;              // Optional ID for keymap overrides
   group?: string;           // Group name for grouped Footer rendering
 }
 ```
+
+Plain `description` / `tooltip` strings render with the ambient Footer or tooltip style. Markup strings are parsed by rich-js at render time, and pre-built `Content` is used directly.
 
 ### Declaring bindings
 
@@ -310,13 +312,13 @@ interface Provider {
 
 interface Hit {
   score: number;          // Match quality (higher = better)
-  matchDisplay: string;   // Display text with highlight markup
+  matchDisplay: Content;  // Display text as rich-js Content
   command: () => void;    // Callback to execute when selected
   helpText?: string;      // Additional description
 }
 
 interface DiscoveryHit {
-  display: string;        // Display text
+  display: string | Content; // Display text
   command: () => void;    // Callback to execute
   helpText?: string;      // Additional description
 }
@@ -346,6 +348,7 @@ interface DiscoveryHit {
 - Discovery hits are visible immediately when the palette opens.
 - Results are gathered concurrently from all providers and streamed into the result list in batches.
 - Fuzzy matching uses **uFuzzy**: the query is matched against command names, and highlight ranges from uFuzzy are used to render matched characters in the result display.
+- uFuzzy returns match ranges as `[start, end]` pairs per command. The framework converts each `(name, ranges)` pair to rich-js `Content` by splitting the name into segments: characters inside a range receive the `command-palette--hit-match` component class, and characters outside use the ambient style. The resulting `Content` becomes `Hit.matchDisplay`. Providers that bypass uFuzzy may return plain `Content` or tag match ranges manually using the same component class, which resolves to a rich-js `Style` via the TCSS cascade.
 - Keyboard navigation: Up/Down to select, Enter to execute (or Enter to confirm when `runOnSelect` is `false`), Escape or click-away to dismiss.
 - Executing a command closes the palette and invokes the hit's callback (subject to `runOnSelect`).
 
@@ -359,6 +362,7 @@ When a typed query returns zero results, the palette does **not** immediately sh
 - If any result arrives during the countdown, the countdown is canceled and the message is never shown for that query.
 - If the countdown completes with the result set still empty, a disabled **"No matches found"** entry is appended to the result list.
 - This entry is non-selectable: keyboard selection skips over it, and clicking / pressing Enter on it is a no-op. It carries no `command` callback.
+- The entry's display is rich-js `Content` using a component class such as `command-palette--no-matches`, allowing TCSS to theme it as dimmed, italic, or otherwise visually distinct.
 - Typing a new query clears the entry and resets the cycle.
 
 ### System commands provider
@@ -367,14 +371,14 @@ The built-in system commands provider drives both `discover()` and `search()` fr
 
 ```tsx
 interface SystemCommand {
-  name: string;           // Command name for display and matching
-  helpText: string;       // Description
+  name: string | Content; // Command name for display and matching
+  helpText: string | Content; // Description
   callback: () => void;   // What to execute
   discover: boolean;      // Whether to show in discovery (empty query) mode
 }
 ```
 
-Discovery yields only commands with `discover: true`. Search fuzzy-matches all commands.
+Strings without markup syntax render as plain text; markup strings are parsed via rich-js at render time; `Content` is used directly. Discovery yields only commands with `discover: true`. Search fuzzy-matches all commands.
 
 ## Built-in App-Level Actions
 

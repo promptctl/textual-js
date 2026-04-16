@@ -4,7 +4,7 @@
 
 The TCSS (Textual CSS) engine provides a CSS-like styling language for terminal widgets. It uses **css-tree** for parsing and selector matching, with a framework layer on top for Textual-specific properties, cascade resolution, and translation to Ink style props.
 
-TCSS is an **authoring and cascade layer**, not a rendering engine. The output of the TCSS pipeline is "what Ink props should this widget have." Ink and Yoga handle the actual layout and rendering.
+TCSS is an **authoring and cascade layer**, not a rendering engine. The output of the TCSS pipeline is "what Ink props should this widget have, and what rich-js `Style` values should content segments carry." Ink and Yoga handle the actual layout and rendering.
 
 // [LAW:single-enforcer] The TCSS cascade is the single enforcer of style resolution. No widget hand-computes its own styles. All style changes (class mutation, theme change, inline style, pseudo-class) funnel through the cascade.
 
@@ -333,20 +333,20 @@ Style application resolves TCSS rules to per-widget `ResolvedStyles`:
 3. **Cache check**: if the widget's pseudo-class state is cache-safe, reuse previously computed results.
 4. **Specificity computation**: for each candidate rule, compute the 6-tuple specificity: `(userVsDefault, important, id, class, type, tieBreaker)`.
 5. **Conflict resolution**: for each property, keep the value with the maximum specificity.
-6. **`initial` fallback**: properties whose value resolves to `initial` are re-resolved: user `initial` falls back to the highest-specificity default value; default `initial` falls back to built-in defaults. This is property-sensitive fallback.
+6. **`initial` fallback**: properties whose value resolves to `initial` are re-resolved: user `initial` falls back to the highest-specificity default value; default `initial` falls back to built-in defaults. This is property-sensitive fallback. For color-valued properties, the fallback result is still a concrete rich-js `Color` instance.
 7. **Inline style merge**: inline styles (set programmatically) override cascade results.
-8. **Store**: write the resolved styles to the widget's `ResolvedStyles` MobX observable.
+8. **Store**: write the resolved styles to the widget's `ResolvedStyles` MobX observable. `ResolvedStyles` contains `box` (Ink `<Box>` props), `text` (Ink `<Text>` props), `style` (rich-js `Style` for content segments), and `components` (`Map<componentClassName, Style>` for per-component-class rich-js styling).
 9. **Component classes**: for each component class the widget declares, resolve styles for a virtual widget with that class.
 
 // [LAW:single-enforcer] All selector specificity conflict resolution, !important promotion, initial fallback, and final style value arbitration occur in the style application pipeline. No other site writes to a widget's styles as a result of CSS matching.
 
 ### TCSS → Ink prop translation
 
-After cascade resolution, `ResolvedStyles` are translated to Ink-compatible props:
+After cascade resolution, `ResolvedStyles` retain both the cascade's semantic output and the render-boundary translation:
 
 ```tsx
 // Conceptual — inside useStyles() hook
-function translateToInkProps(resolved: ResolvedStyles): InkStyleProps {
+function translateResolvedStyles(resolved: ResolvedStyles) {
   return {
     box: {
       width: resolved.width?.toInk(),
@@ -375,11 +375,18 @@ function translateToInkProps(resolved: ResolvedStyles): InkStyleProps {
       strikethrough: resolved.textStyle?.includes('strike'),
       wrap: resolved.textWrap ?? 'wrap',
     },
+    style: Style.fromResolvedTextStyles(resolved),
+    components: new Map(
+      resolved.componentClasses.map((name) => [
+        name,
+        Style.fromResolvedComponentStyles(resolved.componentStyles[name]),
+      ]),
+    ),
   };
 }
 ```
 
-Properties with no direct Ink equivalent (e.g., `dock`, `layers`, `hatch`, `overlay`) are stored on `ResolvedStyles` for the widget or framework to interpret. For example, `dock` is consumed by the screen's layout logic to position docked widgets before Ink's flexbox handles the remaining flow.
+`box` and `text` are consumed by compose-mode widgets. `style` and `components` are consumed by line-based widgets that produce rich-js `Content` / `Strip`s and need segment-level styling. Properties with no direct Ink equivalent (e.g., `dock`, `layers`, `hatch`, `overlay`) are stored on `ResolvedStyles` for the widget or framework to interpret. For example, `dock` is consumed by the screen's layout logic to position docked widgets before Ink's flexbox handles the remaining flow.
 
 ## Scalar Units and Values
 
@@ -398,6 +405,7 @@ Properties with no direct Ink equivalent (e.g., `dock`, `layers`, `hatch`, `over
 
 - `fr` and `%` resolve relative to the container/viewport size at layout time.
 - `ScalarOffset` composes two scalars for the `offset` property with independent horizontal/vertical units.
+- A "cell" is a terminal column. Wide characters (CJK, emoji) occupy 2 cells; combining characters occupy 0. Cell counts come from rich-js `cellLength`, not `str.length`.
 
 ### Color values
 
@@ -409,6 +417,11 @@ Colors support:
 - Theme variables: `$primary`, `$surface`, etc. — resolved from the active theme
 
 Color conversions to/from HSL, HSV, and Lab are provided for contrast/blend operations used by theming (automatic foreground color calculation, hover tinting, etc.).
+All color values resolve to rich-js `Color` instances during cascade resolution. Ink color props at the render boundary are produced via `Color.toAnsi()` respecting the active color depth and output filter pipeline. The string forms above are input syntax; `Color` is the internal representation.
+
+### Auto-contrast (`color: auto`)
+
+When a TCSS declaration uses `color: auto` or `background-tint: auto`, cascade resolution computes a contrasting foreground/tint from the widget's final resolved background. The calculation uses rich-js `Color.contrastRatio()` and `Color.luminance`, producing a concrete rich-js `Color` before the value is stored on `ResolvedStyles`.
 
 ## Theme Integration
 
@@ -436,7 +449,7 @@ const darkTheme: Theme = {
 
 ### Theme swap contract
 
-1. New theme → CSS variable map (`$primary` → theme.primary, etc.).
+1. New theme → CSS variable map (`Record<string, Color | string | number>`). Color fields are parsed into rich-js `Color` at registration; derived variables such as `$primary-lighten-2` and `$surface-darken-1` are computed via `Color.lighten()`, `Color.darken()`, and `Color.blend()`.
 2. Stylesheet `setVariables` clears parse caches.
 3. Next parse rebuilds rules with new variable values.
 4. Stylesheet re-applies styles to all widgets in the active screen stack.
@@ -450,7 +463,7 @@ When animation is enabled during style application:
 - Transition parameters (duration, easing, delay) are sourced from the new styles' `transitions` map.
 - An animation is scheduled if the resolved value changed or if an animation for that property is already in flight.
 - Non-animatable or non-transitioned properties are written directly — the final value is always applied in the same pass.
-- The Animator interpolates from old → new over the specified duration, updating the MobX observable on each frame. `observer()` picks up each intermediate value and triggers a React re-render.
+- The Animator interpolates from old → new over the specified duration, updating the MobX observable on each frame. Color-valued properties interpolate via rich-js `Color.blend(from, to, t)` per animator tick; numeric properties use linear or easing-function numeric interpolation. `observer()` picks up each intermediate value and triggers a React re-render.
 
 // [LAW:dataflow-not-control-flow] Whether a property animates is decided by data (transition map + animatable set), not by branching the write path — every modified property is always written (or scheduled) in the same loop.
 
