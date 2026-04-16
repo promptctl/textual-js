@@ -26,12 +26,11 @@ Groundwork in place. Implementation has not started.
 | `spec/impl/INDEX.md` | Phase map, architectural principles, conformance tracker |
 | `spec/spec-src/` | Authoritative behavioral specifications (00–14 + 99) |
 | `spec/spec-tests/` | Executable test backlog — spec-tests file per feature area |
-| `spec/uber-divergence.md` | Resolved spec contradictions with their resolutions |
 | `spec/docs-spec/` | Specifications for user-facing documentation pages (to be written after implementation) |
 
 ### Architecture in one paragraph
 
-The framework depends on: **React** (component model + reconciliation), **Ink** (terminal rendering + Yoga flexbox layout + stdin handling), **MobX** (reactive state + dependency tracking + `intercept`/`observe`/`computed`), **css-tree** (TCSS parsing + selector matching + specificity), **uFuzzy** (command palette fuzzy search), **marked** (markdown parsing), **Shiki** (syntax highlighting in TextArea). Everything else — the widget catalog, screen stack, focus manager, binding/action system, command palette, workers, signals, notifications, themes, text editing — is built on top of those.
+The framework depends on: **React** (component model + reconciliation), **Ink** (terminal rendering + Yoga flexbox layout + stdin handling), **MobX** (reactive state + dependency tracking + `intercept`/`observe`/`computed`), **css-tree** (TCSS parsing + selector matching + specificity), **rich-js** (rich text markup, renderables like Bar/Gradient/StyledText, wide-character text measurement), **uFuzzy** (command palette fuzzy search), **marked** (markdown parsing), **Shiki** (syntax highlighting in TextArea). Everything else — the widget catalog, screen stack, focus manager, binding/action system, command palette, workers, signals, notifications, themes, text editing — is built on top of those.
 
 ## Phases
 

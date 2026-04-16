@@ -13,17 +13,15 @@ You are implementing Phase {NN} of the textual-js project — a terminal UI appl
 
 1. Read `spec/impl/phase-{NN}-*.md` — this is your phase file. It contains everything you need: preconditions, goal, scope, spec references, exit criteria. Follow it precisely.
 
-2. Read `spec/impl/INDEX.md` — this is the project overview. It has the architectural principles, enforcement boundaries, spec contradiction resolutions, and conformance tracker. Understand where your phase fits.
+2. Read `spec/impl/INDEX.md` — this is the project overview. It has the architectural principles, enforcement boundaries, and conformance tracker. Understand where your phase fits.
 
-3. Read `spec/uber-divergence.md` — when the spec contradicts itself, this file has the resolution. Your phase file calls out which resolutions apply, but read the full ledger for context.
+3. Read the spec references listed in your phase file (under "Spec References"). These are the behavioral specifications your implementation must satisfy. The spec-tests files (`spec/spec-tests/*.md`) are your primary source of test cases.
 
-4. Read the spec references listed in your phase file (under "Spec References"). These are the behavioral specifications your implementation must satisfy. The spec-tests files (`spec/spec-tests/*.md`) are your primary source of test cases.
+4. Read the source files listed in your phase file (under "Current State"). Understand what exists before you change anything.
 
-5. Read the source files listed in your phase file (under "Current State"). Understand what exists before you change anything.
+5. Implement the scope described in your phase file. Write code and tests.
 
-6. Implement the scope described in your phase file. Write code and tests.
-
-7. Verify every exit criterion in your phase file. Each one is machine-verifiable — run the check, don't assume it passes.
+6. Verify every exit criterion in your phase file. Each one is machine-verifiable — run the check, don't assume it passes.
 
 ## Architectural Laws
 
@@ -150,6 +148,4 @@ Examples:
 - `spec/impl/` — phase plan files (your instructions)
 - `spec/spec-src/` — behavioral specifications (numbered 00–14)
 - `spec/spec-tests/` — test case specifications (your test backlog)
-- `spec/uber-spec/` — consolidated spec documents
-- `spec/uber-divergence.md` — resolved spec contradictions
 ```

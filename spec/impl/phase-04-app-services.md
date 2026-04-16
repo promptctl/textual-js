@@ -79,7 +79,7 @@ App-level signals (MobX observables on the app store):
 - `notify(message, severity?, timeout?)` — available to any widget via context
 - `clearNotifications()` / `dismissNotification(id)`
 - Auto-dismiss via timer
-- Internal toast React component for display — not a public widget (per uber-divergence)
+- Internal toast React component for display — not a public widget
 
 ### Theme Engine
 
@@ -96,8 +96,8 @@ App-level signals (MobX observables on the app store):
 - `CommandPalette` screen component: opened by binding (default: `ctrl+p`)
 - `Provider` base class: returns command items (can be async via workers)
 - `COMMANDS` static property on App and Screen components
-- Provider replacement: overriding app `COMMANDS` replaces app providers; screen providers union in (per uber-divergence)
-- Discovery mode: discovery hits visible immediately when palette opens (per uber-divergence)
+- Provider replacement: overriding app `COMMANDS` replaces app providers; screen providers union in
+- Discovery mode: discovery hits visible immediately when palette opens
 - Search: uFuzzy fuzzy matching against command names
 - Result highlighting: uFuzzy returns highlight ranges, render them
 - Click-away or Escape dismissal
@@ -130,14 +130,6 @@ App-level signals (MobX observables on the app store):
 - `spec/spec-tests/command_palette.md` — command palette test cases
 - `spec/spec-tests/input_validation.md` — validation test cases
 - `spec/spec-tests/suggester.md` — suggester test cases
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| App `COMMANDS` | Override replaces app providers; screen providers union in |
-| Command palette initial results | Discovery hits visible immediately |
-| Toast surface | Internal support UI, not public built-in |
 
 ## Exit Criteria
 

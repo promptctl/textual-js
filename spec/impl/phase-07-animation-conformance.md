@@ -55,7 +55,7 @@ This is clean because:
 - Animation loop: uses `setInterval` (terminal has no `requestAnimationFrame`) at ~60fps or configurable rate
 - Each tick: compute interpolated values, update MobX observables in a single `runInAction` batch
 - Completion: when elapsed >= duration, set final value, remove entry, schedule `onComplete`
-- `force_stop_animation(widget, property)`: immediately set target value, schedule `onComplete` via message system's `callLater` (per uber-divergence — NOT direct invocation)
+- `force_stop_animation(widget, property)`: immediately set target value, schedule `onComplete` via message system's `callLater` — NOT direct invocation
 
 ### Easing Functions
 
@@ -104,12 +104,6 @@ This is clean because:
 - `spec/spec-src/12-supporting-subsystems.md` — animation section
 - `spec/spec-tests/animations.md` — animation test cases
 - All `spec/spec-tests/*.md` files — for conformance audit
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| `force_stop_animation` | Schedule `on_complete` via `callLater` / message system, not direct invocation |
 
 ## Exit Criteria
 

@@ -127,8 +127,8 @@ Inline data visualization using block characters (▁▂▃▄▅▆▇█).
 | `canFocus` | `false` |
 | Reactives | `data: number[] \| null`, `summaryFunction` (default: `max`) |
 
-- `width: null` uses available render width (per uber-divergence).
-- Default reduction is `max` (per uber-divergence).
+- `width: null` uses available render width.
+- Default reduction is `max`.
 - Each cell maps a data value to one of 8 block heights.
 
 ### `ProgressBar`
@@ -376,7 +376,7 @@ Shows one child at a time.
 
 - `visibleContent` property returns the currently visible child.
 - `addContent(widget, id, setCurrent?)` dynamically adds a child. Requires an ID.
-- Constructor tolerates ID-less children; `addContent` requires ID (per uber-divergence).
+- Constructor tolerates ID-less children; `addContent` requires ID.
 - Children not matching `current` have `display: none`.
 
 ### `Collapsible`
@@ -417,7 +417,7 @@ Tabs + content panes in one component.
 
 - Composes `Tabs` + `ContentSwitcher` internally.
 - Public methods: `addPane`, `removePane`, `clearPanes`, `getTab(id)`, `getPane(id)`, `disableTab(id)`, `enableTab(id)`, `hideTab(id)`, `showTab(id)`.
-- `Tabs.hide()`/`show()` and `TabbedContent.hideTab()`/`showTab()` are layered APIs on different objects (per uber-divergence).
+- `Tabs.hide()`/`show()` and `TabbedContent.hideTab()`/`showTab()` are layered APIs on different objects.
 
 `TabPane` holds a titled pane body. Accepts `title`, `id`, `disabled`.
 

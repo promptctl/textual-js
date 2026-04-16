@@ -19,6 +19,9 @@ Each widget registers with the framework's widget registry on mount via `useText
 const Button = observer(({ id, classes, variant = 'default', children }) => {
   const { register, postMessage } = useTextual();
   const styles = useStyles();
+  // styles.box   — Ink <Box> props (width, padding, border, background, etc.)
+  // styles.text  — Ink <Text> props (color, bold, italic, etc.)
+  // styles.style — rich-js Style for content segments (used by Line API widgets)
 
   // Registration happens once on mount, cleanup on unmount
   useEffect(() => {
@@ -64,7 +67,7 @@ The registry tracks per widget: id, classes (MobX observable set), type name, pa
 ### ID
 
 - `id` is a string prop, optional, assigned at mount time.
-- IDs must be unique within the active widget tree (DOM/screen-wide per uber-divergence). The registry throws `DuplicateIds` if a duplicate is registered.
+- IDs must be unique within the active widget tree (DOM/screen-wide). The registry throws `DuplicateIds` if a duplicate is registered.
 - Once registered, `id` is immutable for the lifetime of the mount. To change a widget's ID, unmount and remount it.
 - ID values must be valid CSS identifiers.
 
@@ -104,9 +107,16 @@ The registry tracks per widget: id, classes (MobX observable set), type name, pa
 
 ### COMPONENT_CLASSES
 
-- `COMPONENT_CLASSES` is a static property on the widget component: a set of CSS class names the widget documents as internal styling hooks for its sub-parts (e.g., `text-area--cursor`, `switch--slider`).
+- `COMPONENT_CLASSES` is a static property on the widget component: a set of CSS class names the widget documents as internal styling hooks for its sub-parts (e.g., `text-area--cursor`, `text-area--selection`, `text-area--gutter`, `switch--slider`).
 - These class names are intended to be targeted by user stylesheets to restyle internal pieces of a widget without reaching into its implementation.
 - Merging across the type hierarchy is controlled by `inheritComponentClasses`.
+
+Component classes resolve to both Ink props *and* rich-js `Style` depending on where they apply:
+
+- For a widget that renders sub-parts as separate elements (e.g., a `switch--slider` rendered as its own `<Box>`), the component class contributes Ink props to that element.
+- For widgets that render in **Line API mode** — `TextArea`, `Input`, `DataTable`, `Tree`, `OptionList`, `Log`, `RichLog`, `Markdown` — component classes resolve to a rich-js `Style` applied to individual **segments** within a rendered line. A single rendered line may carry many segments (e.g., "syntax-highlighted code + selection overlay + cursor cell + matched-bracket highlight"), each tagged with its component class(es) so the TCSS cascade resolves its `Style`. The cascade runs once per (widget, component-class-set) tuple; the resulting `Style` is cached on the widget's `ResolvedStyles` observable.
+
+// [LAW:single-enforcer] Component-class styling flows through the same TCSS cascade as outer-box styling. Line API widgets do not maintain a parallel styling path — they read `ResolvedStyles.components[name]` to get a rich-js `Style` per component class.
 
 ## Class-Level Metadata
 
@@ -173,6 +183,17 @@ Each reactive property is configured with flags:
 | `recompose` | `false` | Trigger a full recompose (re-run compose/children) on change |
 
 `reactive(defaultValue, flags?)` creates a property with these flags. `var(defaultValue)` is a shorthand for `reactive(defaultValue, { layout: false, repaint: false })` — a reactive that tracks value but does not trigger re-renders.
+
+### Reactive value types
+
+A reactive property's value may be any type — primitives, objects, arrays, or rich-js types. Widgets frequently use rich-js types as reactive values:
+
+- `label`, `message`, `title` on content-bearing widgets: `string | Content` — strings are parsed as markup at render time; `Content` values are used directly.
+- Color-valued reactives: rich-js `Color` instances (e.g., `Gradient.start`, `Gradient.end`).
+- `value` on a `Select<T>`: the generic type parameter `T` (could be primitive or object).
+- `data` on `DataTable`: a MobX observable array of row objects.
+
+The reactivity pipeline is type-agnostic — validators, watchers, and computes operate on whatever type the declaration chose. Rich-js types flow through the pipeline unchanged; only validators may coerce (e.g., `validate_label` could parse a markup string into `Content`).
 
 ### Default value resolution
 

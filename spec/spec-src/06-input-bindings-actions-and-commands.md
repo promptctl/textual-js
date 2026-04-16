@@ -168,7 +168,7 @@ App.keymap = new Map([
 | `null` | Binding included but disabled (grayed-out in Footer) |
 | `false` | Binding omitted entirely |
 
-Per uber-divergence: `null` means disabled but visible, `false` means hidden.
+`null` means disabled but visible, `false` means hidden.
 
 ## Action Parsing and Dispatch
 
@@ -328,7 +328,7 @@ interface DiscoveryHit {
 ### Provider resolution
 
 - Provider set: `Screen.COMMANDS` union with `App.COMMANDS`.
-- Overriding app-level `COMMANDS` replaces the app's default provider set. Screen-level providers are added by union. (Per uber-divergence.)
+- Overriding app-level `COMMANDS` replaces the app's default provider set. Screen-level providers are added by union.
 - `ENABLE_COMMAND_PALETTE` gates availability.
 - `COMMAND_PALETTE_BINDING` (default: `ctrl+p`) defines the launch key.
 
@@ -343,7 +343,7 @@ interface DiscoveryHit {
 
 ### Runtime behavior
 
-- Discovery hits are visible immediately when the palette opens (per uber-divergence).
+- Discovery hits are visible immediately when the palette opens.
 - Results are gathered concurrently from all providers and streamed into the result list in batches.
 - Fuzzy matching uses **uFuzzy**: the query is matched against command names, and highlight ranges from uFuzzy are used to render matched characters in the result display.
 - Keyboard navigation: Up/Down to select, Enter to execute (or Enter to confirm when `runOnSelect` is `false`), Escape or click-away to dismiss.

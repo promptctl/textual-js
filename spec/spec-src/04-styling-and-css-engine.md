@@ -333,7 +333,7 @@ Style application resolves TCSS rules to per-widget `ResolvedStyles`:
 3. **Cache check**: if the widget's pseudo-class state is cache-safe, reuse previously computed results.
 4. **Specificity computation**: for each candidate rule, compute the 6-tuple specificity: `(userVsDefault, important, id, class, type, tieBreaker)`.
 5. **Conflict resolution**: for each property, keep the value with the maximum specificity.
-6. **`initial` fallback**: properties whose value resolves to `initial` are re-resolved: user `initial` falls back to the highest-specificity default value; default `initial` falls back to built-in defaults. This is property-sensitive fallback per uber-divergence.
+6. **`initial` fallback**: properties whose value resolves to `initial` are re-resolved: user `initial` falls back to the highest-specificity default value; default `initial` falls back to built-in defaults. This is property-sensitive fallback.
 7. **Inline style merge**: inline styles (set programmatically) override cascade results.
 8. **Store**: write the resolved styles to the widget's `ResolvedStyles` MobX observable.
 9. **Component classes**: for each component class the widget declares, resolve styles for a virtual widget with that class.

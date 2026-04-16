@@ -50,7 +50,7 @@ MobX's `intercept` → `observable` → `reaction` → `computed` pipeline maps 
 
 ### Configuration
 
-**`package.json`**: Currently depends on `rich-js` (local), `typescript`, `vitest`. Needs React, Ink, MobX, and their types added.
+**`package.json`**: Currently depends on `typescript`, `vitest`. Needs React, Ink, MobX, and their types added.
 
 **`tsconfig.json`**: Has `experimentalDecorators: true`. Needs JSX configuration for React/Ink.
 
@@ -139,7 +139,7 @@ Replace `src/reactive.ts` with MobX-backed reactivity:
 - `observe()` for `watch_<name>` convention: fires after value changes with old/new
 - `computed` for `compute_<name>` convention: automatic dependency tracking
 - `observable` with `equals: () => false` for `always_update`
-- `init` dispatch: on mount, fire watchers with `(undefined, currentValue)` when `init: true` (default per uber-divergence)
+- `init` dispatch: on mount, fire watchers with `(undefined, currentValue)` when `init: true` (the default)
 - Watcher ordering: convention-based (`watch_<name>`) fires before explicit registrations
 - Refresh integration: `observer()` from mobx-react-lite handles React re-renders automatically — no manual `refresh()` needed
 
@@ -190,13 +190,6 @@ Keep `src/geometry/` as-is. These are pure value types with no dependencies on t
 - `spec/spec-tests/events_and_messages.md` — message dispatch test cases
 - `spec/spec-tests/geometry.md` — geometry test cases
 - `spec/spec-tests/app.md` — app lifecycle test cases
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| `reactive()` `init` default | Defaults to `init: true` |
-| Reactive pipeline order | Validate → store → watch → compute dependents |
 
 ## Exit Criteria
 

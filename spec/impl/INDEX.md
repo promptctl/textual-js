@@ -81,26 +81,6 @@ The initial bootstrap (`src/`) was written for a renderer-agnostic architecture 
 3. Phase 1 is the architecture phase. Do not start framework features before it lands.
 4. Use `spec/spec-tests/` as the primary executable backlog.
 5. Keep each phase shippable: build, lint, and targeted tests must pass before moving forward.
-6. When the spec and uber-divergence conflict, follow the uber-divergence resolution documented in each phase file.
-
-## Spec Contradictions Reference
-
-Follow the resolutions in `spec/uber-divergence.md`. Key resolved divergences:
-
-| Issue | Resolution |
-|-------|-----------|
-| `reactive()` `init` default | Defaults to `init: true` |
-| Reactive pipeline order | Validate → store → watch → compute dependents |
-| Widget ID uniqueness | DOM/screen-wide (HTML semantics) |
-| `check_action(null)` | Disabled but visible (not hidden) |
-| App `COMMANDS` | Override replaces app providers; screen providers union in |
-| Command palette initial results | Discovery hits visible immediately |
-| CSS `initial` | Property-sensitive fallback |
-| Sparkline width/reduction | `width=null` uses render width; default reduction is `max` |
-| `ContentSwitcher` child IDs | Constructor tolerates ID-less; `add_content` requires ID |
-| `Tabs`/`TabbedContent` APIs | Layered: `Tabs.hide()`/`show()` vs `TabbedContent.hide_tab()`/`show_tab()` |
-| `force_stop_animation` | Schedule `on_complete` via `call_later` |
-| Toast surface | Internal support UI, not public built-in |
 
 ## Conformance Tracker
 

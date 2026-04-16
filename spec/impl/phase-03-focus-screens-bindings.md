@@ -98,7 +98,7 @@ Make the framework interactive: focus management, screen stack with modes, and t
 - Returns `true` → action enabled, binding shown normally
 - Returns `false` → action hidden, binding not shown
 - Returns `null` → action disabled but visible, binding shown grayed out
-- Per uber-divergence: `null` = disabled but visible
+- `null` = disabled but visible
 
 ### Widget Base Contract
 
@@ -124,12 +124,6 @@ Make the framework interactive: focus management, screen stack with modes, and t
 - `spec/spec-tests/widget.md` — widget base contract test cases
 - `spec/spec-tests/input.md` — input event test cases
 - `spec/spec-tests/app.md` — screen stack, mode test cases
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| `check_action(null)` | Disabled but visible (not hidden). `false` = hidden. |
 
 ## Exit Criteria
 

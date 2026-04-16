@@ -153,8 +153,8 @@ Deliver data-rich interactive widgets, the text editing subsystem, and markdown 
 
 - Inline data visualization
 - `data` prop: array of numbers
-- `width=null` uses available render width (per uber-divergence)
-- Default reduction is `max` (per uber-divergence)
+- `width=null` uses available render width
+- Default reduction is `max`
 - Renders using block characters (▁▂▃▄▅▆▇█)
 
 ### Pretty Widget
@@ -175,12 +175,6 @@ Deliver data-rich interactive widgets, the text editing subsystem, and markdown 
 - `spec/spec-tests/markdown.md`
 - `spec/spec-tests/rich_log.md`
 - `spec/spec-tests/sparkline.md`
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| Sparkline width/reduction | `width=null` uses render width; default reduction is `max` |
 
 ## Exit Criteria
 

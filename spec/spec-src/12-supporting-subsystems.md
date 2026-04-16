@@ -339,7 +339,7 @@ The `Animator` is a MobX store on the app context. It is the single timing autho
 |--------|-------------|
 | `animate(widget, property, target, duration, easing?, delay?, onComplete?)` | Start an animation |
 | `stopAnimation(widget, property)` | Stop and snap to current value |
-| `forceStopAnimation(widget, property)` | Stop, snap to target value, schedule `onComplete` via `callLater` (per uber-divergence) |
+| `forceStopAnimation(widget, property)` | Stop, snap to target value, schedule `onComplete` via `callLater` |
 | `isAnimating(widget, property)` | Check if an animation is active |
 
 ### Easing functions

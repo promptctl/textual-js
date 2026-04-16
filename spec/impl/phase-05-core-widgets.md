@@ -82,9 +82,9 @@ Ink handles all rendering and layout via Yoga flexbox. Widgets compose Ink's `<B
 
 - **`ScrollableContainer`**: Vertical/horizontal scroll. Keyboard (PageUp/Down, Home/End) and scroll bindings. Ink supports scrollable views — build on that.
 - **`Vertical` / `Horizontal`**: Flow containers. Thin wrappers that set Ink's `<Box flexDirection="column">` / `<Box flexDirection="row">` with TCSS styling.
-- **`ContentSwitcher`**: Shows one child at a time by ID. MobX observable `current`. Constructor tolerates ID-less children; `add_content()` requires ID (per uber-divergence).
+- **`ContentSwitcher`**: Shows one child at a time by ID. MobX observable `current`. Constructor tolerates ID-less children; `add_content()` requires ID.
 - **`Collapsible`**: Expandable/collapsible region. Posts `Collapsible.Toggled`. Title bar with indicator. MobX observable `collapsed`.
-- **`TabbedContent` / `Tabs` / `Tab` / `TabPane`**: Tabbed interface. `Tabs.hide()`/`show()` and `TabbedContent.hide_tab()`/`show_tab()` as layered APIs (per uber-divergence). Posts `Tabs.TabActivated`.
+- **`TabbedContent` / `Tabs` / `Tab` / `TabPane`**: Tabbed interface. `Tabs.hide()`/`show()` and `TabbedContent.hide_tab()`/`show_tab()` as layered APIs. Posts `Tabs.TabActivated`.
 
 ### List Widgets
 
@@ -105,13 +105,6 @@ Ink handles all rendering and layout via Yoga flexbox. Widgets compose Ink's `<B
 - `spec/spec-tests/select.md`, `spec/spec-tests/selection_list.md`
 - `spec/spec-tests/header_and_footer.md`
 - `spec/spec-tests/scrolling.md`
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| `ContentSwitcher` child IDs | Constructor tolerates ID-less; `add_content` requires ID |
-| `Tabs`/`TabbedContent` APIs | Layered: `Tabs.hide()`/`show()` vs `TabbedContent.hide_tab()`/`show_tab()` |
 
 ## Exit Criteria
 

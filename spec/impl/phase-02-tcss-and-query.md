@@ -86,7 +86,7 @@ This means TCSS is an **authoring and cascade layer**, not a replacement for Ink
 - Three layers per widget: `DEFAULT_CSS` (widget class default) < user CSS (app stylesheet) < inline styles (set programmatically)
 - Resolve cascade per widget: highest specificity wins, `!important` overrides, later rules break ties
 - CSS variables (`--var-name`): resolved from the cascade, scoped to the widget and its ancestors
-- `initial` keyword: property-sensitive fallback per uber-divergence
+- `initial` keyword: property-sensitive fallback
 - Result: a `ResolvedStyles` MobX observable per widget
 
 ### ResolvedStyles → Ink Props Translation
@@ -153,13 +153,6 @@ const Button = observer(({ id, classes, children }) => {
 - `spec/spec-tests/css_nested.md` — nested CSS test cases
 - `spec/spec-tests/dom.md` — DOM query test cases
 - `spec/spec-tests/widget.md` — widget style portions
-
-## Uber-Divergence Resolutions
-
-| Issue | Resolution |
-|-------|-----------|
-| CSS `initial` | Property-sensitive fallback, not blanket class-default reset |
-| Widget ID uniqueness | DOM/screen-wide (HTML semantics) — `#id` selectors assume uniqueness |
 
 ## Exit Criteria
 

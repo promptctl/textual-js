@@ -7,7 +7,8 @@
 - per-mode screen stacks and installed-screen registry,
 - global action dispatch and binding chain composition,
 - CSS source aggregation and reparse,
-- notifications, themes, command palette, suspend/resume, and shutdown sequencing.
+- notifications, themes, command palette, suspend/resume, and shutdown sequencing,
+- the animator, the output filter pipeline, and the rich-js color registry for theme-derived colors.
 
 ### How to define an App
 
@@ -59,6 +60,7 @@ unmount();
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `css` | `string` | `""` | App-level TCSS stylesheet source |
+| `cssPath` | `string \| string[]` | — | Path(s) to TCSS files; watched for live reload in dev mode (spec 08) |
 | `theme` | `string` | `"default"` | Initial theme name |
 | `modes` | `Record<string, ComponentType>` | `{}` | Named mode → Screen component mapping |
 | `defaultMode` | `string` | `"_default"` | Initial active mode |
@@ -70,8 +72,9 @@ unmount();
 | `autoFocus` | `string \| null` | `null` | CSS selector for initial focus target |
 | `tooltipDelay` | `number` | `500` | Milliseconds before tooltip appears |
 | `notificationTimeout` | `number` | `5000` | Default notification auto-dismiss (ms) |
-| `title` | `string` | `""` | App title (displayed by Header widget) |
-| `subTitle` | `string` | `""` | App subtitle (displayed by Header widget) |
+| `title` | `string \| Content` | `""` | App title (markup string or rich-js `Content`). Displayed by `Header`. |
+| `subTitle` | `string \| Content` | `""` | App subtitle (markup string or rich-js `Content`). |
+| `filters` | `LineFilter[]` | `[]` | Output filters (accessibility / terminal compatibility; spec 12) |
 | `onExit` | `(result?) => void` | — | Called when `exit()` completes |
 
 ## Reactive App State
@@ -80,14 +83,15 @@ These are MobX observables on the app context, accessible to all widgets via `us
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `title` | `string` | App title. Reactive — Header widget updates when it changes. |
-| `subTitle` | `string` | App subtitle. |
-| `theme` | `string` | Active theme name. Setting it triggers theme change: CSS variable rebuild, stylesheet reapply, `theme_changed_signal`. |
-| `dark` | `boolean` | Whether dark mode is active. Derived from the active theme's `dark` flag. |
+| `title` | `Content` | App title as rich-js `Content`. Set from a markup string or `Content`; stored as `Content`. Header widget re-renders when it changes. |
+| `subTitle` | `Content` | App subtitle as rich-js `Content`. Same rules as `title`. |
+| `theme` | `string` | Active theme name. Setting it triggers theme change: rebuild rich-js `Color` bindings → rebuild CSS variables → reapply stylesheet → publish `theme_changed_signal`. |
+| `dark` | `boolean` | Whether dark mode is active. Derived from the active theme's `dark` flag (MobX `computed`). |
 | `isRunning` | `boolean` | Whether the app is running (true after startup, false after exit). |
 | `activeMode` | `string` | Name of the currently active mode. |
 | `activeScreen` | `Screen \| null` | The topmost screen on the active mode's stack. |
 | `focusedWidget` | `Widget \| null` | The currently focused widget (delegated from the active screen's focus manager). |
+| `terminalSize` | `Size` | Current terminal dimensions reported by Ink. Drives `vw`/`vh` TCSS units. |
 
 // [LAW:one-source-of-truth] These observables are the sole authority for app-level state. Widgets read them via context; they do not maintain local copies.
 
@@ -121,7 +125,7 @@ Configuration categories:
 - **CSS and styling**: `CSS`, `DEFAULT_CSS`. Theme selection via the `theme` prop/reactive property.
 - **Navigation**: `MODES`, `SCREENS`, `DEFAULT_MODE` (defaults to `"_default"`), `AUTO_FOCUS`.
 - **Input/action**: `BINDINGS`, `COMMANDS`, `COMMAND_PALETTE_BINDING`, `COMMAND_PALETTE_DISPLAY`, `ENABLE_COMMAND_PALETTE`.
-- **UX behavior**: `ALLOW_IN_MAXIMIZED_VIEW`, `ESCAPE_TO_MINIMIZE`, `TOOLTIP_DELAY`, `NOTIFICATION_TIMEOUT`.
+- **UX behavior**: `ALLOW_IN_MAXIMIZED_VIEW`, `ESCAPE_TO_MINIMIZE`, `TOOLTIP_DELAY`, `NOTIFICATION_TIMEOUT`, `ALLOW_SELECT`.
 
 // [LAW:one-source-of-truth] These static properties are the sole declarative inputs consulted during initialization; runtime changes go through the reactive properties on the app context.
 
@@ -136,12 +140,12 @@ Configuration categories:
 
 Executed when the `TextualApp` component mounts (inside a `useEffect` with empty deps):
 
-1. **Initialize framework context**: create MobX stores for screen stack, focus manager, binding resolver, notification store, theme engine, worker manager, signal registry, widget registry. Provide them via React context.
-2. **Aggregate CSS sources**: collect `DEFAULT_CSS` from all known widget types (registered via a static registry or import-time side effect), plus app-level `CSS`. Parse with css-tree into a stylesheet AST.
-3. **Initialize theme**: resolve the initial theme, compute CSS variables, merge into the stylesheet.
+1. **Initialize framework context**: create MobX stores for screen stack, focus manager, binding resolver, notification store, theme engine, worker manager, signal registry, widget registry, animator, output filter pipeline. Provide them via React context.
+2. **Aggregate CSS sources**: collect `DEFAULT_CSS` / `SCOPED_CSS` from all known widget types (registered via a static registry or import-time side effect), plus app-level `CSS` and any `cssPath` file contents. Parse with css-tree into a stylesheet AST.
+3. **Initialize theme**: resolve the initial theme; parse its palette strings into rich-js `Color` instances; register them under theme-variable names; compute derived shorthands (`$primary-lighten-2`, `$surface-darken-1`, auto-contrast foreground); merge into the stylesheet as CSS variables.
 4. **Resolve initial mode**: look up `DEFAULT_MODE` in `MODES`. Mount the mode's base screen component.
 5. **Dispatch lifecycle messages**: post `Compose` then `Mount` to the app and each widget in the tree. These messages fire after React's initial render (`useEffect` timing).
-6. **Apply TCSS stylesheet**: cascade resolves styles for all mounted widgets. Each widget's `ResolvedStyles` MobX observable is populated. `observer()` triggers re-renders with correct styles.
+6. **Apply TCSS stylesheet**: cascade resolves styles for all mounted widgets. Each widget's `ResolvedStyles` MobX observable is populated (Ink props + rich-js `Style`). `observer()` triggers re-renders with correct styles.
 7. **Initialize reactive properties**: fire `init` watchers where `init: true` (the default) with `(undefined, currentValue)`.
 8. **Resolve auto-focus**: if `AUTO_FOCUS` is set, query the widget registry for a matching widget and set focus.
 9. **Mark running**: set `isRunning = true`. Begin dispatching `Idle` messages on a timer.
@@ -150,7 +154,7 @@ Executed when the `TextualApp` component mounts (inside a `useEffect` with empty
 
 ### CSS source aggregation
 
-The TCSS engine needs `DEFAULT_CSS` from every widget type before any widget renders. This creates a sequencing requirement:
+The TCSS engine needs `DEFAULT_CSS` / `SCOPED_CSS` from every widget type before any widget renders. This creates a sequencing requirement:
 
 - Widget types register their `DEFAULT_CSS` at import time (module-level side effect). When a module exports `Button`, `Button.DEFAULT_CSS` is captured in a global style registry.
 - The `TextualApp` component reads from this registry during startup (step 2).
@@ -163,8 +167,9 @@ The TCSS engine needs `DEFAULT_CSS` from every widget type before any widget ren
 App-level input routing handles messages that reach the app (via bubbling or direct targeting):
 
 - **`Compose`**: triggers mode initialization before app-level composition runs, guaranteeing the mode's base screen exists.
-- **Key events**: check priority app/screen bindings first; if not consumed, forward to the focused widget or screen. Non-priority bindings are checked after the widget has had a chance to handle the key.
-- **Mouse events**: Ink delivers mouse events with position information. The framework routes to the widget under the pointer using Ink's element positioning. Mouse-down/mouse-up on the same widget synthesizes a `Click` message.
+- **Key events**: escape-to-minimize precedence (if a widget is maximized and `ESCAPE_TO_MINIMIZE` is on), then priority bindings on the full chain, then forward to the focused widget or screen; non-priority bindings bubble after.
+- **Mouse events**: Ink delivers mouse events with position information. The framework routes to the widget under the pointer. Click-chain detection (`chain: number` on `Click`) is enforced at the screen's mouse-forwarding path.
+- **Paste**: bracketed-paste content delivered as a `Paste` message with `text`.
 - **Other input events**: forward to the current screen.
 
 // [LAW:single-enforcer] Binding dispatch is enforced in one place — the binding resolution chain walks from focused widget through ancestors to screen to app.
@@ -198,8 +203,9 @@ MyScreen.BINDINGS = [
 Screens declare:
 - `CSS` — screen-scoped TCSS (merged into the cascade when the screen is active)
 - `BINDINGS` — screen-level key bindings (checked after widget bindings, before app bindings)
-- `COMMANDS` — screen-level command providers (unioned with app providers per uber-divergence)
+- `COMMANDS` — screen-level command providers (unioned with app providers)
 - `AUTO_FOCUS` — CSS selector for initial focus target on this screen
+- `ALLOW_IN_MAXIMIZED_VIEW` — CSS selector for widgets that remain visible alongside a maximized widget (overrides app default)
 
 ### Screen lifecycle messages
 
@@ -260,7 +266,7 @@ screen.minimize();
 | Property | Declared on | Default | Description |
 |----------|-------------|---------|-------------|
 | `ALLOW_MAXIMIZE` | Widget (static) | `true` if the widget type is focusable, `false` otherwise | Whether this widget type may be the target of `maximize()`. |
-| `ALLOW_IN_MAXIMIZED_VIEW` | Screen (static) and App (static) | App default: `"Footer"`; Screen default: inherits from App | CSS selector matching widgets that remain visible around the maximized widget. Screens override per-screen; the app's value is the fallback. |
+| `ALLOW_IN_MAXIMIZED_VIEW` | Screen (static) and App (static) | App default: `"Footer"`; Screen default: inherits from App | CSS selector matching widgets that remain visible around the maximized widget. |
 | `ESCAPE_TO_MINIMIZE` | App (static) | `true` | When `true`, pressing Escape while `Screen.maximized !== null` calls `minimize()`. |
 
 Selector resolution for `ALLOW_IN_MAXIMIZED_VIEW`: every non-maximized widget on the screen is tested against the selector (via the query engine). Widgets that match remain visible; widgets that do not match are hidden for the duration of the maximized view. Hiding is expressed by the `-maximized-view` class on the screen (which targets non-matching descendants in CSS) — it is not a separate mutation per widget.
@@ -326,33 +332,44 @@ The `TextualApp` component renders only the active mode's screen stack. The topm
 
 ### Theme structure
 
-A theme provides:
+A theme provides a palette of colors and optional extra variables:
 
 ```tsx
 interface Theme {
   name: string;
-  dark: boolean;           // Whether this is a dark theme
-  primary: string;         // Primary accent color
-  secondary: string;       // Secondary accent color
-  surface: string;         // Default background
-  panel: string;           // Panel/card background
-  background: string;      // App background
-  foreground: string;      // Default text color
-  error: string;           // Error color
-  warning: string;         // Warning color
-  success: string;         // Success color
-  accent: string;          // Accent color
-  variables?: Record<string, string>; // Additional CSS variables
+  dark: boolean;                      // Whether this is a dark theme
+  primary: string | Color;            // Parsed into rich-js Color at registration
+  secondary: string | Color;
+  accent: string | Color;
+  background: string | Color;         // App background
+  surface: string | Color;            // Default background
+  panel: string | Color;              // Panel / card background
+  foreground: string | Color;         // Default text color
+  error: string | Color;
+  warning: string | Color;
+  success: string | Color;
+  variables?: Record<string, string | Color>;  // Additional CSS variables
 }
 ```
 
+Color fields accept either a string (hex, rgb, hsl, named) or a rich-js `Color`. At theme registration, strings are parsed into `Color` instances. The framework stores `Color` instances internally — CSS variable resolution works with `Color`, not with raw strings.
+
+### Built-in themes
+
+`BUILTIN_THEMES` exposes the pre-registered themes. At minimum: `"default"` (light), `"dark"`, plus paired variants. `toggle_dark` switches between a theme and its paired opposite.
+
 ### Theme lifecycle
 
-- Theme registry: built-in themes (`default`, `dark`, `light` and variants) loaded at initialization, plus `registerTheme(theme)` / `unregisterTheme(name)`. The currently-selected built-in default cannot be unregistered.
-- `theme` reactive property (MobX observable) selects the current theme by name. The MobX `intercept()` validates the name (rejects unknown theme names). The `observe()` watcher rebuilds CSS variables, triggers CSS invalidation, and publishes `theme_changed_signal`.
+- Theme registry: `registerTheme(theme)` / `unregisterTheme(name)`. The currently-selected built-in default cannot be unregistered.
+- `theme` reactive property (MobX observable) selects the current theme by name. The MobX `intercept()` validates the name (rejects unknown themes). The `observe()` watcher:
+  1. Rebuilds the rich-js `Color` bindings for every theme variable.
+  2. Regenerates derived variables (`$primary-lighten-2`, auto-contrast foreground, alpha variants) using `Color.lighten()` / `Color.darken()` / `Color.blend()`.
+  3. Updates the stylesheet's CSS variable map.
+  4. Clears the stylesheet parse cache and re-applies styles to all widgets on the active screen stack.
+  5. Publishes `theme_changed_signal`.
 - `dark` is a MobX `computed` derived from `themes[activeTheme].dark`.
-- `getCssVariables()` merges theme-derived variables (`$primary` → `--theme-primary`, etc.) with any app-level overrides.
-- `refreshCss(animate?)` reparses the stylesheet with css-tree and reapplies styles to the app and all screens on the active stack. If `animate` is true and the animation system is available, style changes animate using CSS transitions.
+- `getCssVariables()` returns the current CSS variable map (variable name → `Color`).
+- `refreshCss(animate?)` reparses the stylesheet with css-tree and reapplies styles. When `animate: true`, color-valued property changes animate via the Animator, using rich-js `Color.blend()` for per-frame interpolation. Non-animatable properties snap.
 
 ### CSS variables from themes
 
@@ -366,10 +383,13 @@ Screen {
 
 Button.-primary {
   background: $primary;
+  color: auto;   /* auto-contrast from $primary, computed via rich-js Color */
 }
 ```
 
-The `$name` syntax is a TCSS shorthand for `var(--theme-name)`. The cascade resolves these during style application.
+The `$name` syntax is TCSS shorthand for `var(--theme-name)`. Cascade resolution yields a rich-js `Color` — the final Ink color prop is produced at the render boundary via `Color.toAnsi()` (respecting the active output filter pipeline).
+
+// [LAW:one-source-of-truth] Every color in the app — theme palette, TCSS values, inline styles, widget-local overrides, and content styling — is a rich-js `Color` instance. String forms are parsed at boundaries; they are not a parallel representation.
 
 ## Actions and Binding Dispatch
 
@@ -377,7 +397,7 @@ The `$name` syntax is a TCSS shorthand for `var(--theme-name)`. The cascade reso
 - Action availability is gated by `checkAction(actionName)`:
   - Returns `true` → action is enabled, binding shown normally.
   - Returns `false` → action is hidden, binding not shown.
-  - Returns `null` → action is disabled but visible, binding shown grayed out (per uber-divergence).
+  - Returns `null` → action is disabled but visible, binding shown grayed out.
 - Dispatch prefers a private handler `_action_<name>` over the public `action_<name>`; the first one found is invoked.
 - `SkipAction` thrown inside an action handler is treated as non-handling, allowing higher-level fallback (the binding resolution chain continues).
 - Action arguments: action strings can include arguments — `"delete(confirm=true)"` calls `action_delete({ confirm: true })`.
@@ -392,33 +412,49 @@ The `$name` syntax is a TCSS shorthand for `var(--theme-name)`. The cascade reso
 | `dismiss` | Pops the current screen (if stack depth > 1) |
 | `focus_next` | Moves focus to the next focusable widget |
 | `focus_previous` | Moves focus to the previous focusable widget |
+| `bell` | Sound the terminal bell |
 
 // [LAW:single-enforcer] All action invocation flows through `runAction` → `dispatchAction`; there is no parallel path that invokes `action_*` methods directly from input handling.
 
 ## Notifications
 
-- `notify(message, options?)` constructs a `Notification`, adds it to the app-level notification store (MobX observable array), and posts a `Notify` message.
+Notifications are styled, severity-tagged messages rendered as transient toasts by the screen-level `ToastRack`. They use rich-js for content and rich-js `Color` for severity styling.
 
 ### Notification model
 
 ```tsx
 interface Notification {
-  id: string;            // Unique identifier
-  message: string;       // Display text
+  id: string;                                    // Unique identifier (auto-generated)
+  message: string | Content;                     // Plain string, markup string, or rich-js Content
+  title?: string | Content;                      // Optional title (markup-parsed like message)
   severity: 'information' | 'warning' | 'error';
-  timeout: number;       // Auto-dismiss timeout in ms (0 = no auto-dismiss)
-  createdAt: number;     // Timestamp
+  timeout: number;                               // Auto-dismiss timeout in ms (0 = no auto-dismiss)
+  markup: boolean;                               // Parse message/title as rich-js markup (default: true)
+  createdAt: number;                             // Timestamp (Date.now())
 }
+```
+
+### Creating notifications
+
+```tsx
+const { notify } = useTextual();
+
+notify('Saved.');                                             // plain
+notify('[bold]Saved.[/]');                                    // markup
+notify('Connection lost', { severity: 'error', timeout: 0 }); // persistent error
+notify(contentValue);                                         // pre-built Content
 ```
 
 ### Notification behavior
 
-- The notification store is a MobX observable array on the app context.
-- Adding a notification triggers a React re-render of the toast display area (an internal component, not public API per uber-divergence).
-- Notifications expire based on their timeout. Expiry is managed by a timer that removes expired notifications from the store.
-- `clearNotifications()` removes all notifications from the store.
+- `notify(message, options?)` constructs a `Notification`, adds it to the app-level notification store (MobX observable array), and posts a `Notify` message.
+- Markup parsing: when `markup: true` (default), string `message` / `title` are parsed by rich-js into `Content` at render time — not at `notify()` call time. Parse errors fall back to literal rendering and are logged.
+- Severity-to-color mapping uses the active theme: information → `$primary`, warning → `$warning`, error → `$error`. These are rich-js `Color` values applied to the toast's `Content`.
+- Adding a notification triggers a React re-render of the toast display area (the internal `ToastRack`, not a public widget).
+- Notifications expire based on their timeout. Expiry is managed by a framework timer (spec 07) that removes expired entries from the store. Expired entries are dropped on next store access if the timer did not run yet.
+- `clearNotifications()` removes all notifications.
 - `dismissNotification(id)` removes a single notification by ID.
-- Widgets access the notification API via `useTextual()`: `const { notify } = useTextual()`.
+- Notifications added inside a `batchUpdate` batch accumulate; toast re-render happens when the batch flushes.
 
 ## Batch Updates
 
@@ -480,7 +516,7 @@ During shutdown, `batchUpdate` is opened and never closed — the counter stays 
 
 ## Print Capture
 
-Widgets can opt in to receiving the process's stdout/stderr output — useful for widgets like `RichLog` that mirror console output inside the TUI.
+Widgets can opt in to receiving the process's stdout/stderr output — useful for widgets like `RichLog` that mirror console output inside the TUI. Captured chunks may contain ANSI escape sequences (typical of libraries that write colored output to stdout); rich-js's ANSI parser converts them into `Content` when the capturing widget chooses to preserve styling.
 
 ### API
 
@@ -497,10 +533,10 @@ endCapturePrint(widget);     // widget stops receiving Print messages
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `text` | `string` | The captured chunk as written (exactly what the caller passed to `process.stdout.write` / `process.stderr.write`). |
+| `text` | `string` | The captured chunk as written (exactly what the caller passed to `process.stdout.write` / `process.stderr.write`). May contain ANSI escape sequences. |
 | `stderr` | `boolean` | `true` if the chunk came from stderr; `false` if from stdout. |
 
-One `Print` message is posted per `write` call. Text is not re-buffered or split by lines by the framework — the widget decides how to interpret the chunk.
+One `Print` message is posted per `write` call. Text is not re-buffered or split by lines by the framework — the widget decides how to interpret the chunk (including whether to parse embedded ANSI via rich-js into styled `Content`).
 
 ### Capture routing
 
@@ -521,7 +557,10 @@ Widgets typically expose their own `beginCapturePrint()` / `endCapturePrint()` m
 class RichLog {
   beginCapturePrint() { this.app.beginCapturePrint(this); }
   endCapturePrint() { this.app.endCapturePrint(this); }
-  onPrint(msg: Print) { this.write(msg.text); }
+  onPrint(msg: Print) {
+    // Parse any embedded ANSI into rich-js Content and append
+    this.write(parseAnsi(msg.text));
+  }
 }
 ```
 
@@ -537,6 +576,7 @@ During shutdown, the capture registry is cleared and the intercepts on `process.
 
 - `suspend()` publishes `app_suspend_signal`, calls Ink's suspend API to restore normal terminal state, yields control to the caller (for running external programs like editors), then resumes Ink's application mode, publishes `app_resume_signal`, and forces a full re-render.
 - This enables patterns like: suspend the app, run `$EDITOR` for the user, resume the app with the edited content.
+- While suspended, the animator is paused (no frames scheduled). It resumes on `app_resume_signal`.
 - Environments without suspend support (e.g., CI, piped stdin) throw `SuspendNotSupported`.
 
 ## Shutdown
@@ -547,15 +587,17 @@ Shutdown runs deterministically:
 
 1. Suppress further re-renders (begin a MobX batch/transaction that is never ended).
 2. Set `isRunning = false`.
-3. Cancel all active workers across all widgets (via WorkerManager cleanup).
-4. Clear all timers.
-5. Close all screens: for every mode stack, dispatch `Unmount` to each screen's widgets, unmount from React, clear the stack. Clear installed screens and modes.
-6. Dispatch `Unmount` to the app itself.
-7. Drain the message queue (process any remaining messages).
-8. Call `onExit(result)` callback if provided.
-9. Unmount the React component tree (Ink cleanup).
+3. Stop the animator — all in-flight animations finalize to their target values; `onComplete` callbacks are scheduled for cleanup but will not fire new work after shutdown begins.
+4. Cancel all active workers across all widgets (via WorkerManager cleanup).
+5. Clear all timers (including notification expiry, delayUpdate timers, file monitor).
+6. Tear down print capture: restore original `process.stdout.write` / `process.stderr.write`.
+7. Close all screens: for every mode stack, dispatch `Unmount` to each screen's widgets, unmount from React, clear the stack. Clear installed screens and modes.
+8. Dispatch `Unmount` to the app itself.
+9. Drain the message queue (process any remaining messages).
+10. Call `onExit(result)` callback if provided.
+11. Unmount the React component tree (Ink cleanup) — restores terminal to normal mode.
 
-// [LAW:verifiable-goals] Successful shutdown is machine-checkable: `isRunning` is false, every mode stack is empty, installed screens and modes are empty, all workers are cancelled, all timers are cleared, and the message queue has been drained.
+// [LAW:verifiable-goals] Successful shutdown is machine-checkable: `isRunning` is false, every mode stack is empty, installed screens and modes are empty, all workers are cancelled, all timers are cleared, the animator is stopped, stdout/stderr are restored, and the message queue has been drained.
 
 ### Return values
 
