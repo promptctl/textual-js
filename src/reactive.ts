@@ -34,7 +34,7 @@ export function reactive<T>(defaultValue: ReactiveDefault<T>, options: ReactiveO
   return {
     defaultValue,
     options: {
-      init: options.init ?? true,
+      init: options.init ?? false,
       alwaysUpdate: options.alwaysUpdate ?? false,
     },
   };
@@ -78,6 +78,8 @@ export abstract class ReactiveHost {
   private readonly reactiveBoxes = new Map<string, IObservableValue<unknown>>();
   private readonly computedValues = new Map<string, IComputedValue<unknown>>();
   private readonly externalWatchers = new Map<string, Set<ReactiveWatcher<unknown>>>();
+  private readonly silentReactiveNames = new Set<string>();
+  private silentMutationDepth = 0;
   private initialized = false;
 
   protected initializeReactiveState(definitions: ReactiveDefinitions): void {
@@ -108,10 +110,14 @@ export abstract class ReactiveHost {
 
       intercept(box, (change) => ({
         ...change,
-        newValue: this.applyValidators(name, change.newValue),
+        newValue: this.silentReactiveNames.has(name) ? change.newValue : this.applyValidators(name, change.newValue),
       }));
 
       observe(box, (change) => {
+        if (this.silentReactiveNames.has(name)) {
+          return;
+        }
+
         this.notifyWatchers(name, change.oldValue, change.newValue);
       });
 
@@ -146,9 +152,19 @@ export abstract class ReactiveHost {
       throw new Error(`Unknown reactive "${name}"`);
     }
 
-    runInAction(() => {
-      box.set(value);
-    });
+    // [LAW:single-enforcer] Normal reactive writes flow through intercept/observe.
+    // setReactive is the one sanctioned escape hatch for silent internal writes.
+    this.silentReactiveNames.add(name);
+    this.silentMutationDepth += 1;
+
+    try {
+      runInAction(() => {
+        box.set(value);
+      });
+    } finally {
+      this.silentMutationDepth -= 1;
+      this.silentReactiveNames.delete(name);
+    }
   }
 
   mutateReactive(name: string): void {
@@ -175,6 +191,10 @@ export abstract class ReactiveHost {
       reaction(
         () => value.get(),
         (nextValue, previousValue) => {
+          if (this.silentMutationDepth > 0) {
+            return;
+          }
+
           this.notifyWatchers(name, previousValue, nextValue);
         },
       );

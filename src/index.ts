@@ -52,19 +52,35 @@ export {
   type ReactiveWatcher,
 } from "./reactive.js";
 export {
+  combineBorderQuads,
   Scalar,
   Unit,
   generateTcss,
   InvalidQueryFormat,
+  normalizeColor,
   parseScalar,
   parseSelectorList,
   parseTcss,
+  renderBorderLabel,
+  renderBorderRow,
+  scalarToInkValue,
+  type BorderQuad,
   type BorderValue,
+  type BorderRowGlyphs,
   type ParsedDeclaration,
   type ParsedRule,
   type ParsedSelector,
   type ParsedSelectorSegment,
   type ParsedStylesheet,
+  type RenderBorderLabelOptions,
   type SelectorSpecificity,
 } from "./styles/index.js";
-export { Pilot, runTest, type TestSession } from "./testing/index.js";
+export {
+  OutOfBounds,
+  Pilot,
+  PilotTargetNotFound,
+  camelToSnake,
+  runTest,
+  type RunTestOptions,
+  type TestSession,
+} from "./testing/index.js";

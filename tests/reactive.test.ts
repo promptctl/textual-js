@@ -37,6 +37,27 @@ class CounterHost extends ReactiveHost {
   compute_double(): number {
     return this.count * 2;
   }
+
+  watch_double(oldValue: number | undefined, newValue: number): void {
+    this.calls.push(`double:${oldValue ?? "init"}->${newValue}`);
+  }
+}
+
+class LazyHost extends ReactiveHost {
+  static readonly definitions = {
+    count: reactive(1),
+  };
+
+  readonly calls: string[] = [];
+
+  constructor() {
+    super();
+    this.initializeReactiveState(LazyHost.definitions);
+  }
+
+  watch_count(oldValue: number | undefined, newValue: number): void {
+    this.calls.push(`${oldValue ?? "init"}->${newValue}`);
+  }
 }
 
 describe("reactive pipeline", () => {
@@ -63,6 +84,7 @@ describe("reactive pipeline", () => {
       "public-validate:3",
       "private-watch:2->6",
       "public-watch:2->6",
+      "double:4->12",
     ]);
     expect(events).toEqual(["external:2->6"]);
   });
@@ -81,6 +103,23 @@ describe("reactive pipeline", () => {
     });
 
     expect(values).toEqual(["idle->ready", "ready->ready"]);
+  });
+
+  it("does not initialize plain reactive() watchers unless init is enabled", () => {
+    const host = new LazyHost();
+
+    expect(host.calls).toEqual([]);
+  });
+
+  it("setReactive bypasses validators, watchers, and computed watcher notifications", () => {
+    const host = new CounterHost();
+    host.calls.length = 0;
+
+    host.setReactive("count", 3);
+
+    expect(host.count).toBe(3);
+    expect(host.double).toBe(6);
+    expect(host.calls).toEqual([]);
   });
 
   it("enforces action-only mutation", () => {

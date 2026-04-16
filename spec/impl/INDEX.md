@@ -1,6 +1,6 @@
 # Textual-JS Implementation Plan
 
-Audit date: 2026-04-14
+Audit date: 2026-04-16
 
 A terminal UI application framework built as a React component library on Ink. Ported from Python's Textual, adapted to leverage the JS ecosystem.
 
@@ -64,6 +64,8 @@ The initial bootstrap (`src/`) was written for a renderer-agnostic architecture 
 
 ## Phase Map
 
+Legacy phase files remain as scope buckets, but recommended execution order is defined in `spec/impl/IMPLEMENTATION_ORDER.md`.
+
 | Phase | File | Title | Libraries Introduced |
 |-------|------|-------|---------------------|
 | 1 | `phase-01-foundation.md` | React/Ink + MobX Foundation | react, ink, mobx, mobx-react-lite |
@@ -84,26 +86,32 @@ The initial bootstrap (`src/`) was written for a renderer-agnostic architecture 
 
 ## Conformance Tracker
 
-Updated at each phase boundary. Every "Implemented" row must correspond to a passing test file.
+Updated at each recommended stage boundary. Every implemented row must correspond to a passing test file.
 
-| spec-tests file | Phase | Status | Test file(s) |
+| spec-tests file | Stage | Status | Test file(s) |
 |----------------|-------|--------|-------------|
-| `geometry.md` | 1 | Phase 1 foundation | `tests/geometry.test.ts` |
-| `events_and_messages.md` | 1 | Phase 1 foundation | `tests/message.test.tsx` |
-| `reactivity.md` | 1 | Phase 1 foundation | `tests/reactive.test.ts` |
-| `app.md` | 1 | Phase 1 foundation | `tests/app.test.tsx`, `tests/integration.test.tsx` |
-| `css_parsing.md` | 2 | Phase 2 TCSS/query | `tests/css-parsing.test.ts` |
-| `css_styles.md` | 2 | Phase 2 TCSS/query | `tests/styles.test.tsx` |
-| `dom.md` | 2 | Phase 2 TCSS/query | `tests/dom-query.test.tsx` |
-| `bindings_and_actions.md` | 3 | — | — |
-| `widget.md` | 3 | — | — |
-| `workers.md` | 4 | — | — |
-| `notifications.md` | 4 | — | — |
-| `command_palette.md` | 4 | — | — |
-| `button.md` | 5 | — | — |
-| `input.md` | 5 | — | — |
-| `list_view.md` | 5 | — | — |
-| `data_table.md` | 6 | — | — |
-| `text_area.md` | 6 | — | — |
-| `markdown.md` | 6 | — | — |
-| `animations.md` | 7 | — | — |
+| `testing.md` | 0 | Implemented | `tests/integration.test.tsx` |
+| `geometry.md` | 0 | Implemented | `tests/geometry.test.ts` |
+| `app.md` | 0 | Startup slice implemented | `tests/app.test.tsx`, `tests/integration.test.tsx` |
+| `events_and_messages.md` | 1 | Implemented | `tests/message.test.tsx` |
+| `reactivity.md` | 1 | Implemented | `tests/reactive.test.ts` |
+| `app.md` | 1 | Lifecycle slice implemented | `tests/app.test.tsx`, `tests/message.test.tsx`, `tests/integration.test.tsx` |
+| `color.md` | 2 | Implemented | `tests/color.test.ts` |
+| `css_scalars.md` | 2 | Implemented | `tests/css-scalars.test.ts` |
+| `css_parsing.md` | 2 | Implemented | `tests/css-parsing.test.ts` |
+| `css_styles.md` | 3 | Implemented | `tests/styles.test.tsx` |
+| `css_nested.md` | 3 | Implemented | `tests/css-parsing.test.ts`, `tests/styles.test.tsx` |
+| `dom.md` | 3 | Implemented | `tests/dom-query.test.tsx` |
+| `borders.md` | 3 | Implemented | `tests/borders.test.ts` |
+| `bindings_and_actions.md` | 4 | — | — |
+| `widget.md` | 4 | — | — |
+| `workers.md` | 5 | — | — |
+| `notifications.md` | 5 | — | — |
+| `command_palette.md` | 6 | — | — |
+| `button.md` | 7 | — | — |
+| `input.md` | 7 | — | — |
+| `list_view.md` | 8 | — | — |
+| `data_table.md` | 9 | — | — |
+| `text_area.md` | 9 | — | — |
+| `markdown.md` | 10 | — | — |
+| `animations.md` | 11 | — | — |

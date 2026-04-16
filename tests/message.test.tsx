@@ -13,6 +13,10 @@ class ReplaceablePing extends Message {
   }
 }
 
+class SilentPing extends Message {
+  static override readonly noDispatch = true;
+}
+
 describe("message dispatch", () => {
   afterEach(() => {
     render(<Text>cleanup</Text>).cleanup();
@@ -96,6 +100,115 @@ describe("message dispatch", () => {
 
     expect(received).toEqual([1]);
 
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("dispatches compose, mount, and unmount lifecycle messages", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="LifecycleWidget"
+          handlers={{
+            onCompose: () => {
+              received.push("compose");
+            },
+            onMount: () => {
+              received.push("mount");
+            },
+            onUnmount: () => {
+              received.push("unmount");
+            },
+          }}
+        >
+          <Text>lifecycle</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    expect(received.slice(0, 2)).toEqual(["compose", "mount"]);
+
+    instance.unmount();
+    instance.cleanup();
+    await Promise.resolve();
+
+    expect(received).toContain("unmount");
+  });
+
+  it("tracks sender and message metadata", async () => {
+    const framework = new TextualFramework();
+    const senders: unknown[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="MetadataWidget"
+          handlers={{
+            onPing: (message) => {
+              senders.push(message.sender);
+            },
+          }}
+        >
+          <Text>metadata</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.list()[0];
+    const ping = new Ping();
+
+    expect(typeof ping.time).toBe("number");
+    expect(ping.noDispatch).toBe(false);
+
+    framework.postMessage(widget.nodeId, ping);
+    await framework.whenIdle();
+
+    expect(senders).toEqual([widget]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("publishes messages to subscribers even when noDispatch short-circuits handlers", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+    const observed: string[] = [];
+    const unsubscribe = framework.subscribeToMessages((message) => {
+      observed.push(message.constructor.name);
+    });
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="SilentWidget"
+          handlers={{
+            onSilentPing: () => {
+              received.push("handler");
+            },
+          }}
+        >
+          <Text>silent</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.list()[0];
+    framework.postMessage(widget.nodeId, new SilentPing());
+    await framework.whenIdle();
+
+    expect(received).toEqual([]);
+    expect(observed).toContain("SilentPing");
+
+    unsubscribe();
     instance.unmount();
     instance.cleanup();
   });

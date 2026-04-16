@@ -1,4 +1,4 @@
-export { TextualFramework, type RegisterWidgetOptions } from "./app-framework.js";
+export { TextualFramework, normalizeKeyName, type RegisterWidgetOptions } from "./app-framework.js";
 export {
   StylesReader,
   TextualProvider,

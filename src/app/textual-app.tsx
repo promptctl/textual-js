@@ -9,6 +9,7 @@ import { Size } from "../geometry/index.js";
 export interface TextualAppProps extends PropsWithChildren {
   framework?: TextualFramework;
   onReady?: (framework: TextualFramework) => void;
+  css?: string;
   stylesheet?: string;
 }
 
@@ -48,6 +49,7 @@ export const TextualApp = observer(function TextualApp({
   children,
   framework,
   onReady,
+  css,
   stylesheet,
 }: TextualAppProps): React.JSX.Element {
   const [ownedFramework] = useState(() => framework ?? new TextualFramework());
@@ -57,8 +59,8 @@ export const TextualApp = observer(function TextualApp({
   }, [onReady, ownedFramework]);
 
   useLayoutEffect(() => {
-    ownedFramework.setUserStylesheet(stylesheet ?? "");
-  }, [ownedFramework, stylesheet]);
+    ownedFramework.setUserStylesheet(css ?? stylesheet ?? "");
+  }, [css, ownedFramework, stylesheet]);
 
   return (
     <TextualProvider framework={ownedFramework}>

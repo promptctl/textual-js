@@ -1,6 +1,7 @@
 import * as csstree from "css-tree";
 
 import { Spacing } from "../geometry/index.js";
+import { normalizeColor } from "./color.js";
 import { parseScalar, type Scalar, scalarToInkValue } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
@@ -150,7 +151,24 @@ function scopeSelectors(selectors: string[], scopeTypeName?: string): string[] {
 
   return selectors.map((selector) => {
     const trimmed = selector.trim();
-    return trimmed.startsWith(scopeTypeName) ? trimmed : `${scopeTypeName} ${trimmed}`;
+
+    if (trimmed.startsWith(scopeTypeName)) {
+      return trimmed;
+    }
+
+    if (trimmed === "*") {
+      return scopeTypeName;
+    }
+
+    if (trimmed.startsWith(".") || trimmed.startsWith("#") || trimmed.startsWith(":")) {
+      return `${scopeTypeName}${trimmed}`;
+    }
+
+    if (trimmed.startsWith("*")) {
+      return `${scopeTypeName}${trimmed.slice(1)}`;
+    }
+
+    return `${scopeTypeName} ${trimmed}`;
   });
 }
 
@@ -301,10 +319,12 @@ function parseSpacing(rawValue: string): Spacing {
 
 function parseBorder(rawValue: string): BorderValue {
   const [style, color] = rawValue.trim().split(/\s+/, 2);
+  const normalizedColor =
+    color === undefined || color.startsWith("var(") ? color : normalizeColor(color);
 
   return {
     style,
-    color,
+    color: normalizedColor,
   };
 }
 
@@ -320,6 +340,11 @@ function parseValue(property: string, rawValue: string): unknown {
 
   if (property === "border") {
     return parseBorder(rawValue);
+  }
+
+  if (property === "background" || property === "color") {
+    const trimmed = rawValue.trim();
+    return trimmed.startsWith("var(") ? trimmed : normalizeColor(trimmed);
   }
 
   if (property === "display" || property === "visibility" || property === "text-align") {
@@ -481,7 +506,7 @@ export function resolveStylesForWidget(
 ): ResolvedInkStyles {
   const resolvedProperties = new Map<string, CascadeValue>();
   const customProperties = { ...parentCustomProperties };
-  const stylesheets = framework.getActiveStylesheetsFor(widget.typeName, widget.defaultCss);
+  const stylesheets = framework.getActiveStylesheetsFor(widget.typeName);
 
   // [LAW:single-enforcer] Style resolution always flows through the same cascade
   // pipeline so DEFAULT_CSS, user CSS, and inline styles cannot drift apart.

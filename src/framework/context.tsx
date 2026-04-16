@@ -97,7 +97,6 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       handlersRef: { current: options.handlers },
       focusable: options.focusable ?? false,
       autoFocus: options.autoFocus ?? false,
-      defaultCss: options.defaultCss,
     }),
   );
   const handlersRef = useRef(options.handlers) as MutableRefObject<WidgetHandlers | undefined>;
@@ -107,16 +106,20 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   widgetRef.current.handlersRef.current = options.handlers;
 
   useLayoutEffect(() => {
+    framework.registerWidgetType(options.typeName, options.defaultCss);
     widgetRef.current.parentId = parentId;
     widgetRef.current.replaceClasses(classes);
     framework.registerWidget(widgetRef.current);
 
     return () => {
+      framework.notifyWillUnmount(widgetRef.current);
       framework.unregisterWidget(widgetRef.current.nodeId);
     };
   }, [
     classesKey,
     framework,
+    options.defaultCss,
+    options.typeName,
     parentId,
   ]);
 

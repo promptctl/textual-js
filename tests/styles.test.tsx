@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   Key,
+  normalizeColor,
   Size,
   TextualApp,
   TextualFramework,
@@ -118,14 +119,14 @@ describe("styles and useStyles", () => {
 
     const styled = framework.registry.getByCssId("styled") as WidgetNode;
 
-    expect(styled.resolvedStyles.getRule("background")).toBe("yellow");
-    expect(styled.resolvedStyles.getRule("color")).toBe("white");
+    expect(styled.resolvedStyles.getRule("background")).toBe(normalizeColor("yellow"));
+    expect(styled.resolvedStyles.getRule("color")).toBe(normalizeColor("white"));
     expect(styled.resolvedStyles.box.paddingLeft).toBe(2);
     expect(styled.resolvedStyles.box.paddingTop).toBe(1);
     expect(styled.resolvedStyles.box.borderStyle).toBe("round");
-    expect(styled.resolvedStyles.box.borderColor).toBe("magenta");
+    expect(styled.resolvedStyles.box.borderColor).toBe(normalizeColor("magenta"));
     expect(styled.resolvedStyles.box.width).toBe(12);
-    expect(styled.resolvedStyles.text.color).toBe("white");
+    expect(styled.resolvedStyles.text.color).toBe(normalizeColor("white"));
     expect(instance.lastFrame()).toContain("styled:");
 
     instance.unmount();
@@ -167,7 +168,7 @@ describe("styles and useStyles", () => {
 
     const dynamic = framework.registry.getByCssId("dynamic") as WidgetNode;
 
-    expect(dynamic.resolvedStyles.getRule("background")).toBe("tomato");
+    expect(dynamic.resolvedStyles.getRule("background")).toBe(normalizeColor("tomato"));
     expect(instance.lastFrame()).toContain("dynamic:");
 
     dynamic.addClass("active");
@@ -175,8 +176,75 @@ describe("styles and useStyles", () => {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(dynamic.resolvedStyles.getRule("background")).toBe("rebeccapurple");
-    expect(renders.some((entry) => entry.startsWith("rebeccapurple@"))).toBe(true);
+    expect(dynamic.resolvedStyles.getRule("background")).toBe(normalizeColor("rebeccapurple"));
+    expect(renders.some((entry) => entry.startsWith(`${normalizeColor("rebeccapurple")}@`))).toBe(true);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("applies DEFAULT_CSS class selectors to the widget itself", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <StyledLabel
+          id="self-scoped"
+          classes="active"
+          label="self"
+          defaultCss={`
+            .active {
+              background: orange;
+            }
+          `}
+        />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("self-scoped") as WidgetNode;
+
+    expect(widget.resolvedStyles.getRule("background")).toBe(normalizeColor("orange"));
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("applies nested selectors and lets inline styles override the cascade", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          StyledRoot {
+            StyledLabel {
+              background: tomato;
+
+              &.active {
+                background: rebeccapurple;
+              }
+            }
+          }
+        `}
+      >
+        <StyledRoot>
+          <StyledLabel id="inline" classes="active" label="inline" />
+        </StyledRoot>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("inline") as WidgetNode;
+
+    expect(widget.resolvedStyles.getRule("background")).toBe(normalizeColor("rebeccapurple"));
+
+    widget.setInlineStyle("background", "green");
+    await framework.whenIdle();
+
+    expect(widget.resolvedStyles.getRule("background")).toBe(normalizeColor("green"));
 
     instance.unmount();
     instance.cleanup();
@@ -258,5 +326,15 @@ describe("styles and useStyles", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("rejects conflicting DEFAULT_CSS declarations for the same widget type", () => {
+    const framework = new TextualFramework();
+
+    framework.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: red; }");
+
+    expect(() => {
+      framework.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: blue; }");
+    }).toThrow(/conflicting DEFAULT_CSS/);
   });
 });

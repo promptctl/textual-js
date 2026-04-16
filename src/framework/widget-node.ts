@@ -16,7 +16,6 @@ export interface WidgetNodeInit {
   handlersRef: { current: WidgetHandlers | undefined };
   focusable: boolean;
   autoFocus: boolean;
-  defaultCss?: string;
 }
 
 export class WidgetNode {
@@ -32,7 +31,6 @@ export class WidgetNode {
   readonly pseudoClasses = observable.map<string, boolean>();
   readonly inlineStyles = observable.map<string, string>();
   readonly resolvedStyles = new ResolvedStyles();
-  readonly defaultCss?: string;
 
   constructor(init: WidgetNodeInit) {
     this.framework = init.framework;
@@ -43,7 +41,6 @@ export class WidgetNode {
     this.handlersRef = init.handlersRef;
     this.focusable = init.focusable;
     this.autoFocus = init.autoFocus;
-    this.defaultCss = init.defaultCss;
 
     runInAction(() => {
       for (const className of init.classes) {
@@ -62,7 +59,6 @@ export class WidgetNode {
         typeName: false,
         focusable: false,
         autoFocus: false,
-        defaultCss: false,
       },
       { autoBind: true },
     );

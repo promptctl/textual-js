@@ -1,4 +1,13 @@
 export { ResolvedStyles, type BorderValue, type ResolvedInkStyles, type ResolvedRuleMap } from "./resolved-styles.js";
+export {
+  combineBorderQuads,
+  renderBorderLabel,
+  renderBorderRow,
+  type BorderQuad,
+  type BorderRowGlyphs,
+  type RenderBorderLabelOptions,
+} from "./borders.js";
+export { normalizeColor } from "./color.js";
 export { Scalar, Unit, axisToPercentUnit, parseScalar, scalarToInkValue, type ScalarAxis } from "./scalar.js";
 export {
   generateTcss,

@@ -3,7 +3,7 @@ import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 
-import { TextualApp, TextualFramework, WidgetHost } from "../src/index.js";
+import { normalizeColor, TextualApp, TextualFramework, WidgetHost } from "../src/index.js";
 
 describe("TextualApp and widget registry", () => {
   it("renders inside ink-testing-library and exposes framework services", async () => {
@@ -50,5 +50,31 @@ describe("TextualApp and widget registry", () => {
     expect(framework.registry.list()).toHaveLength(0);
     expect(framework.registry.version).toBe(2);
     expect(framework.isRunning).toBe(false);
+  });
+
+  it("accepts app-level css through the stage-0 startup surface", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        css={`
+          Label {
+            color: red;
+          }
+        `}
+      >
+        <WidgetHost typeName="Label" id="styled-label">
+          <Text>Hello</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    expect(framework.registry.getByCssId("styled-label")?.resolvedStyles.getRule("color")).toBe(normalizeColor("red"));
+
+    instance.unmount();
+    instance.cleanup();
   });
 });

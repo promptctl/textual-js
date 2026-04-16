@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Scalar, Unit, generateTcss, parseScalar, parseSelectorList, parseTcss } from "../src/index.js";
+import { Scalar, Unit, generateTcss, normalizeColor, parseScalar, parseSelectorList, parseTcss } from "../src/index.js";
 
 describe("TCSS parsing", () => {
   it("parses and serializes a stylesheet through css-tree", () => {
@@ -50,5 +50,30 @@ describe("TCSS parsing", () => {
     expect(parseScalar("1fr", "width").equals(new Scalar(1, Unit.FRACTION, Unit.WIDTH))).toBe(true);
     expect(parseScalar("30vw", "width").equals(new Scalar(30, Unit.WIDTH, Unit.WIDTH))).toBe(true);
     expect(parseScalar("40vh", "height").equals(new Scalar(40, Unit.HEIGHT, Unit.HEIGHT))).toBe(true);
+  });
+
+  it("scopes DEFAULT_CSS self selectors onto the widget instance", () => {
+    const stylesheet = parseTcss(
+      `
+        .active { color: red; }
+        :focus { background: blue; }
+      `,
+      {
+        origin: "default",
+        scopeTypeName: "Button",
+      },
+    );
+
+    expect(stylesheet.flatSource).toContain("Button.active { color: red; }");
+    expect(stylesheet.flatSource).toContain("Button:focus { background: blue; }");
+  });
+
+  it("normalizes parsed color values at the stylesheet boundary", () => {
+    const stylesheet = parseTcss("Button { color: rebeccapurple; background: rgba(2, 3, 4, 2); }", {
+      origin: "user",
+    });
+
+    expect(stylesheet.rules[0]?.declarations[0]?.value).toBe(normalizeColor("rebeccapurple"));
+    expect(stylesheet.rules[0]?.declarations[1]?.value).toBe(normalizeColor("rgba(2, 3, 4, 2)"));
   });
 });
