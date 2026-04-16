@@ -11,17 +11,21 @@ You are implementing Phase {NN} of the textual-js project — a terminal UI appl
 
 ## Your instructions
 
-1. Read `spec/impl/phase-{NN}-*.md` — this is your phase file. It contains everything you need: preconditions, goal, scope, spec references, exit criteria. Follow it precisely.
+1. Read `spec/impl/IMPLEMENTATION_ORDER.md` first. This is the dependency-first execution order. Determine which recommended stage(s) map to Phase {NN}, and do not pull work from a later recommended stage forward.
 
-2. Read `spec/impl/INDEX.md` — this is the project overview. It has the architectural principles, enforcement boundaries, and conformance tracker. Understand where your phase fits.
+2. Read `spec/impl/phase-{NN}-*.md` — this is the legacy phase file. Use it as a source of scope, references, and exit criteria, but interpret it through `IMPLEMENTATION_ORDER.md` if the phase file spans multiple recommended stages.
 
-3. Read the spec references listed in your phase file (under "Spec References"). These are the behavioral specifications your implementation must satisfy. The spec-tests files (`spec/spec-tests/*.md`) are your primary source of test cases.
+3. Read `spec/impl/INDEX.md` — this is the project overview. It has the architectural principles, enforcement boundaries, and conformance tracker. Understand where your phase fits.
 
-4. Read the source files listed in your phase file (under "Current State"). Understand what exists before you change anything.
+4. Read the spec references listed in your phase file and the matching stage entry in `IMPLEMENTATION_ORDER.md`. These are the behavioral specifications your implementation must satisfy. The spec-tests files (`spec/spec-tests/*.md`) are your primary source of test cases.
 
-5. Implement the scope described in your phase file. Write code and tests.
+5. Read the source files listed in your phase file (under "Current State"). Understand what exists before you change anything.
 
-6. Verify every exit criterion in your phase file. Each one is machine-verifiable — run the check, don't assume it passes.
+6. Implement only the earliest incomplete recommended stage for Phase {NN}. If the legacy phase file includes work from later recommended stages, defer that work until the earlier stage is complete and verified.
+
+7. Write code and tests for that active stage only.
+
+8. Verify every exit criterion for the active recommended stage and any matching phase-file criteria. Each one is machine-verifiable — run the check, don't assume it passes.
 
 ## Architectural Laws
 
@@ -128,19 +132,24 @@ Examples:
 
 - **Read before you write.** Understand the existing code, the spec, and the phase file before producing any implementation.
 
+- **Follow the dependency order, not the broadest bucket.** `spec/impl/IMPLEMENTATION_ORDER.md` is the execution authority for sequencing. If a legacy phase file contains multiple recommended stages, complete them one at a time in order.
+
 - **Tests are first-class deliverables.** Every behavior you implement gets a test. Use the spec-tests files as your test case source.
 
 - **Keep it simple.** Don't add features, abstractions, or error handling beyond what the phase file asks for. Don't refactor surrounding code. Don't add comments to code you didn't write. Three similar lines of code is better than a premature abstraction.
 
 - **Backward compatibility within the phase plan.** All prior phase tests must still pass when you're done. Run `npm test` and verify.
 
+- **Do not backfill later-stage infrastructure into earlier-stage work.** If you discover that the requested phase file mentions later-stage items, note the deferral and stop at the current stage boundary once its tests and exit criteria pass.
+
 ## Verification checklist (run before declaring done)
 
 1. `npm run build` passes
 2. `npm run lint` passes
-3. `npm test` passes — all suites, including prior phases
-4. Every exit criterion in your phase file is satisfied
-5. Update the conformance tracker in `spec/impl/INDEX.md` for any spec-tests files you covered
+3. `npm test` passes — all suites, including prior phases and earlier recommended stages
+4. The active recommended stage from `spec/impl/IMPLEMENTATION_ORDER.md` is fully satisfied before any later-stage work begins
+5. Every matching exit criterion in your phase file is satisfied for the stage you implemented
+6. Update the conformance tracker in `spec/impl/INDEX.md` for any spec-tests files you covered
 
 ## Key directories
 
