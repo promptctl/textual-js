@@ -1,31 +1,121 @@
 # textual-js Phase Implementation Prompt
 
-Use this prompt to launch a fresh agent on any phase. Replace `{NN}` with the phase number (01–07).
+When this file is loaded into an agent's context, the agent must execute the instructions below directly. The agent's first action after reading this file must be to run the first command in Step 0.1. Everything that follows is for the agent.
 
 ---
 
-## Prompt
+## Begin work
 
-```
-You are implementing Phase {NN} of the textual-js project — a terminal UI application framework built as a React component library on Ink, ported from Python's Textual.
+This project is textual-js — a terminal UI application framework built as a React component library on Ink, ported from Python's Textual. You are going to identify the next incomplete phase and implement it.
 
-## Your instructions
+Do not respond with a summary of this prompt. Do not generate "insight" commentary about the prompt's design. Do not ask the user which phase to work on. Do not ask any clarifying questions. Step 0 will give you all the information you need to identify the right phase yourself, and the steps after that will tell you what to do.
 
-1. Read `spec/impl/IMPLEMENTATION_ORDER.md` first. This is the dependency-first execution order. Determine which recommended stage(s) map to Phase {NN}, and do not pull work from a later recommended stage forward.
+Your first action is to run the command in Step 0.1. Begin now.
 
-2. Read `spec/impl/phase-{NN}-*.md` — this is the legacy phase file. Use it as a source of scope, references, and exit criteria, but interpret it through `IMPLEMENTATION_ORDER.md` if the phase file spans multiple recommended stages.
+## STEP 0 — Inventory the codebase
 
-3. Read `spec/impl/INDEX.md` — this is the project overview. It has the architectural principles, enforcement boundaries, and conformance tracker. Understand where your phase fits.
+You have no context about this project. Do not assume you do. Execute the steps below in order. Do not write any code, do not read any phase file, and do not begin planning until every step is complete.
 
-4. Read the spec references listed in your phase file and the matching stage entry in `IMPLEMENTATION_ORDER.md`. These are the behavioral specifications your implementation must satisfy. The spec-tests files (`spec/spec-tests/*.md`) are your primary source of test cases.
+Each step has the form: run a specific command, then read specific files. Use the Bash tool for the commands. Use the Read tool for the files. Read each file in full — do not pass an `offset` or `limit` parameter. Do not summarize files in your head as you go; just read them. Comprehension comes from having read everything, not from compressing each file into a sentence.
 
-5. Read the source files listed in your phase file (under "Current State"). Understand what exists before you change anything.
+When you run a command, read its full output. If the output is truncated by the tool, re-run in a way that produces complete output — write to a file and read it, paginate, or narrow the query. Do not proceed on partial output.
 
-6. Implement only the earliest incomplete recommended stage for Phase {NN}. If the legacy phase file includes work from later recommended stages, defer that work until the earlier stage is complete and verified.
+If a command fails, stop and report it. Do not switch to a different tool to work around the failure. The procedure depends on these specific commands working: if `find src ...` fails because of a hook, environment, or permissions error, the correct response is to tell the user what failed and what needs fixing, not to substitute Glob and continue. A failed command and an empty result are different — check exit codes and stderr before assuming a command "returned nothing."
 
-7. Write code and tests for that active stage only.
+### Step 0.1 — Read the source
 
-8. Verify every exit criterion for the active recommended stage and any matching phase-file criteria. Each one is machine-verifiable — run the check, don't assume it passes.
+Run: `find src -type f \( -name "*.ts" -o -name "*.tsx" \) | sort`
+
+The output is a list of file paths. Read every path in that list with the Read tool. If the list has 30 paths, you make 30 Read calls. Do not skip any path. Do not assume you can guess what an `index.ts` contains.
+
+### Step 0.2 — Read the tests
+
+Run: `find tests -type f \( -name "*.ts" -o -name "*.tsx" \) | sort`
+
+Read every path in the output with the Read tool. Tests are the authoritative description of what behavior is currently guaranteed. A behavior with no test is not guaranteed, regardless of what any document says.
+
+### Step 0.3 — Read the project metadata
+
+Use the Read tool on each of these files:
+- `README.md`
+- `AGENTS.md`
+- `package.json`
+- `tsconfig.json`
+
+### Step 0.4 — Read the implementation plan
+
+Run: `find spec/impl -type f -name "*.md" | sort`
+
+Read every path in the output with the Read tool. This includes `INDEX.md`, `IMPLEMENTATION_ORDER.md`, `PROMPT.md` (this file you are already reading — read it again from the file, fully, to ensure you have the current version), and every `phase-*.md`.
+
+`INDEX.md` contains a Conformance Tracker section. Read it for context only. Do not modify it. If anything in the tracker contradicts what you find in the code or tests, the code and tests are correct.
+
+### Step 0.5 — Read the architectural specifications
+
+Run: `find spec/spec-src -type f -name "*.md" | sort`
+
+Read every path in the output with the Read tool. These define the behavior the project is targeting.
+
+### Step 0.6 — Read the test backlog
+
+Run: `find spec/spec-tests -type f -name "*.md" | sort`
+
+Read every path in the output with the Read tool. These are the test cases organized by feature area.
+
+### Step 0.7 — Verify the current build state
+
+Run each of these commands. Read the full output of each:
+- `npm run build`
+- `npm run lint`
+- `npm test`
+
+If any of these fail, the codebase is in a broken state. Do not start new work on a broken codebase. Investigate the failures first.
+
+### Step 0.8 — Confirm completion
+
+Step 0 is complete when you have made every Read tool call and every Bash command call listed in steps 0.1 through 0.7. If at any point you proceeded without completing a step, stop now and complete the missing step before continuing.
+
+## STEP 1 — Identify the next phase to implement
+
+You now have full knowledge of the codebase from Step 0. Use it to determine which phase to work on.
+
+### Step 1.1 — Determine the active stage
+
+The authoritative execution order is in `spec/impl/IMPLEMENTATION_ORDER.md`, which defines stages 0 through 11. Each stage lists the spec-tests files it must produce passing tests for.
+
+Walk the stages in numeric order, starting from Stage 0. For each stage:
+- Look at the spec-tests files listed for that stage.
+- For each spec-tests file, check whether a corresponding test file exists under `tests/` and passes when you ran `npm test` in step 0.8.
+- If every spec-tests file for the stage has a corresponding passing test file, the stage is complete. Move to the next stage.
+- If any spec-tests file for the stage has no corresponding passing test file, that stage is the active stage. Stop walking.
+
+The first stage with missing or failing tests is the active stage. Do not skip ahead to a later stage even if it looks easier.
+
+### Step 1.2 — Map the active stage to a phase file
+
+`spec/impl/IMPLEMENTATION_ORDER.md` has a section near the bottom titled "Suggested Mapping Back To The Existing Phase Files." Use that mapping to identify which `phase-NN-*.md` file covers the active stage. There may be more than one stage per phase file; you are working on one stage at a time, not the whole phase.
+
+### Step 1.3 — Read the phase file
+
+Read the `phase-NN-*.md` file identified in step 1.2 in full. Use it as the source of scope, spec references, and exit criteria for the active stage. If the phase file describes work from later stages too, ignore that work — you are implementing only the active stage.
+
+### Step 1.4 — Read the spec references
+
+Read every `spec/spec-src/*.md` file referenced by the phase file or by the stage entry in `IMPLEMENTATION_ORDER.md` that you have not already read in step 0.6. These define the behavioral contracts your implementation must satisfy.
+
+Read every `spec/spec-tests/*.md` file listed for the active stage that you have not already read in step 0.7. These are your test case sources.
+
+## STEP 2 — Implement the active stage
+
+1. Write code and tests for the active stage only. Do not pull work from later stages forward.
+
+2. Tests are first-class deliverables. Every behavior you implement gets a test. Use the spec-tests files as your test case source.
+
+3. Keep it simple. Do not add features, abstractions, or error handling beyond what the phase file asks for. Do not refactor surrounding code. Do not add comments to code you did not write.
+
+4. All prior phase tests must still pass when you are done. Run `npm test` and verify.
+
+5. Verify every exit criterion in the phase file that corresponds to the active stage. Each one is machine-verifiable — run the check, do not assume it passes.
 
 ## Architectural Laws
 
@@ -128,28 +218,22 @@ Examples:
 - WRONG: A test that imports and asserts on internal types that aren't part of the public API.
   RIGHT: A test that uses the public API and asserts on observable behavior.
 
-## How to work
+## STEP 3 — Verify before declaring done
 
-- **Read before you write.** Understand the existing code, the spec, and the phase file before producing any implementation.
+Run each of these and confirm the result before reporting completion:
 
-- **Follow the dependency order, not the broadest bucket.** `spec/impl/IMPLEMENTATION_ORDER.md` is the execution authority for sequencing. If a legacy phase file contains multiple recommended stages, complete them one at a time in order.
+1. `npm run build` — must pass.
+2. `npm run lint` — must pass.
+3. `npm test` — must pass. All suites, including those from prior stages.
+4. Walk through every exit criterion in the phase file that corresponds to the active stage. For each one, run the specific check the criterion describes. Do not declare a criterion satisfied unless you have run its check and seen it pass.
 
-- **Tests are first-class deliverables.** Every behavior you implement gets a test. Use the spec-tests files as your test case source.
+## Files you must not modify
 
-- **Keep it simple.** Don't add features, abstractions, or error handling beyond what the phase file asks for. Don't refactor surrounding code. Don't add comments to code you didn't write. Three similar lines of code is better than a premature abstraction.
+- `spec/impl/INDEX.md` — the conformance tracker is reference-only and agents do not maintain it.
+- `README.md` — do not add a status section, progress badge, or "what's done" summary.
+- Any file matching `*STATUS*.md`, `*PROGRESS*.md`, `*COMPLETE*.md`, `*CHANGELOG*.md` that is not already part of an established workflow you have observed in `git log`.
 
-- **Backward compatibility within the phase plan.** All prior phase tests must still pass when you're done. Run `npm test` and verify.
-
-- **Do not backfill later-stage infrastructure into earlier-stage work.** If you discover that the requested phase file mentions later-stage items, note the deferral and stop at the current stage boundary once its tests and exit criteria pass.
-
-## Verification checklist (run before declaring done)
-
-1. `npm run build` passes
-2. `npm run lint` passes
-3. `npm test` passes — all suites, including prior phases and earlier recommended stages
-4. The active recommended stage from `spec/impl/IMPLEMENTATION_ORDER.md` is fully satisfied before any later-stage work begins
-5. Every matching exit criterion in your phase file is satisfied for the stage you implemented
-6. Update the conformance tracker in `spec/impl/INDEX.md` for any spec-tests files you covered
+The authoritative ledger of what exists in this project is: the code under `src/`, the tests under `tests/`, and the git log. Tracking documents accumulate drift and substitute for reading the actual code. Do not produce them.
 
 ## Key directories
 

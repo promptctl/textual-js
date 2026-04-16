@@ -84,9 +84,16 @@ Legacy phase files remain as scope buckets, but recommended execution order is d
 4. Use `spec/spec-tests/` as the primary executable backlog.
 5. Keep each phase shippable: build, lint, and targeted tests must pass before moving forward.
 
-## Conformance Tracker
+## Conformance Tracker (REFERENCE ONLY — DO NOT MODIFY)
 
-Updated at each recommended stage boundary. Every implemented row must correspond to a passing test file.
+This table is a historical reference. **Agents do not update it.** It will drift from reality, and that is acceptable — it is not the source of truth.
+
+The authoritative ledgers of what exists are:
+- The code under `src/`
+- The tests under `tests/`
+- The git log
+
+Every agent must independently verify the actual state of the codebase by reading those sources directly. Do not trust this table. Do not edit this table. If a row says "Implemented" but the corresponding test file no longer exists, that is informative — it tells you the code drifted. Investigate the code; do not "fix" the tracker.
 
 | spec-tests file | Stage | Status | Test file(s) |
 |----------------|-------|--------|-------------|
@@ -105,8 +112,10 @@ Updated at each recommended stage boundary. Every implemented row must correspon
 | `borders.md` | 3 | Implemented | `tests/borders.test.ts` |
 | `bindings_and_actions.md` | 4 | — | — |
 | `widget.md` | 4 | — | — |
-| `workers.md` | 5 | — | — |
-| `notifications.md` | 5 | — | — |
+| `app.md` | 5 | Theme and notification integration implemented | `tests/notifications.test.tsx` |
+| `workers.md` | 5 | Implemented | `tests/workers.test.tsx` |
+| `notifications.md` | 5 | Implemented | `tests/notifications.test.tsx` |
+| `concurrency.md` | 5 | Implemented | `tests/concurrency.test.tsx` |
 | `command_palette.md` | 6 | — | — |
 | `button.md` | 7 | — | — |
 | `input.md` | 7 | — | — |
