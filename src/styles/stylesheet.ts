@@ -411,14 +411,20 @@ function applyBoxSpacing(box: Record<string, unknown>, prefix: "padding" | "marg
   box[`${prefix}Left`] = spacing.left;
 }
 
-function rulesToInk(rules: ResolvedRuleMap): Pick<ResolvedInkStyles, "box" | "text"> {
+function rulesToInk(
+  rules: ResolvedRuleMap,
+  viewport: {
+    width: number;
+    height: number;
+  },
+): Pick<ResolvedInkStyles, "box" | "text"> {
   const box: Record<string, unknown> = {};
   const text: Record<string, unknown> = {};
 
   for (const [property, value] of Object.entries(rules)) {
     if (property === "width" || property === "height" || property === "min-width" || property === "max-width" || property === "min-height" || property === "max-height") {
       const key = property.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
-      box[key] = scalarToInkValue(value as Scalar);
+      box[key] = scalarToInkValue(value as Scalar, viewport);
       continue;
     }
 
@@ -534,7 +540,7 @@ export function resolveStylesForWidget(
   }
 
   return {
-    ...rulesToInk(rules),
+    ...rulesToInk(rules, framework.terminalSize),
     rules,
     customProperties,
   };

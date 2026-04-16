@@ -1,9 +1,10 @@
 import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
-import { Box, useInput } from "ink";
+import { Box, useInput, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { TextualFramework } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
+import { Size } from "../geometry/index.js";
 
 export interface TextualAppProps extends PropsWithChildren {
   framework?: TextualFramework;
@@ -13,10 +14,24 @@ export interface TextualAppProps extends PropsWithChildren {
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const framework = useTextual();
+  const { stdout } = useStdout();
 
   useInput((input, key) => {
     framework.postKey(input, key);
   });
+
+  useLayoutEffect(() => {
+    const syncTerminalSize = (): void => {
+      framework.setTerminalSize(new Size(stdout.columns ?? 80, stdout.rows ?? 24));
+    };
+
+    syncTerminalSize();
+    stdout.on("resize", syncTerminalSize);
+
+    return () => {
+      stdout.off("resize", syncTerminalSize);
+    };
+  }, [framework, stdout]);
 
   useLayoutEffect(() => {
     framework.startup();

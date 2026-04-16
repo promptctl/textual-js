@@ -18,7 +18,9 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 - `mount_all(widgets)` accepts an iterable and mounts every widget in it.
 - Positional placement is controlled via `before` and `after` parameters, which accept an integer index, a widget reference, or a CSS selector string. Specifying both `before` and `after` raises `MountError`. A selector that matches more than one widget raises `TooManyMatches`. A reference to a widget not in the DOM raises `MountError`.
 - Negative indices are supported: `before=-1` means before the last child, `after=-1` means after the last child.
-- Widget IDs must be unique among siblings. Mounting widgets with duplicate IDs raises `MountError` (single call) or `DuplicateIds` (separate calls).
+- Widget IDs must be unique within the active widget tree (DOM/screen-wide), not merely among siblings.
+- Mounting widgets with duplicate IDs raises `MountError` (single call) or `DuplicateIds` (separate calls).
+// [LAW:one-source-of-truth] The registry owns the canonical ID index for CSS selectors and queries, so ID uniqueness is enforced globally rather than per-parent.
 - `is_mounted` is `False` before mounting and `True` after.
 - Render is not called until after the mount event has been processed.
 - Mount events fire bottom-up: children receive `Mount` before their parents.
@@ -236,7 +238,7 @@ The `textual._widget_navigation` module provides utility functions for navigatin
 ## Constraints
 
 - Widget class names must begin with an uppercase letter.
-- Widget IDs must be unique among siblings within a single parent.
+- Widget IDs must be unique within the active widget tree (DOM/screen-wide).
 - A widget cannot own itself (passing `self` as a child to `__init__` raises `WidgetError`).
 - `mount()` may only be called on a widget that is already part of the DOM. Calling it on an unmounted widget raises `MountError`.
 - `mount()` does not accept both `before` and `after` simultaneously.

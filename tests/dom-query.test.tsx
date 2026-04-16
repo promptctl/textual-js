@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   InvalidQueryFormat,
+  NoMatches,
   TextualApp,
   TextualFramework,
+  TooManyMatches,
   WidgetNode,
   WidgetScope,
   useWidget,
@@ -68,15 +70,19 @@ describe("DOM query API", () => {
     two.focus();
 
     expect(root.query(".item").results().map((widget) => widget.id)).toEqual(["one", "two"]);
+    expect(root.queryOne(".item").id).toBe("one");
     expect(root.queryOne("#one").id).toBe("one");
     expect(root.queryExactlyOne("#two").id).toBe("two");
+    expect(() => root.queryExactlyOne(".item")).toThrow(TooManyMatches);
     expect(root.queryChildren("Container").results().map((widget) => widget.id)).toEqual(["first", "second"]);
-    expect(two.queryAncestor("#root")?.id).toBe("root");
+    expect(two.queryAncestor("#root").id).toBe("root");
+    expect(() => two.queryAncestor("#missing")).toThrow(NoMatches);
     expect(root.query("Container Label").results().map((widget) => widget.id)).toContain("two");
     expect(root.query("#first > Label").results().map((widget) => widget.id)).toEqual(["one"]);
     expect(root.query("#first + #second").results().map((widget) => widget.id)).toEqual(["second"]);
     expect(root.query("#first ~ #second").results().map((widget) => widget.id)).toEqual(["second"]);
     expect(root.query("Label:focus").results().map((widget) => widget.id)).toEqual(["two"]);
+    expect(root.query("Container:focus-within").results().map((widget) => widget.id)).toEqual(["second"]);
     expect(root.query(".item").filter("#two").first().id).toBe("two");
     expect(root.query(".item").exclude("#one").last().id).toBe("two");
     expect(() => root.query("1")).toThrow(InvalidQueryFormat);

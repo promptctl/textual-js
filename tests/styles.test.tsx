@@ -3,7 +3,16 @@ import { Box, Text } from "ink";
 import { observer } from "mobx-react-lite";
 import { describe, expect, it } from "vitest";
 
-import { TextualApp, TextualFramework, WidgetNode, WidgetScope, useStyles, useWidget } from "../src/index.js";
+import {
+  Key,
+  Size,
+  TextualApp,
+  TextualFramework,
+  WidgetNode,
+  WidgetScope,
+  useStyles,
+  useWidget,
+} from "../src/index.js";
 import { render } from "ink-testing-library";
 
 const StyledLabel = observer(function StyledLabel(props: {
@@ -46,6 +55,28 @@ function StyledRoot({ children }: { children: React.ReactNode }): React.JSX.Elem
 
   return <WidgetScope widget={widget.handle}>{children}</WidgetScope>;
 }
+
+const VisibilityLabel = observer(function VisibilityLabel(props: {
+  id: string;
+  label: string;
+  focusable?: boolean;
+  autoFocus?: boolean;
+  onKey?: () => void;
+}): React.JSX.Element {
+  const widget = useWidget({
+    id: props.id,
+    typeName: "VisibilityLabel",
+    focusable: props.focusable,
+    autoFocus: props.autoFocus,
+    handlers: props.onKey === undefined ? undefined : { onKey: props.onKey as (event: Key) => void },
+  });
+
+  return (
+    <WidgetScope widget={widget.handle}>
+      <Text>{props.label}</Text>
+    </WidgetScope>
+  );
+});
 
 describe("styles and useStyles", () => {
   it("resolves DEFAULT_CSS and user CSS into Ink-compatible props with cascade ordering", async () => {
@@ -146,6 +177,84 @@ describe("styles and useStyles", () => {
 
     expect(dynamic.resolvedStyles.getRule("background")).toBe("rebeccapurple");
     expect(renders.some((entry) => entry.startsWith("rebeccapurple@"))).toBe(true);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("hides visibility-hidden output while routing input to visible widgets", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          #hidden {
+            visibility: hidden;
+          }
+        `}
+      >
+        <VisibilityLabel
+          id="hidden"
+          label="hidden"
+          focusable
+          autoFocus
+          onKey={() => {
+            received.push("hidden");
+          }}
+        />
+        <VisibilityLabel
+          id="visible"
+          label="visible"
+          focusable
+          onKey={() => {
+            received.push("visible");
+          }}
+        />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(instance.lastFrame()).toContain("visible");
+    expect(instance.lastFrame()).not.toContain("hidden");
+
+    framework.postKey("x");
+    await framework.whenIdle();
+
+    expect(received).toEqual(["visible"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("resolves viewport units against terminal size instead of parent percentages", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          #viewport {
+            width: 50vw;
+            height: 25vh;
+          }
+        `}
+      >
+        <StyledLabel id="viewport" label="viewport" />
+      </TextualApp>,
+    );
+
+    framework.setTerminalSize(new Size(200, 80));
+    await framework.whenIdle();
+
+    const viewport = framework.registry.getByCssId("viewport") as WidgetNode;
+
+    expect(viewport.resolvedStyles.box.width).toBe(100);
+    expect(viewport.resolvedStyles.box.height).toBe(20);
 
     instance.unmount();
     instance.cleanup();

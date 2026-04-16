@@ -55,6 +55,7 @@ export {
   Scalar,
   Unit,
   generateTcss,
+  InvalidQueryFormat,
   parseScalar,
   parseSelectorList,
   parseTcss,

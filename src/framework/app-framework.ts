@@ -2,6 +2,7 @@ import { makeAutoObservable } from "mobx";
 
 import { Click, Key, Resize } from "../events/events.js";
 import { Message, messageHandlerNames } from "../events/message.js";
+import { Size } from "../geometry/index.js";
 import {
   matchesSelector as selectorMatchesWidget,
   parseSelectorList,
@@ -34,6 +35,7 @@ export class TextualFramework {
   readonly registry = new WidgetRegistry();
   focusedNodeId: string | null = null;
   isRunning = false;
+  terminalSize = new Size(80, 24);
   private readonly queue: QueuedMessage[] = [];
   private drainPromise: Promise<void> | null = null;
   private userStylesheets: ParsedStylesheet[] = [];
@@ -91,6 +93,15 @@ export class TextualFramework {
 
   focusWidget(nodeId: string | null): void {
     this.focusedNodeId = nodeId;
+    this.recalculateStyles();
+  }
+
+  setTerminalSize(size: Size): void {
+    if (this.terminalSize.equals(size)) {
+      return;
+    }
+
+    this.terminalSize = size;
     this.recalculateStyles();
   }
 
@@ -173,7 +184,11 @@ export class TextualFramework {
   }
 
   postToFocused(message: Message): void {
-    const target = this.registry.getDefaultTarget(this.focusedNodeId);
+    const interactiveWidgets = this.registry.list().filter((entry) => entry.isInteractive);
+    const target =
+      interactiveWidgets.find((entry) => entry.nodeId === this.focusedNodeId) ??
+      interactiveWidgets.find((entry) => entry.focusable) ??
+      interactiveWidgets[0];
 
     if (target !== undefined) {
       this.postMessage(target.nodeId, message);
@@ -189,6 +204,7 @@ export class TextualFramework {
   }
 
   postResize(width: number, height: number): void {
+    this.setTerminalSize(new Size(width, height));
     this.postToFocused(new Resize(width, height));
   }
 

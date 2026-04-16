@@ -76,6 +76,34 @@ export class WidgetNode {
     return this.framework.focusedNodeId === this.nodeId;
   }
 
+  get display(): "block" | "none" {
+    return (this.resolvedStyles.getRule("display") as "block" | "none" | undefined) ?? "block";
+  }
+
+  get visibility(): "visible" | "hidden" {
+    return (this.resolvedStyles.getRule("visibility") as "visible" | "hidden" | undefined) ?? "visible";
+  }
+
+  get isDisplayed(): boolean {
+    return this.display !== "none" && (this.parent?.isDisplayed ?? true);
+  }
+
+  get isVisible(): boolean {
+    if (this.visibility === "hidden") {
+      return false;
+    }
+
+    if (this.visibility === "visible" && this.resolvedStyles.hasRule("visibility")) {
+      return true;
+    }
+
+    return this.parent?.isVisible ?? true;
+  }
+
+  get isInteractive(): boolean {
+    return this.isDisplayed && this.isVisible;
+  }
+
   focus(): void {
     this.framework.focusWidget(this.nodeId);
   }
@@ -179,6 +207,19 @@ export class WidgetNode {
       return this.isFocused;
     }
 
+    if (name === "focus-within") {
+      let currentNode =
+        this.framework.focusedNodeId === null ? undefined : this.framework.registry.get(this.framework.focusedNodeId);
+
+      while (currentNode !== undefined) {
+        if (currentNode.nodeId === this.nodeId) {
+          return true;
+        }
+
+        currentNode = currentNode.parent;
+      }
+    }
+
     return this.pseudoClasses.get(name) ?? false;
   }
 
@@ -222,6 +263,16 @@ export class WidgetNode {
       throw new NoMatches(`No widgets matched "${selectorText}"`);
     }
 
+    return results[0];
+  }
+
+  queryExactlyOne(selectorText: string): WidgetNode {
+    const results = this.query(selectorText).results();
+
+    if (results.length === 0) {
+      throw new NoMatches(`No widgets matched "${selectorText}"`);
+    }
+
     if (results.length > 1) {
       throw new TooManyMatches(`More than one widget matched "${selectorText}"`);
     }
@@ -229,11 +280,7 @@ export class WidgetNode {
     return results[0];
   }
 
-  queryExactlyOne(selectorText: string): WidgetNode {
-    return this.queryOne(selectorText);
-  }
-
-  queryAncestor(selectorText: string): WidgetNode | undefined {
+  queryAncestor(selectorText: string): WidgetNode {
     const selectors = this.framework.parseSelectors(selectorText);
     let currentParent = this.parent;
 
@@ -247,6 +294,6 @@ export class WidgetNode {
       currentParent = candidate.parent;
     }
 
-    return undefined;
+    throw new NoMatches(`No ancestors matched "${selectorText}"`);
   }
 }

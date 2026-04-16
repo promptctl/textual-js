@@ -8,7 +8,9 @@ import React, {
   type MutableRefObject,
   type PropsWithChildren,
 } from "react";
+import { Transform } from "ink";
 import { observer } from "mobx-react-lite";
+import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
 import { TextualFramework } from "./app-framework.js";
@@ -141,6 +143,86 @@ export interface WidgetHostProps extends PropsWithChildren {
   defaultCss?: string;
 }
 
+function readAnsiSequenceEnd(output: string, startIndex: number): number {
+  const nextCharacter = output[startIndex + 1];
+
+  if (nextCharacter === "[") {
+    let index = startIndex + 2;
+
+    while (index < output.length) {
+      const character = output[index];
+
+      if (character >= "@" && character <= "~") {
+        return index + 1;
+      }
+
+      index += 1;
+    }
+  }
+
+  if (nextCharacter === "]") {
+    let index = startIndex + 2;
+
+    while (index < output.length) {
+      if (output[index] === "\u0007") {
+        return index + 1;
+      }
+
+      if (output[index] === "\u001B" && output[index + 1] === "\\") {
+        return index + 2;
+      }
+
+      index += 1;
+    }
+  }
+
+  return Math.min(output.length, startIndex + 2);
+}
+
+function concealOutput(output: string): string {
+  let concealed = "";
+  let index = 0;
+
+  while (index < output.length) {
+    const character = output[index];
+
+    if (character === "\u001B") {
+      const escapeSequenceEnd = readAnsiSequenceEnd(output, index);
+      concealed += output.slice(index, escapeSequenceEnd);
+      index = escapeSequenceEnd;
+      continue;
+    }
+
+    if (character === "\n" || character === "\r") {
+      concealed += character;
+      index += 1;
+      continue;
+    }
+
+    const codePoint = output.codePointAt(index);
+
+    if (codePoint === undefined) {
+      break;
+    }
+
+    const glyph = String.fromCodePoint(codePoint);
+    concealed += " ".repeat(Math.max(1, stringWidth(glyph)));
+    index += glyph.length;
+  }
+
+  return concealed;
+}
+
+const WidgetVisibilityBoundary = observer(function WidgetVisibilityBoundary({
+  children,
+  widget,
+}: {
+  children: React.ReactNode;
+  widget: WidgetNode;
+}): React.JSX.Element {
+  return widget.isVisible ? <>{children}</> : <Transform transform={concealOutput}>{children}</Transform>;
+});
+
 export function WidgetHost({
   children,
   id,
@@ -161,11 +243,7 @@ export function WidgetHost({
     defaultCss,
   });
 
-  return (
-    <CurrentWidgetContext.Provider value={widget.handle}>
-      <ParentWidgetContext.Provider value={widget.nodeId}>{children}</ParentWidgetContext.Provider>
-    </CurrentWidgetContext.Provider>
-  );
+  return <WidgetScope widget={widget.handle}>{children}</WidgetScope>;
 }
 
 export interface WidgetScopeProps extends PropsWithChildren {
@@ -175,7 +253,9 @@ export interface WidgetScopeProps extends PropsWithChildren {
 export function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
   return (
     <CurrentWidgetContext.Provider value={widget}>
-      <ParentWidgetContext.Provider value={widget.nodeId}>{children}</ParentWidgetContext.Provider>
+      <ParentWidgetContext.Provider value={widget.nodeId}>
+        <WidgetVisibilityBoundary widget={widget}>{children}</WidgetVisibilityBoundary>
+      </ParentWidgetContext.Provider>
     </CurrentWidgetContext.Provider>
   );
 }

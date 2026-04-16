@@ -27,6 +27,10 @@ export class Scalar {
 }
 
 export type ScalarAxis = "width" | "height";
+export interface ScalarViewport {
+  width: number;
+  height: number;
+}
 
 export function axisToPercentUnit(axis: ScalarAxis): Unit {
   return axis === "width" ? Unit.WIDTH : Unit.HEIGHT;
@@ -71,13 +75,21 @@ export function parseScalar(input: string, axis: ScalarAxis): Scalar {
   throw new Error(`Invalid scalar "${input}"`);
 }
 
-export function scalarToInkValue(value: Scalar): number | string {
+export function scalarToInkValue(value: Scalar, viewport: ScalarViewport): number | string {
   if (value.unit === Unit.CELLS) {
     return value.value;
   }
 
   if (value.unit === Unit.FRACTION) {
     return `${value.value}fr`;
+  }
+
+  if (value.unit === Unit.WIDTH) {
+    return Math.round((viewport.width * value.value) / 100);
+  }
+
+  if (value.unit === Unit.HEIGHT) {
+    return Math.round((viewport.height * value.value) / 100);
   }
 
   return `${value.value}%`;
