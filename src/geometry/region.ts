@@ -10,10 +10,10 @@ import { Spacing } from "./spacing.js";
 
 export class Region {
   constructor(
-    readonly x: number,
-    readonly y: number,
-    readonly width: number,
-    readonly height: number,
+    readonly x: number = 0,
+    readonly y: number = 0,
+    readonly width: number = 0,
+    readonly height: number = 0,
   ) {}
 
   get right(): number {
@@ -38,6 +38,42 @@ export class Region {
 
   get isEmpty(): boolean {
     return this.width <= 0 || this.height <= 0;
+  }
+
+  get columnSpan(): [number, number] {
+    return [this.x, this.right];
+  }
+
+  get lineSpan(): [number, number] {
+    return [this.y, this.bottom];
+  }
+
+  get columnRange(): number[] {
+    return Array.from({ length: this.width }, (_, index) => this.x + index);
+  }
+
+  get lineRange(): number[] {
+    return Array.from({ length: this.height }, (_, index) => this.y + index);
+  }
+
+  get topRight(): Offset {
+    return new Offset(this.right, this.y);
+  }
+
+  get bottomLeft(): Offset {
+    return new Offset(this.x, this.bottom);
+  }
+
+  get bottomRight(): Offset {
+    return new Offset(this.right, this.bottom);
+  }
+
+  get bottomRightInclusive(): Offset {
+    return new Offset(this.right - 1, this.bottom - 1);
+  }
+
+  get resetOffset(): Region {
+    return new Region(0, 0, this.width, this.height);
   }
 
   contains(x: number, y: number): boolean {
@@ -86,6 +122,28 @@ export class Region {
     return this.translate(offset.x, offset.y);
   }
 
+  atOffset(offset: Offset): Region {
+    return new Region(offset.x, offset.y, this.width, this.height);
+  }
+
+  clip(maxWidth: number, maxHeight: number): Region {
+    return new Region(
+      this.x,
+      this.y,
+      Math.max(0, Math.min(this.width, maxWidth - this.x)),
+      Math.max(0, Math.min(this.height, maxHeight - this.y)),
+    );
+  }
+
+  cropSize(size: Size): Region {
+    return new Region(
+      this.x,
+      this.y,
+      Math.min(this.width, size.width),
+      Math.min(this.height, size.height),
+    );
+  }
+
   /**
    * Shrink the region inward by the given spacing (padding/border).
    */
@@ -125,6 +183,20 @@ export class Region {
 
   static fromSize(size: Size): Region {
     return new Region(0, 0, size.width, size.height);
+  }
+
+  static fromOffset(offset: Offset, size: Size): Region {
+    return new Region(offset.x, offset.y, size.width, size.height);
+  }
+
+  static fromUnion(regions: Region[]): Region {
+    const [first, ...rest] = regions;
+
+    if (first === undefined) {
+      throw new Error("Region.fromUnion requires at least one region");
+    }
+
+    return rest.reduce((current, region) => current.union(region), first);
   }
 
   static readonly EMPTY = new Region(0, 0, 0, 0);

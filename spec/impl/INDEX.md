@@ -88,10 +88,10 @@ Updated at each phase boundary. Every "Implemented" row must correspond to a pas
 
 | spec-tests file | Phase | Status | Test file(s) |
 |----------------|-------|--------|-------------|
-| `geometry.md` | 1 | — | — |
-| `events_and_messages.md` | 1 | — | — |
-| `reactivity.md` | 1 | — | — |
-| `app.md` | 1 | — | — |
+| `geometry.md` | 1 | Phase 1 foundation | `tests/geometry.test.ts` |
+| `events_and_messages.md` | 1 | Phase 1 foundation | `tests/message.test.tsx` |
+| `reactivity.md` | 1 | Phase 1 foundation | `tests/reactive.test.ts` |
+| `app.md` | 1 | Phase 1 foundation | `tests/app.test.tsx`, `tests/integration.test.tsx` |
 | `css_parsing.md` | 2 | — | — |
 | `css_styles.md` | 2 | — | — |
 | `dom.md` | 2 | — | — |
