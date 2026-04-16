@@ -7,27 +7,55 @@ export {
   Focus,
   Idle,
   Key,
+  ModeChanged,
   Mount,
   MouseDown,
   MouseMove,
   MouseUp,
   Resize,
+  ScreenResume,
+  ScreenSuspend,
   ScrollEvent,
   Unmount,
   type MessageConstructor,
   type MessageInit,
 } from "./events/index.js";
+export {
+  ActionError,
+  InvalidBinding,
+  SkipAction,
+  makeBindings,
+  matchesBindingKey,
+  normalizeBindingKey,
+  parseAction,
+  type ActionNamespace,
+  type Binding,
+  type BindingDeclaration,
+  type ParsedAction,
+} from "./bindings/index.js";
 export { clamp, Offset, Region, Size, Spacing } from "./geometry/index.js";
 export {
+  ActiveModeError,
+  InvalidModeError,
+  ScreenStackError,
   TextualFramework,
   TextualProvider,
+  UnknownModeError,
   WidgetHost,
   WidgetRegistry,
   useTextual,
+  useTimer,
+  useWorker,
   useWidget,
   type RegisterWidgetOptions,
+  type ScreenDescriptor,
+  type ScreenEntry,
+  type ScreenOptions,
   type UseWidgetOptions,
   type UseWidgetResult,
+  type WidgetActionCallback,
+  type WidgetActions,
+  type WidgetCheckAction,
   type WidgetHandlers,
   type WidgetHostProps,
   type WidgetIdentity,
@@ -43,6 +71,35 @@ export {
   useCurrentWidget,
   useStyles,
 } from "./framework/index.js";
+export {
+  Notification,
+  Notifications,
+  type NotificationInit,
+  type NotificationSeverity,
+} from "./services/notifications.js";
+export { RLock } from "./services/concurrency.js";
+export { Signal, SignalError, type SignalCallback } from "./services/signal.js";
+export {
+  BUILTIN_THEMES,
+  ThemeManager,
+  type ActiveTheme,
+  type ThemeDefinition,
+} from "./services/theme.js";
+export { ManagedTimer, type TimerOptions } from "./services/timer.js";
+export {
+  DeadlockError,
+  NoActiveWorker,
+  Worker,
+  WorkerCancelled,
+  WorkerError,
+  WorkerFailed,
+  WorkerManager,
+  WorkerStateChanged,
+  getCurrentWorker,
+  type WorkFunction,
+  type WorkerOptions,
+  type WorkerState,
+} from "./services/worker.js";
 export {
   ReactiveHost,
   reactive,

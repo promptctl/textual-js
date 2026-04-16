@@ -1,10 +1,15 @@
 import { makeAutoObservable, observable, runInAction } from "mobx";
 
+import type { Binding } from "../bindings/index.js";
 import type { Message } from "../events/message.js";
+import type { Notification, NotificationSeverity } from "../services/notifications.js";
+import { Signal } from "../services/signal.js";
+import type { TimerOptions } from "../services/timer.js";
+import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
 import { DOMQuery, NoMatches, TooManyMatches } from "./dom-query.js";
 import type { TextualFramework } from "./app-framework.js";
-import type { WidgetHandlers } from "./widget-registry.js";
+import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 
 export interface WidgetNodeInit {
   framework: TextualFramework;
@@ -14,8 +19,12 @@ export interface WidgetNodeInit {
   classes: string[];
   typeName: string;
   handlersRef: { current: WidgetHandlers | undefined };
+  actionsRef: { current: WidgetActions | undefined };
+  bindingsRef: { current: Binding[] };
   focusable: boolean;
   autoFocus: boolean;
+  disabled: boolean;
+  loading: boolean;
 }
 
 export class WidgetNode {
@@ -25,12 +34,16 @@ export class WidgetNode {
   readonly id?: string;
   readonly typeName: string;
   readonly handlersRef: { current: WidgetHandlers | undefined };
+  readonly actionsRef: { current: WidgetActions | undefined };
+  readonly bindingsRef: { current: Binding[] };
   readonly focusable: boolean;
   readonly autoFocus: boolean;
   readonly classes = observable.set<string>();
   readonly pseudoClasses = observable.map<string, boolean>();
   readonly inlineStyles = observable.map<string, string>();
   readonly resolvedStyles = new ResolvedStyles();
+  disabled: boolean;
+  loading: boolean;
 
   constructor(init: WidgetNodeInit) {
     this.framework = init.framework;
@@ -39,8 +52,12 @@ export class WidgetNode {
     this.id = init.id;
     this.typeName = init.typeName;
     this.handlersRef = init.handlersRef;
+    this.actionsRef = init.actionsRef;
+    this.bindingsRef = init.bindingsRef;
     this.focusable = init.focusable;
     this.autoFocus = init.autoFocus;
+    this.disabled = init.disabled;
+    this.loading = init.loading;
 
     runInAction(() => {
       for (const className of init.classes) {
@@ -53,6 +70,8 @@ export class WidgetNode {
       {
         framework: false,
         handlersRef: false,
+        actionsRef: false,
+        bindingsRef: false,
         nodeId: false,
         parentId: false,
         id: false,
@@ -62,6 +81,43 @@ export class WidgetNode {
       },
       { autoBind: true },
     );
+  }
+
+  get actions(): WidgetActions | undefined {
+    return this.actionsRef.current;
+  }
+
+  get bindings(): Binding[] {
+    return this.bindingsRef.current;
+  }
+
+  // [LAW:dataflow-not-control-flow] Disabled propagation is a pure data lookup
+  // up the ancestor chain. Callers do not branch on "is this one or an ancestor";
+  // they ask for the effective state.
+  get isDisabledEffective(): boolean {
+    if (this.disabled) {
+      return true;
+    }
+
+    return this.parent?.isDisabledEffective ?? false;
+  }
+
+  get isLoadingEffective(): boolean {
+    if (this.loading) {
+      return true;
+    }
+
+    return this.parent?.isLoadingEffective ?? false;
+  }
+
+  setDisabled(value: boolean): void {
+    this.disabled = value;
+    this.framework.refreshStyles(true);
+  }
+
+  setLoading(value: boolean): void {
+    this.loading = value;
+    this.framework.refreshStyles(true);
   }
 
   get parent(): WidgetNode | undefined {
@@ -106,6 +162,50 @@ export class WidgetNode {
 
   postMessage(message: Message): void {
     this.framework.postMessage(this.nodeId, message);
+  }
+
+  runWorker<TResult>(work: WorkFunction<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    return this.framework.runWorker(this, work, options);
+  }
+
+  createSignal<TValue>(): Signal<TValue> {
+    return this.framework.createSignal(this);
+  }
+
+  setTimer(name: string, delayMs: number, callback: () => void): void {
+    this.framework.setTimer(this, name, delayMs, callback);
+  }
+
+  setInterval(name: string, intervalMs: number, callback: () => void, options: TimerOptions = {}): void {
+    this.framework.setInterval(this, name, intervalMs, callback, options);
+  }
+
+  clearTimer(name: string): void {
+    this.framework.clearTimer(this, name);
+  }
+
+  pauseTimer(name: string): void {
+    this.framework.pauseTimer(this, name);
+  }
+
+  resumeTimer(name: string): void {
+    this.framework.resumeTimer(this, name);
+  }
+
+  resetTimer(name: string): void {
+    this.framework.resetTimer(this, name);
+  }
+
+  notify(message: string, severity?: NotificationSeverity, timeout?: number, title?: string): Notification {
+    return this.framework.notify(message, severity, timeout, title);
+  }
+
+  dismissNotification(identity: string): void {
+    this.framework.dismissNotification(identity);
+  }
+
+  clearNotifications(): void {
+    this.framework.clearNotifications();
   }
 
   matchesType(typeName: string): boolean {
@@ -201,6 +301,26 @@ export class WidgetNode {
   hasPseudoClass(name: string): boolean {
     if (name === "focus") {
       return this.isFocused;
+    }
+
+    if (name === "blur") {
+      return !this.isFocused;
+    }
+
+    if (name === "disabled") {
+      return this.isDisabledEffective;
+    }
+
+    if (name === "enabled") {
+      return !this.isDisabledEffective;
+    }
+
+    if (name === "loading") {
+      return this.isLoadingEffective;
+    }
+
+    if (name === "can-focus") {
+      return this.focusable;
     }
 
     if (name === "focus-within") {

@@ -14,9 +14,16 @@ import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
 import { TextualFramework } from "./app-framework.js";
-import type { WidgetHandlers } from "./widget-registry.js";
+import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { WidgetNode } from "./widget-node.js";
 import type { ResolvedStyles } from "../styles/resolved-styles.js";
+import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
+import type { TimerOptions } from "../services/timer.js";
+import {
+  makeBindings,
+  type Binding,
+  type BindingDeclaration,
+} from "../bindings/index.js";
 
 const TextualFrameworkContext = createContext<TextualFramework | null>(null);
 const ParentWidgetContext = createContext<string | null>(null);
@@ -55,9 +62,13 @@ export interface UseWidgetOptions {
   classes?: string | string[];
   typeName: string;
   handlers?: WidgetHandlers;
+  actions?: WidgetActions;
+  bindings?: BindingDeclaration[];
   focusable?: boolean;
   autoFocus?: boolean;
   defaultCss?: string;
+  disabled?: boolean;
+  loading?: boolean;
 }
 
 export interface UseWidgetResult {
@@ -86,6 +97,9 @@ function normalizeClasses(classes: UseWidgetOptions["classes"]): string[] {
 export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const framework = useTextual();
   const parentId = useContext(ParentWidgetContext);
+  const handlersRef = useRef(options.handlers) as MutableRefObject<WidgetHandlers | undefined>;
+  const actionsRef = useRef(options.actions) as MutableRefObject<WidgetActions | undefined>;
+  const bindingsRef = useRef<Binding[]>(makeBindings(options.bindings ?? []));
   const widgetRef = useRef<WidgetNode>(
     new WidgetNode({
       framework,
@@ -94,16 +108,20 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       id: options.id,
       classes: normalizeClasses(options.classes),
       typeName: options.typeName,
-      handlersRef: { current: options.handlers },
+      handlersRef,
+      actionsRef,
+      bindingsRef,
       focusable: options.focusable ?? false,
       autoFocus: options.autoFocus ?? false,
+      disabled: options.disabled ?? false,
+      loading: options.loading ?? false,
     }),
   );
-  const handlersRef = useRef(options.handlers) as MutableRefObject<WidgetHandlers | undefined>;
   handlersRef.current = options.handlers;
+  actionsRef.current = options.actions;
+  bindingsRef.current = makeBindings(options.bindings ?? []);
   const classes = normalizeClasses(options.classes);
   const classesKey = classes.join(" ");
-  widgetRef.current.handlersRef.current = options.handlers;
 
   useLayoutEffect(() => {
     framework.registerWidgetType(options.typeName, options.defaultCss);
@@ -123,6 +141,18 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
     parentId,
   ]);
 
+  useEffect(() => {
+    if (widgetRef.current.disabled !== (options.disabled ?? false)) {
+      widgetRef.current.setDisabled(options.disabled ?? false);
+    }
+  }, [options.disabled]);
+
+  useEffect(() => {
+    if (widgetRef.current.loading !== (options.loading ?? false)) {
+      widgetRef.current.setLoading(options.loading ?? false);
+    }
+  }, [options.loading]);
+
   return {
     nodeId: widgetRef.current.nodeId,
     isFocused: framework.focusedNodeId === widgetRef.current.nodeId,
@@ -141,9 +171,13 @@ export interface WidgetHostProps extends PropsWithChildren {
   classes?: string | string[];
   typeName: string;
   handlers?: WidgetHandlers;
+  actions?: WidgetActions;
+  bindings?: BindingDeclaration[];
   focusable?: boolean;
   autoFocus?: boolean;
   defaultCss?: string;
+  disabled?: boolean;
+  loading?: boolean;
 }
 
 function readAnsiSequenceEnd(output: string, startIndex: number): number {
@@ -232,18 +266,26 @@ export function WidgetHost({
   classes,
   typeName,
   handlers,
+  actions,
+  bindings,
   focusable,
   autoFocus,
   defaultCss,
+  disabled,
+  loading,
 }: WidgetHostProps): React.JSX.Element {
   const widget = useWidget({
     id,
     classes,
     typeName,
     handlers,
+    actions,
+    bindings,
     focusable,
     autoFocus,
     defaultCss,
+    disabled,
+    loading,
   });
 
   return <WidgetScope widget={widget.handle}>{children}</WidgetScope>;
@@ -298,4 +340,52 @@ export function useStyles(widget?: WidgetNode): ResolvedStyles {
   }, [styles]);
 
   return styles;
+}
+
+export function useWorker<TResult>(
+  work: WorkFunction<TResult>,
+  options: WorkerOptions = {},
+): {
+  worker: Worker<TResult>;
+  start: () => Promise<TResult>;
+  cancel: () => void;
+} {
+  const widget = useCurrentWidget();
+  const workerRef = useRef<Worker<TResult>>();
+
+  if (workerRef.current === undefined) {
+    workerRef.current = widget.runWorker(work, { ...options, start: false });
+  }
+
+  useEffect(() => {
+    return () => {
+      workerRef.current?.cancel();
+    };
+  }, []);
+
+  return {
+    worker: workerRef.current,
+    start: () => workerRef.current!.start(),
+    cancel: () => {
+      workerRef.current?.cancel();
+    },
+  };
+}
+
+export function useTimer(
+  name: string,
+  delayMs: number,
+  callback: () => void,
+  options: (TimerOptions & { repeating?: boolean }) = {},
+): void {
+  const widget = useCurrentWidget();
+
+  useEffect(() => {
+    const installTimer = options.repeating === true ? widget.setInterval : widget.setTimer;
+    installTimer.call(widget, name, delayMs, callback, options);
+
+    return () => {
+      widget.clearTimer(name);
+    };
+  }, [callback, delayMs, name, options, widget]);
 }

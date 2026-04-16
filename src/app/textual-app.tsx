@@ -5,17 +5,23 @@ import { observer } from "mobx-react-lite";
 import { TextualFramework } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
+import type { BindingDeclaration } from "../bindings/index.js";
+import type { WidgetActions } from "../framework/widget-registry.js";
 
 export interface TextualAppProps extends PropsWithChildren {
   framework?: TextualFramework;
   onReady?: (framework: TextualFramework) => void;
   css?: string;
   stylesheet?: string;
+  theme?: string;
+  bindings?: BindingDeclaration[];
+  actions?: WidgetActions;
 }
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const framework = useTextual();
   const { stdout } = useStdout();
+  const [, requestAfterRefresh] = useState(0);
 
   useInput((input, key) => {
     framework.postKey(input, key);
@@ -42,7 +48,24 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
     };
   }, [framework]);
 
-  return <Box flexDirection="column">{children}</Box>;
+  useLayoutEffect(() => {
+    return framework.attachAfterRefreshRequester(() => {
+      requestAfterRefresh((value) => value + 1);
+    });
+  }, [framework]);
+
+  useLayoutEffect(() => {
+    framework.recordDisplayPass();
+    framework.flushAfterRefreshCallbacks();
+  });
+
+  const activeScreen = framework.activeScreenElement;
+
+  return (
+    <Box flexDirection="column">
+      {activeScreen ?? children}
+    </Box>
+  );
 });
 
 export const TextualApp = observer(function TextualApp({
@@ -51,6 +74,9 @@ export const TextualApp = observer(function TextualApp({
   onReady,
   css,
   stylesheet,
+  theme,
+  bindings,
+  actions,
 }: TextualAppProps): React.JSX.Element {
   const [ownedFramework] = useState(() => framework ?? new TextualFramework());
 
@@ -61,6 +87,18 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedFramework.setUserStylesheet(css ?? stylesheet ?? "");
   }, [css, ownedFramework, stylesheet]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setTheme(theme ?? "default");
+  }, [ownedFramework, theme]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setAppBindings(bindings ?? []);
+  }, [bindings, ownedFramework]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setAppActions(actions);
+  }, [actions, ownedFramework]);
 
   return (
     <TextualProvider framework={ownedFramework}>

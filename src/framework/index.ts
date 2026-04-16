@@ -1,4 +1,15 @@
-export { TextualFramework, normalizeKeyName, type RegisterWidgetOptions } from "./app-framework.js";
+export {
+  ActiveModeError,
+  InvalidModeError,
+  ScreenStackError,
+  TextualFramework,
+  UnknownModeError,
+  normalizeKeyName,
+  type RegisterWidgetOptions,
+  type ScreenDescriptor,
+  type ScreenEntry,
+  type ScreenOptions,
+} from "./app-framework.js";
 export {
   StylesReader,
   TextualProvider,
@@ -6,7 +17,9 @@ export {
   WidgetHost,
   useCurrentWidget,
   useStyles,
+  useTimer,
   useTextual,
+  useWorker,
   useWidget,
   type UseWidgetOptions,
   type UseWidgetResult,
@@ -15,6 +28,9 @@ export {
 export { DOMQuery, NoMatches, TooManyMatches } from "./dom-query.js";
 export {
   WidgetRegistry,
+  type WidgetActionCallback,
+  type WidgetActions,
+  type WidgetCheckAction,
   type WidgetHandlers,
   type WidgetIdentity,
   type WidgetMessageHandler,
