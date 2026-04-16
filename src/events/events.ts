@@ -12,6 +12,33 @@ export class Blur extends Message {}
 
 export class Idle extends Message {}
 
+export class ScreenResume extends Message {
+  constructor(
+    readonly screenName: string | null,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class ScreenSuspend extends Message {
+  constructor(
+    readonly screenName: string | null,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class ModeChanged extends Message {
+  constructor(
+    readonly mode: string,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
 export class Resize extends Message {
   constructor(
     readonly width: number,

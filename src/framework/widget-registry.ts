@@ -7,6 +7,15 @@ export type WidgetMessageHandler<TMessage extends Message = Message> = (message:
 
 export type WidgetHandlers = Record<string, WidgetMessageHandler | undefined>;
 
+export type WidgetActionCallback = (...args: unknown[]) => unknown;
+
+export type WidgetCheckAction = (actionName: string, params: unknown[]) => boolean | null;
+
+export interface WidgetActions {
+  [name: string]: WidgetActionCallback | WidgetCheckAction | undefined;
+  checkAction?: WidgetCheckAction;
+}
+
 export interface WidgetIdentity {
   id?: string;
   classes: string[];
