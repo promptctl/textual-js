@@ -2,7 +2,16 @@ import { makeAutoObservable } from "mobx";
 
 import { Click, Key, Resize } from "../events/events.js";
 import { Message, messageHandlerNames } from "../events/message.js";
-import { WidgetRegistry, type WidgetHandlers, type WidgetRegistration } from "./widget-registry.js";
+import {
+  matchesSelector as selectorMatchesWidget,
+  parseSelectorList,
+  resolveStylesForWidget,
+  type ParsedSelector,
+  type ParsedStylesheet,
+  parseTcss,
+} from "../styles/index.js";
+import { WidgetNode } from "./widget-node.js";
+import { WidgetRegistry, type WidgetHandlers } from "./widget-registry.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -13,6 +22,7 @@ export interface RegisterWidgetOptions {
   handlersRef: { current: WidgetHandlers | undefined };
   focusable?: boolean;
   autoFocus?: boolean;
+  defaultCss?: string;
 }
 
 interface QueuedMessage {
@@ -26,6 +36,8 @@ export class TextualFramework {
   isRunning = false;
   private readonly queue: QueuedMessage[] = [];
   private drainPromise: Promise<void> | null = null;
+  private userStylesheets: ParsedStylesheet[] = [];
+  private readonly defaultStylesheets = new Map<string, ParsedStylesheet>();
 
   constructor() {
     makeAutoObservable(
@@ -48,23 +60,24 @@ export class TextualFramework {
     this.isRunning = false;
   }
 
-  registerWidget(options: RegisterWidgetOptions): void {
-    const entry: WidgetRegistration = {
-      nodeId: options.nodeId,
-      parentId: options.parentId,
-      id: options.id,
-      classes: options.classes,
-      typeName: options.typeName,
-      handlersRef: options.handlersRef,
-      focusable: options.focusable ?? false,
-      autoFocus: options.autoFocus ?? false,
-    };
+  registerWidget(widget: WidgetNode): void {
+    this.registry.register(widget);
 
-    this.registry.register(entry);
-
-    if (entry.autoFocus) {
-      this.focusWidget(entry.nodeId);
+    if (widget.defaultCss !== undefined && !this.defaultStylesheets.has(widget.typeName)) {
+      this.defaultStylesheets.set(
+        widget.typeName,
+        parseTcss(widget.defaultCss, {
+          origin: "default",
+          scopeTypeName: widget.typeName,
+        }),
+      );
     }
+
+    if (widget.autoFocus) {
+      this.focusWidget(widget.nodeId);
+    }
+
+    this.recalculateStyles();
   }
 
   unregisterWidget(nodeId: string): void {
@@ -73,10 +86,66 @@ export class TextualFramework {
     }
 
     this.registry.deregister(nodeId);
+    this.recalculateStyles();
   }
 
   focusWidget(nodeId: string | null): void {
     this.focusedNodeId = nodeId;
+    this.recalculateStyles();
+  }
+
+  setUserStylesheet(source: string): void {
+    this.userStylesheets = source.trim().length === 0 ? [] : [parseTcss(source, { origin: "user" })];
+    this.recalculateStyles();
+  }
+
+  getActiveStylesheetsFor(typeName: string, defaultCss?: string): ParsedStylesheet[] {
+    const defaultStylesheet =
+      defaultCss === undefined
+        ? undefined
+        : this.defaultStylesheets.get(typeName) ??
+          parseTcss(defaultCss, {
+            origin: "default",
+            scopeTypeName: typeName,
+          });
+    const stylesheets = [defaultStylesheet, ...this.userStylesheets].filter(
+      (stylesheet): stylesheet is ParsedStylesheet => stylesheet !== undefined,
+    );
+
+    return stylesheets;
+  }
+
+  parseSelectors(selectorText: string): ParsedSelector[] {
+    return parseSelectorList(selectorText);
+  }
+
+  matchesSelector(widget: WidgetNode, selector: ParsedSelector): boolean {
+    return selectorMatchesWidget(this, widget, selector);
+  }
+
+  refreshStyles(changed: boolean): void {
+    this.registry.touch();
+
+    if (changed) {
+      this.recalculateStyles();
+    }
+  }
+
+  recalculateStyles(): void {
+    const visit = (widget: WidgetNode, inheritedCustomProperties: Record<string, string>): void => {
+      const resolvedStyles = resolveStylesForWidget(this, widget, inheritedCustomProperties);
+      widget.resolvedStyles.update(resolvedStyles);
+
+      for (const child of this.registry.getChildren(widget.nodeId)) {
+        visit(child, resolvedStyles.customProperties);
+      }
+    };
+
+    // [LAW:dataflow-not-control-flow] Every style recalculation walks the same
+    // tree in the same order. Variability lives in selector matches and values.
+    for (const rootWidget of this.registry.getChildren(null)) {
+      visit(rootWidget, {});
+    }
   }
 
   get messageQueueSize(): number {

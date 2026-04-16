@@ -8,6 +8,7 @@ import { TextualProvider, useTextual } from "../framework/context.js";
 export interface TextualAppProps extends PropsWithChildren {
   framework?: TextualFramework;
   onReady?: (framework: TextualFramework) => void;
+  stylesheet?: string;
 }
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
@@ -32,12 +33,17 @@ export const TextualApp = observer(function TextualApp({
   children,
   framework,
   onReady,
+  stylesheet,
 }: TextualAppProps): React.JSX.Element {
   const [ownedFramework] = useState(() => framework ?? new TextualFramework());
 
   useLayoutEffect(() => {
     onReady?.(ownedFramework);
   }, [onReady, ownedFramework]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setUserStylesheet(stylesheet ?? "");
+  }, [ownedFramework, stylesheet]);
 
   return (
     <TextualProvider framework={ownedFramework}>

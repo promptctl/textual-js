@@ -92,9 +92,9 @@ Updated at each phase boundary. Every "Implemented" row must correspond to a pas
 | `events_and_messages.md` | 1 | Phase 1 foundation | `tests/message.test.tsx` |
 | `reactivity.md` | 1 | Phase 1 foundation | `tests/reactive.test.ts` |
 | `app.md` | 1 | Phase 1 foundation | `tests/app.test.tsx`, `tests/integration.test.tsx` |
-| `css_parsing.md` | 2 | — | — |
-| `css_styles.md` | 2 | — | — |
-| `dom.md` | 2 | — | — |
+| `css_parsing.md` | 2 | Phase 2 TCSS/query | `tests/css-parsing.test.ts` |
+| `css_styles.md` | 2 | Phase 2 TCSS/query | `tests/styles.test.tsx` |
+| `dom.md` | 2 | Phase 2 TCSS/query | `tests/dom-query.test.tsx` |
 | `bindings_and_actions.md` | 3 | — | — |
 | `widget.md` | 3 | — | — |
 | `workers.md` | 4 | — | — |

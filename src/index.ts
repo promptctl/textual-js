@@ -32,7 +32,16 @@ export {
   type WidgetHostProps,
   type WidgetIdentity,
   type WidgetMessageHandler,
-  type WidgetRegistration,
+} from "./framework/index.js";
+export {
+  DOMQuery,
+  NoMatches,
+  TooManyMatches,
+  WidgetNode,
+  StylesReader,
+  WidgetScope,
+  useCurrentWidget,
+  useStyles,
 } from "./framework/index.js";
 export {
   ReactiveHost,
@@ -42,4 +51,19 @@ export {
   type ReactiveOptions,
   type ReactiveWatcher,
 } from "./reactive.js";
+export {
+  Scalar,
+  Unit,
+  generateTcss,
+  parseScalar,
+  parseSelectorList,
+  parseTcss,
+  type BorderValue,
+  type ParsedDeclaration,
+  type ParsedRule,
+  type ParsedSelector,
+  type ParsedSelectorSegment,
+  type ParsedStylesheet,
+  type SelectorSpecificity,
+} from "./styles/index.js";
 export { Pilot, runTest, type TestSession } from "./testing/index.js";

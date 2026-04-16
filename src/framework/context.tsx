@@ -1,18 +1,24 @@
 import React, {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type MutableRefObject,
   type PropsWithChildren,
 } from "react";
+import { observer } from "mobx-react-lite";
 
 import type { Message } from "../events/message.js";
 import { TextualFramework } from "./app-framework.js";
 import type { WidgetHandlers } from "./widget-registry.js";
+import { WidgetNode } from "./widget-node.js";
+import type { ResolvedStyles } from "../styles/resolved-styles.js";
 
 const TextualFrameworkContext = createContext<TextualFramework | null>(null);
 const ParentWidgetContext = createContext<string | null>(null);
+const CurrentWidgetContext = createContext<WidgetNode | null>(null);
 
 let nextWidgetNodeId = 1;
 
@@ -49,6 +55,7 @@ export interface UseWidgetOptions {
   handlers?: WidgetHandlers;
   focusable?: boolean;
   autoFocus?: boolean;
+  defaultCss?: string;
 }
 
 export interface UseWidgetResult {
@@ -56,6 +63,7 @@ export interface UseWidgetResult {
   isFocused: boolean;
   focus: () => void;
   postMessage: (message: Message) => void;
+  handle: WidgetNode;
 }
 
 function normalizeClasses(classes: UseWidgetOptions["classes"]): string[] {
@@ -76,47 +84,50 @@ function normalizeClasses(classes: UseWidgetOptions["classes"]): string[] {
 export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const framework = useTextual();
   const parentId = useContext(ParentWidgetContext);
-  const nodeIdRef = useRef(createWidgetNodeId());
+  const widgetRef = useRef<WidgetNode>(
+    new WidgetNode({
+      framework,
+      nodeId: createWidgetNodeId(),
+      parentId,
+      id: options.id,
+      classes: normalizeClasses(options.classes),
+      typeName: options.typeName,
+      handlersRef: { current: options.handlers },
+      focusable: options.focusable ?? false,
+      autoFocus: options.autoFocus ?? false,
+      defaultCss: options.defaultCss,
+    }),
+  );
   const handlersRef = useRef(options.handlers) as MutableRefObject<WidgetHandlers | undefined>;
   handlersRef.current = options.handlers;
   const classes = normalizeClasses(options.classes);
   const classesKey = classes.join(" ");
+  widgetRef.current.handlersRef.current = options.handlers;
 
   useLayoutEffect(() => {
-    framework.registerWidget({
-      nodeId: nodeIdRef.current,
-      parentId,
-      id: options.id,
-      classes,
-      typeName: options.typeName,
-      handlersRef,
-      focusable: options.focusable,
-      autoFocus: options.autoFocus,
-    });
+    widgetRef.current.parentId = parentId;
+    widgetRef.current.replaceClasses(classes);
+    framework.registerWidget(widgetRef.current);
 
     return () => {
-      framework.unregisterWidget(nodeIdRef.current);
+      framework.unregisterWidget(widgetRef.current.nodeId);
     };
   }, [
     classesKey,
     framework,
-    handlersRef,
-    options.autoFocus,
-    options.focusable,
-    options.id,
-    options.typeName,
     parentId,
   ]);
 
   return {
-    nodeId: nodeIdRef.current,
-    isFocused: framework.focusedNodeId === nodeIdRef.current,
+    nodeId: widgetRef.current.nodeId,
+    isFocused: framework.focusedNodeId === widgetRef.current.nodeId,
     focus: () => {
-      framework.focusWidget(nodeIdRef.current);
+      framework.focusWidget(widgetRef.current.nodeId);
     },
     postMessage: (message: Message) => {
-      framework.postMessage(nodeIdRef.current, message);
+      framework.postMessage(widgetRef.current.nodeId, message);
     },
+    handle: widgetRef.current,
   };
 }
 
@@ -127,6 +138,7 @@ export interface WidgetHostProps extends PropsWithChildren {
   handlers?: WidgetHandlers;
   focusable?: boolean;
   autoFocus?: boolean;
+  defaultCss?: string;
 }
 
 export function WidgetHost({
@@ -137,6 +149,7 @@ export function WidgetHost({
   handlers,
   focusable,
   autoFocus,
+  defaultCss,
 }: WidgetHostProps): React.JSX.Element {
   const widget = useWidget({
     id,
@@ -145,7 +158,61 @@ export function WidgetHost({
     handlers,
     focusable,
     autoFocus,
+    defaultCss,
   });
 
-  return <ParentWidgetContext.Provider value={widget.nodeId}>{children}</ParentWidgetContext.Provider>;
+  return (
+    <CurrentWidgetContext.Provider value={widget.handle}>
+      <ParentWidgetContext.Provider value={widget.nodeId}>{children}</ParentWidgetContext.Provider>
+    </CurrentWidgetContext.Provider>
+  );
+}
+
+export interface WidgetScopeProps extends PropsWithChildren {
+  widget: WidgetNode;
+}
+
+export function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
+  return (
+    <CurrentWidgetContext.Provider value={widget}>
+      <ParentWidgetContext.Provider value={widget.nodeId}>{children}</ParentWidgetContext.Provider>
+    </CurrentWidgetContext.Provider>
+  );
+}
+
+export const StylesReader = observer(function StylesReader({
+  children,
+}: {
+  children: (styles: ResolvedStyles, widget: WidgetNode) => React.JSX.Element;
+}): React.JSX.Element {
+  const widget = useContext(CurrentWidgetContext);
+
+  if (widget === null) {
+    throw new Error("StylesReader must be used within a widget scope");
+  }
+
+  return children(widget.resolvedStyles, widget);
+});
+
+export function useCurrentWidget(): WidgetNode {
+  const widget = useContext(CurrentWidgetContext);
+
+  if (widget === null) {
+    throw new Error("useCurrentWidget must be used inside a widget scope");
+  }
+
+  return widget;
+}
+
+export function useStyles(widget?: WidgetNode): ResolvedStyles {
+  const styles = (widget ?? useCurrentWidget()).resolvedStyles;
+  const [, setVersion] = useState(0);
+
+  useEffect(() => {
+    return styles.subscribe(() => {
+      setVersion((version) => version + 1);
+    });
+  }, [styles]);
+
+  return styles;
 }

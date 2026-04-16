@@ -1,6 +1,7 @@
 import { makeAutoObservable, observable } from "mobx";
 
 import type { Message } from "../events/message.js";
+import type { WidgetNode } from "./widget-node.js";
 
 export type WidgetMessageHandler<TMessage extends Message = Message> = (message: TMessage) => void | Promise<void>;
 
@@ -12,16 +13,8 @@ export interface WidgetIdentity {
   typeName: string;
 }
 
-export interface WidgetRegistration extends WidgetIdentity {
-  nodeId: string;
-  parentId: string | null;
-  handlersRef: { current: WidgetHandlers | undefined };
-  focusable: boolean;
-  autoFocus: boolean;
-}
-
 export class WidgetRegistry {
-  private readonly entries = observable.map<string, WidgetRegistration>();
+  private readonly entries = observable.map<string, WidgetNode>();
   private readonly cssIds = observable.map<string, string>();
   private readonly order = observable.array<string>([]);
   version = 0;
@@ -38,34 +31,34 @@ export class WidgetRegistry {
     );
   }
 
-  // [LAW:one-source-of-truth] React owns the tree structure; the registry is the
-  // canonical index for "what widgets exist" and where message bubbling can go.
-  register(entry: WidgetRegistration): void {
-    if (entry.id !== undefined) {
-      const existingNodeId = this.cssIds.get(entry.id);
+  // [LAW:one-source-of-truth] WidgetNode is the canonical identity object for a
+  // mounted widget. The registry only indexes those nodes; it doesn't mirror them.
+  register(widget: WidgetNode): void {
+    if (widget.id !== undefined) {
+      const existingNodeId = this.cssIds.get(widget.id);
 
-      // [LAW:single-enforcer] Duplicate CSS ids are rejected only here so all
-      // widget registration paths share one invariant boundary.
-      if (existingNodeId !== undefined && existingNodeId !== entry.nodeId) {
-        throw new Error(`Duplicate widget id "${entry.id}"`);
+      // [LAW:single-enforcer] Duplicate CSS ids are rejected only here so every
+      // registration path shares one invariant boundary.
+      if (existingNodeId !== undefined && existingNodeId !== widget.nodeId) {
+        throw new Error(`Duplicate widget id "${widget.id}"`);
       }
 
-      this.cssIds.set(entry.id, entry.nodeId);
+      this.cssIds.set(widget.id, widget.nodeId);
     }
 
-    if (!this.entries.has(entry.nodeId)) {
-      this.order.push(entry.nodeId);
+    if (!this.entries.has(widget.nodeId)) {
+      this.order.push(widget.nodeId);
     }
 
-    this.entries.set(entry.nodeId, entry);
+    this.entries.set(widget.nodeId, widget);
     this.version += 1;
   }
 
   deregister(nodeId: string): void {
-    const entry = this.entries.get(nodeId);
+    const widget = this.entries.get(nodeId);
 
-    if (entry?.id !== undefined) {
-      this.cssIds.delete(entry.id);
+    if (widget?.id !== undefined) {
+      this.cssIds.delete(widget.id);
     }
 
     this.entries.delete(nodeId);
@@ -79,22 +72,72 @@ export class WidgetRegistry {
     this.version += 1;
   }
 
-  get(nodeId: string): WidgetRegistration | undefined {
+  touch(): void {
+    this.version += 1;
+  }
+
+  get(nodeId: string): WidgetNode | undefined {
     return this.entries.get(nodeId);
   }
 
-  getByCssId(cssId: string): WidgetRegistration | undefined {
+  getByCssId(cssId: string): WidgetNode | undefined {
     const nodeId = this.cssIds.get(cssId);
     return nodeId === undefined ? undefined : this.entries.get(nodeId);
   }
 
-  list(): WidgetRegistration[] {
+  list(): WidgetNode[] {
     return this.order
       .map((nodeId) => this.entries.get(nodeId))
-      .filter((entry): entry is WidgetRegistration => entry !== undefined);
+      .filter((widget): widget is WidgetNode => widget !== undefined);
   }
 
-  getDefaultTarget(preferredNodeId: string | null): WidgetRegistration | undefined {
+  getChildren(parentId: string | null): WidgetNode[] {
+    return this.list().filter((widget) => widget.parentId === parentId);
+  }
+
+  getDescendants(nodeId: string): WidgetNode[] {
+    const descendants: WidgetNode[] = [];
+    const queue = this.getChildren(nodeId);
+
+    while (queue.length > 0) {
+      const widget = queue.shift();
+
+      if (widget !== undefined) {
+        descendants.push(widget);
+        queue.push(...this.getChildren(widget.nodeId));
+      }
+    }
+
+    return descendants;
+  }
+
+  getPreviousSibling(nodeId: string): WidgetNode | undefined {
+    const widget = this.entries.get(nodeId);
+
+    if (widget === undefined) {
+      return undefined;
+    }
+
+    const siblings = this.getChildren(widget.parentId);
+    const index = siblings.findIndex((sibling) => sibling.nodeId === nodeId);
+
+    return index <= 0 ? undefined : siblings[index - 1];
+  }
+
+  getPreviousSiblings(nodeId: string): WidgetNode[] {
+    const widget = this.entries.get(nodeId);
+
+    if (widget === undefined) {
+      return [];
+    }
+
+    const siblings = this.getChildren(widget.parentId);
+    const index = siblings.findIndex((sibling) => sibling.nodeId === nodeId);
+
+    return index <= 0 ? [] : siblings.slice(0, index).reverse();
+  }
+
+  getDefaultTarget(preferredNodeId: string | null): WidgetNode | undefined {
     const preferredEntry = preferredNodeId === null ? undefined : this.entries.get(preferredNodeId);
 
     if (preferredEntry !== undefined) {
