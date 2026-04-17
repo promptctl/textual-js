@@ -1,7 +1,7 @@
 import { runInAction } from "mobx";
 import { describe, expect, it } from "vitest";
 
-import { ReactiveHost, reactive } from "../src/index.js";
+import { ReactiveError, ReactiveHost, reactive, reactiveSource } from "../src/index.js";
 
 class CounterHost extends ReactiveHost {
   static readonly definitions = {
@@ -56,6 +56,40 @@ class LazyHost extends ReactiveHost {
   }
 
   watch_count(oldValue: number | undefined, newValue: number): void {
+    this.calls.push(`${oldValue ?? "init"}->${newValue}`);
+  }
+}
+
+class PulseHost extends ReactiveHost {
+  static readonly definitions = {
+    pulse: reactive("idle", { alwaysUpdate: true }),
+  };
+
+  readonly calls: string[] = [];
+
+  constructor() {
+    super();
+    this.initializeReactiveState(PulseHost.definitions);
+  }
+
+  watch_pulse(oldValue: string | undefined, newValue: string): void {
+    this.calls.push(`${oldValue ?? "init"}->${newValue}`);
+  }
+}
+
+class MirrorHost extends ReactiveHost {
+  static readonly definitions = {
+    mirror: reactive("unset"),
+  };
+
+  readonly calls: string[] = [];
+
+  constructor() {
+    super();
+    this.initializeReactiveState(MirrorHost.definitions);
+  }
+
+  watch_mirror(oldValue: string | undefined, newValue: string): void {
     this.calls.push(`${oldValue ?? "init"}->${newValue}`);
   }
 }
@@ -128,5 +162,59 @@ describe("reactive pipeline", () => {
     expect(() => {
       host.count = 4;
     }).toThrow();
+  });
+
+  it("supports cross-host watchers with deduplicated registration", () => {
+    const source = new CounterHost();
+    const selfObserved: string[] = [];
+    const crossObserved: string[] = [];
+    const selfCallback = (oldValue: number | undefined, newValue: number): void => {
+      selfObserved.push(`${oldValue ?? "init"}->${newValue}`);
+    };
+    const crossCallback = (oldValue: number | undefined, newValue: number): void => {
+      crossObserved.push(`${oldValue ?? "init"}->${newValue}`);
+    };
+
+    source.watch("count", selfCallback, { init: true });
+    source.watch("count", selfCallback, { init: true });
+
+    const observer = new LazyHost();
+    observer.watch(source, "count", crossCallback, { init: true });
+    observer.watch(source, "count", crossCallback, { init: true });
+
+    runInAction(() => {
+      source.count = 4;
+    });
+
+    expect(selfObserved).toEqual(["init->2", "2->8"]);
+    expect(crossObserved).toEqual(["init->2", "2->8"]);
+  });
+
+  it("binds child reactives to another host and propagates equal-value updates", () => {
+    const source = new PulseHost();
+    const mirror = new MirrorHost();
+
+    mirror.dataBind({
+      mirror: reactiveSource(source, "pulse"),
+    });
+
+    runInAction(() => {
+      source.pulse = "ready";
+      source.pulse = "ready";
+    });
+
+    expect(mirror.mirror).toBe("ready");
+    expect(mirror.calls).toEqual(["unset->idle", "idle->ready", "ready->ready"]);
+  });
+
+  it("rejects bindings to unknown target reactives", () => {
+    const source = new PulseHost();
+    const mirror = new MirrorHost();
+
+    expect(() => {
+      mirror.dataBind({
+        missing: reactiveSource(source, "pulse"),
+      });
+    }).toThrow(ReactiveError);
   });
 });

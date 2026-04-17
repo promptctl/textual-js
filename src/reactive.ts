@@ -19,6 +19,10 @@ export interface ReactiveOptions {
   alwaysUpdate?: boolean;
 }
 
+export interface ReactiveWatchOptions {
+  init?: boolean;
+}
+
 type ReactiveDefault<T> = T | (() => T);
 
 export interface ReactiveDefinition<T> {
@@ -30,6 +34,13 @@ export type ReactiveDefinitions = Record<string, ReactiveDefinition<unknown>>;
 
 export type ReactiveWatcher<T> = (oldValue: T | undefined, newValue: T) => void | Promise<void>;
 
+export class ReactiveError extends Error {}
+
+export interface ReactiveBindingSource<T = unknown> {
+  readonly host: ReactiveHost;
+  readonly name: string;
+}
+
 export function reactive<T>(defaultValue: ReactiveDefault<T>, options: ReactiveOptions = {}): ReactiveDefinition<T> {
   return {
     defaultValue,
@@ -38,6 +49,10 @@ export function reactive<T>(defaultValue: ReactiveDefault<T>, options: ReactiveO
       alwaysUpdate: options.alwaysUpdate ?? false,
     },
   };
+}
+
+export function reactiveSource<T>(host: ReactiveHost, name: string): ReactiveBindingSource<T> {
+  return { host, name };
 }
 
 function toSnakeCase(name: string): string {
@@ -78,6 +93,7 @@ export abstract class ReactiveHost {
   private readonly reactiveBoxes = new Map<string, IObservableValue<unknown>>();
   private readonly computedValues = new Map<string, IComputedValue<unknown>>();
   private readonly externalWatchers = new Map<string, Set<ReactiveWatcher<unknown>>>();
+  private readonly reactiveDefinitions = new Map<string, ReactiveDefinition<unknown>>();
   private readonly silentReactiveNames = new Set<string>();
   private silentMutationDepth = 0;
   private initialized = false;
@@ -88,6 +104,7 @@ export abstract class ReactiveHost {
     }
 
     for (const [name, definition] of Object.entries(definitions)) {
+      this.reactiveDefinitions.set(name, definition);
       const initialValue = this.applyValidators(name, this.resolveDefaultValue(definition.defaultValue));
       const box = observable.box(initialValue, {
         equals: definition.options.alwaysUpdate ? (() => false) : comparer.default,
@@ -130,13 +147,66 @@ export abstract class ReactiveHost {
     this.initialized = true;
   }
 
-  watch<T>(name: string, callback: ReactiveWatcher<T>, options: { init?: boolean } = {}): () => void {
+  watch<T>(name: string, callback: ReactiveWatcher<T>, options?: ReactiveWatchOptions): () => void;
+  watch<T>(target: ReactiveHost, name: string, callback: ReactiveWatcher<T>, options?: ReactiveWatchOptions): () => void;
+  watch<T>(
+    targetOrName: ReactiveHost | string,
+    nameOrCallback: string | ReactiveWatcher<T>,
+    callbackOrOptions: ReactiveWatcher<T> | ReactiveWatchOptions = {},
+    options: ReactiveWatchOptions = {},
+  ): () => void {
+    const target = typeof targetOrName === "string" ? this : targetOrName;
+    const name = typeof targetOrName === "string" ? targetOrName : nameOrCallback;
+    const callback = typeof targetOrName === "string" ? nameOrCallback : callbackOrOptions;
+    const watchOptions =
+      typeof targetOrName === "string"
+        ? (callbackOrOptions as ReactiveWatchOptions | undefined) ?? {}
+        : options;
+
+    if (typeof name !== "string" || typeof callback !== "function") {
+      throw new ReactiveError("watch requires a reactive name and callback");
+    }
+
+    return target.addExternalWatcher(name, callback, watchOptions);
+  }
+
+  dataBind(bindings: Record<string, ReactiveBindingSource<unknown> | unknown>): () => void {
+    const unsubscribeCallbacks: Array<() => void> = [];
+
+    for (const [targetName, source] of Object.entries(bindings)) {
+      this.assertWritableReactive(targetName);
+
+      if (isReactiveBindingSource(source)) {
+        source.host.assertReadableReactive(source.name);
+
+        // [LAW:one-source-of-truth] Cross-host bindings subscribe to the source
+        // host's reactive stream directly, so synchronization derives from the
+        // canonical source value instead of a mirrored observer path.
+        unsubscribeCallbacks.push(source.host.watch(source.name, (_oldValue, newValue) => {
+          this.applyBoundValue(targetName, newValue);
+        }, { init: true }));
+        continue;
+      }
+
+      this.applyBoundValue(targetName, source);
+    }
+
+    return () => {
+      for (const unsubscribe of unsubscribeCallbacks) {
+        unsubscribe();
+      }
+    };
+  }
+
+  private addExternalWatcher<T>(name: string, callback: ReactiveWatcher<T>, options: ReactiveWatchOptions = {}): () => void {
+    this.assertReadableReactive(name);
     const watchers = this.externalWatchers.get(name) ?? new Set<ReactiveWatcher<unknown>>();
+    const sizeBefore = watchers.size;
 
     watchers.add(callback as ReactiveWatcher<unknown>);
     this.externalWatchers.set(name, watchers);
 
-    if (options.init) {
+    if (options.init && watchers.size > sizeBefore) {
       invokeWatcher(callback as (...args: unknown[]) => unknown, undefined, this.readReactiveValue(name) as T);
     }
 
@@ -170,6 +240,18 @@ export abstract class ReactiveHost {
   mutateReactive(name: string): void {
     const currentValue = this.readReactiveValue(name);
     this.notifyWatchers(name, currentValue, currentValue);
+  }
+
+  private applyBoundValue(name: string, value: unknown): void {
+    const previousValue = this.readReactiveValue(name);
+
+    runInAction(() => {
+      (this as Record<string, unknown>)[name] = value;
+    });
+
+    if (Object.is(previousValue, this.readReactiveValue(name))) {
+      this.mutateReactive(name);
+    }
   }
 
   private initializeComputedState(): void {
@@ -283,4 +365,20 @@ export abstract class ReactiveHost {
 
     throw new Error(`Unknown reactive "${name}"`);
   }
+
+  private assertWritableReactive(name: string): void {
+    if (!this.reactiveBoxes.has(name)) {
+      throw new ReactiveError(`Unknown writable reactive "${name}"`);
+    }
+  }
+
+  private assertReadableReactive(name: string): void {
+    if (!this.reactiveBoxes.has(name) && !this.computedValues.has(name)) {
+      throw new ReactiveError(`Unknown reactive "${name}"`);
+    }
+  }
+}
+
+function isReactiveBindingSource(value: unknown): value is ReactiveBindingSource<unknown> {
+  return typeof value === "object" && value !== null && "host" in value && "name" in value;
 }

@@ -102,11 +102,15 @@ export {
   type WorkerState,
 } from "./services/worker.js";
 export {
+  ReactiveError,
   ReactiveHost,
   reactive,
+  reactiveSource,
+  type ReactiveBindingSource,
   type ReactiveDefinition,
   type ReactiveDefinitions,
   type ReactiveOptions,
+  type ReactiveWatchOptions,
   type ReactiveWatcher,
 } from "./reactive.js";
 export {
