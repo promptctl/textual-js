@@ -9,6 +9,7 @@ import {
   Click,
   Compose,
   Focus,
+  Idle,
   Key,
   ModeChanged,
   Mount,
@@ -21,7 +22,7 @@ import {
   ScrollEvent,
   Unmount,
 } from "../events/events.js";
-import { Message, messageHandlerNames } from "../events/message.js";
+import { Message, messageHandlerNames, type MessageConstructor } from "../events/message.js";
 import {
   SkipAction,
   makeBindings,
@@ -45,11 +46,17 @@ import {
 } from "../styles/index.js";
 import { WidgetNode } from "./widget-node.js";
 import {
+  discoverOnHandlers,
+  resolveNamedHandler,
+  type OnHandlerRegistration,
+} from "./on.js";
+import {
   WidgetRegistry,
   type WidgetActionCallback,
   type WidgetActions,
   type WidgetCheckAction,
   type WidgetHandlers,
+  type WidgetMessageHandler,
 } from "./widget-registry.js";
 
 export interface RegisterWidgetOptions {
@@ -149,6 +156,26 @@ export class ActiveModeError extends Error {}
 function normalizeCssSource(source: string | undefined): string | undefined {
   const normalizedSource = source?.trim();
   return normalizedSource === undefined || normalizedSource.length === 0 ? undefined : normalizedSource;
+}
+
+function coerceWidgetNode(value: unknown): WidgetNode | null {
+  return value instanceof WidgetNode ? value : null;
+}
+
+function getMessageTypeDistance(message: Message, messageType: MessageConstructor): number | null {
+  let currentConstructor: object | null = message.constructor;
+  let distance = 0;
+
+  while (currentConstructor !== null) {
+    if (currentConstructor === messageType) {
+      return distance;
+    }
+
+    currentConstructor = Object.getPrototypeOf(currentConstructor);
+    distance += 1;
+  }
+
+  return null;
 }
 
 const SPECIAL_KEY_NAMES = new Map<string, string>([
@@ -668,8 +695,21 @@ export class TextualFramework {
   }
 
   async whenIdle(): Promise<void> {
-    await this.drainPromise;
-    await Promise.resolve();
+    do {
+      const pendingDrain = this.drainPromise;
+
+      if (pendingDrain !== null) {
+        await pendingDrain;
+      }
+
+      await Promise.resolve();
+
+      // [LAW:single-enforcer] Queue idleness is observed from this boundary so
+      // tests and framework callers share one definition of "fully drained."
+      if (this.queue.length === 0 && this.drainPromise === null) {
+        return;
+      }
+    } while (true);
   }
 
   subscribeToMessages(subscriber: MessageSubscriber): () => void {
@@ -1458,19 +1498,27 @@ export class TextualFramework {
       .then(async () => this.drainQueue())
       .finally(() => {
         this.drainPromise = null;
+
+        if (this.queue.length > 0) {
+          this.scheduleDrain();
+        }
       });
   }
 
   private async drainQueue(): Promise<void> {
     // [LAW:dataflow-not-control-flow] Every queued message flows through the same
     // dispatch pipeline; bubbling decisions live on message data, not skipped steps.
-    while (this.queue.length > 0) {
-      const nextMessage = this.queue.shift();
+    do {
+      while (this.queue.length > 0) {
+        const nextMessage = this.queue.shift();
 
-      if (nextMessage !== undefined) {
-        await this.dispatchQueuedMessage(nextMessage);
+        if (nextMessage !== undefined) {
+          await this.dispatchQueuedMessage(nextMessage);
+        }
       }
-    }
+
+      await this.dispatchIdlePass();
+    } while (this.queue.length > 0);
   }
 
   private async dispatchQueuedMessage({ targetId, targetNode, message }: QueuedMessage): Promise<void> {
@@ -1547,16 +1595,120 @@ export class TextualFramework {
       return [];
     }
 
-    const matchingHandlers = messageHandlerNames(message)
-      .map((name) => handlers[name])
-      .filter((handler): handler is NonNullable<WidgetHandlers[keyof WidgetHandlers]> => handler !== undefined);
+    const registeredHandlers = discoverOnHandlers(handlers);
+    const registeredIdentities = new Set(registeredHandlers.map((candidate) => candidate.identity));
+    const matchingHandlers = registeredHandlers.flatMap((candidate) => {
+      const invocationCount = this.countMatchingOnRegistrations(candidate.registrations, message);
+      return Array.from({ length: invocationCount }, () => candidate.callable);
+    });
+    const seenConventionIdentities = new Set<WidgetMessageHandler>();
 
-    return Array.from(new Set(matchingHandlers));
+    const conventionHandlers = messageHandlerNames(message)
+      .map((name) => resolveNamedHandler(handlers, name))
+      .filter((candidate): candidate is NonNullable<ReturnType<typeof resolveNamedHandler>> => candidate !== null)
+      .filter((candidate) => !registeredIdentities.has(candidate.identity))
+      .filter((candidate) => {
+        if (seenConventionIdentities.has(candidate.identity)) {
+          return false;
+        }
+
+        seenConventionIdentities.add(candidate.identity);
+        return true;
+      })
+      .map((candidate) => candidate.callable);
+
+    return [...matchingHandlers, ...conventionHandlers];
+  }
+
+  private countMatchingOnRegistrations(registrations: readonly OnHandlerRegistration[], message: Message): number {
+    const matchingRegistrations = registrations
+      .map((registration) => ({
+        registration,
+        distance: getMessageTypeDistance(message, registration.messageType),
+      }))
+      .filter(
+        (candidate): candidate is { registration: OnHandlerRegistration; distance: number } =>
+          candidate.distance !== null && this.matchesOnRegistration(message, candidate.registration),
+      )
+      .sort((left, right) => left.registration.order - right.registration.order);
+
+    if (matchingRegistrations.length === 0) {
+      return 0;
+    }
+
+    const seenGroups = new Set<string>();
+
+    return matchingRegistrations.reduce((count, candidate) => {
+      const signature = this.getOnRegistrationGroupSignature(candidate.registration);
+
+      if (seenGroups.has(signature)) {
+        return count;
+      }
+
+      const bestDistance = matchingRegistrations
+        .filter((entry) => this.getOnRegistrationGroupSignature(entry.registration) === signature)
+        .reduce((currentBest, entry) => Math.min(currentBest, entry.distance), Number.POSITIVE_INFINITY);
+
+      if (candidate.distance !== bestDistance) {
+        return count;
+      }
+
+      seenGroups.add(signature);
+      return count + 1;
+    }, 0);
+  }
+
+  private matchesOnRegistration(message: Message, registration: OnHandlerRegistration): boolean {
+    const selectorMatches = registration.selector === null
+      ? true
+      : this.matchesSelectorGroup(this.getDefaultOnSelectorTarget(message), registration.selector);
+    const attributeMatches = Array.from(registration.attributeSelectors.entries()).every(([attribute, selectors]) =>
+      this.matchesSelectorGroup(this.getOnAttributeTarget(message, attribute), selectors),
+    );
+    return selectorMatches && attributeMatches;
+  }
+
+  private matchesSelectorGroup(target: WidgetNode | null, selectors: readonly ParsedSelector[]): boolean {
+    return target !== null && selectors.some((selector) => this.matchesSelector(target, selector));
+  }
+
+  private getDefaultOnSelectorTarget(message: Message): WidgetNode | null {
+    const messageWithControl = message as Message & { control?: unknown };
+    return coerceWidgetNode(messageWithControl.control) ?? coerceWidgetNode(message.sender);
+  }
+
+  private getOnAttributeTarget(message: Message, attribute: string): WidgetNode | null {
+    const messageAttributes = message as Message & Record<string, unknown>;
+    return coerceWidgetNode(messageAttributes[attribute]);
+  }
+
+  private getOnRegistrationGroupSignature(registration: OnHandlerRegistration): string {
+    const selectorSignature = registration.selector?.map((selector) => selector.raw).join(",") ?? "";
+    const attributeSignature = Array.from(registration.attributeSelectors.entries())
+      .map(([attribute, selectors]) => `${attribute}:${selectors.map((selector) => selector.raw).join(",")}`)
+      .join("|");
+    return `${selectorSignature}::${attributeSignature}`;
   }
 
   private enqueueLifecycleMessages(widget: WidgetNode): void {
     this.enqueueDirectMessage(widget, new Compose({ bubble: false }));
     this.enqueueDirectMessage(widget, new Mount({ bubble: false }));
+  }
+
+  private async dispatchIdlePass(): Promise<void> {
+    if (!this.isRunning) {
+      return;
+    }
+
+    // [LAW:single-enforcer] Idle delivery runs from the dispatcher boundary so
+    // startup, user input, and deferred work all observe the same idle cadence.
+    for (const widget of this.registry.list()) {
+      await this.dispatchQueuedMessage({
+        targetId: null,
+        targetNode: widget,
+        message: this.withSender(new Idle({ bubble: false }), widget),
+      });
+    }
   }
 
   private enqueueDirectMessage(targetNode: WidgetNode, message: Message): void {

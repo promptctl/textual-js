@@ -29,6 +29,7 @@ export {
   type WidgetHostProps,
 } from "./context.js";
 export { DOMQuery, NoMatches, TooManyMatches } from "./dom-query.js";
+export { OnDecoratorError, on, type OnOptions } from "./on.js";
 export {
   WidgetRegistry,
   type WidgetActionCallback,

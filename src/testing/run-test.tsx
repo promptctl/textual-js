@@ -21,10 +21,12 @@ type AppInput = React.ReactElement | React.ComponentType<Record<string, unknown>
 type PointerTarget = string | WidgetNode | React.ComponentType<unknown> | undefined;
 type PointerOffset = { x: number; y: number };
 type PointerInput = PointerTarget | number | PointerOptions | undefined;
+const CLICK_CHAIN_WINDOW_MS = 500;
 
 export interface PointerOptions {
   widget?: PointerTarget;
   offset?: PointerOffset;
+  times?: number;
 }
 
 interface ResolvedPointerTarget {
@@ -61,7 +63,13 @@ function readTypeName(target: React.ComponentType<unknown>): string {
 }
 
 export class Pilot {
+  private lastClick: { key: string; chain: number; time: number } | null = null;
+
   constructor(private readonly framework: TextualFramework) {}
+
+  toString(): string {
+    return `<Pilot app=${this.framework.constructor.name}>`;
+  }
 
   async press(...keys: string[]): Promise<void> {
     for (const key of keys) {
@@ -88,23 +96,26 @@ export class Pilot {
 
   async click(target?: PointerInput, y?: number): Promise<boolean> {
     const resolved = this.resolvePointerTarget(target, y);
-    await this.dispatchResolvedPointer("down", resolved);
-    await this.dispatchResolvedPointer("up", resolved);
-    await this.dispatchResolvedPointer("click", resolved);
+    const options = isPointerOptions(target) ? target : undefined;
+    const times = normalizeClickCount(options?.times);
+
+    // [LAW:dataflow-not-control-flow] Repeated clicks reuse the exact same
+    // dispatch pipeline; the repeat count is data, not a separate code path.
+    for (let index = 0; index < times; index += 1) {
+      await this.dispatchResolvedPointer("down", resolved);
+      await this.dispatchResolvedPointer("up", resolved);
+      await this.dispatchResolvedPointer("click", resolved, this.resolveClickChain(resolved));
+    }
+
     return resolved.hitIntendedTarget;
   }
 
   async doubleClick(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
-    const first = await this.click(target, y);
-    const second = await this.click(target, y);
-    return first && second;
+    return this.click(normalizeRepeatedClickTarget(target, 2), y);
   }
 
   async tripleClick(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
-    const first = await this.click(target, y);
-    const second = await this.click(target, y);
-    const third = await this.click(target, y);
-    return first && second && third;
+    return this.click(normalizeRepeatedClickTarget(target, 3), y);
   }
 
   async resize(width: number, height: number): Promise<void> {
@@ -151,6 +162,7 @@ export class Pilot {
   private async dispatchResolvedPointer(
     kind: "down" | "up" | "move" | "click",
     resolved: ResolvedPointerTarget,
+    clickChain = 1,
   ): Promise<void> {
     if (kind === "down") {
       if (resolved.targetNode !== undefined) {
@@ -171,9 +183,9 @@ export class Pilot {
         this.framework.postMouseMove(resolved.x, resolved.y);
       }
     } else if (resolved.targetNode !== undefined) {
-      this.framework.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y));
+      this.framework.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y, clickChain));
     } else {
-      this.framework.postClick(resolved.x, resolved.y);
+      this.framework.postClick(resolved.x, resolved.y, clickChain);
     }
 
     await this.pause();
@@ -191,7 +203,7 @@ export class Pilot {
     }
 
     const options = isPointerOptions(target) ? target : undefined;
-    const intendedTarget = options?.widget ?? target;
+    const intendedTarget = options === undefined ? target : options.widget;
     const offset = options?.offset;
 
     if (intendedTarget === undefined) {
@@ -202,10 +214,27 @@ export class Pilot {
     }
 
     const intendedNode = this.resolveTargetNode(intendedTarget as Exclude<PointerTarget, undefined>);
+    this.assertTargetRegionIsReachable(intendedNode);
     const absoluteX = intendedNode.screenRegion.x + (offset?.x ?? defaultPointerCoordinate(intendedNode.screenRegion.width));
     const absoluteY = intendedNode.screenRegion.y + (offset?.y ?? defaultPointerCoordinate(intendedNode.screenRegion.height));
     this.assertBounds(absoluteX, absoluteY);
     return this.resolveHitAtPoint(intendedNode, absoluteX, absoluteY);
+  }
+
+  private resolveClickChain(resolved: ResolvedPointerTarget): number {
+    const key = resolved.targetNode?.nodeId ?? `${resolved.x}:${resolved.y}`;
+    const now = Date.now();
+    const chain =
+      this.lastClick !== null &&
+      this.lastClick.key === key &&
+      now - this.lastClick.time <= CLICK_CHAIN_WINDOW_MS
+        ? this.lastClick.chain + 1
+        : 1;
+
+    // [LAW:one-source-of-truth] Click-chain state is tracked in one place so
+    // double and triple clicks are derived uniformly across all pilot helpers.
+    this.lastClick = { key, chain, time: now };
+    return chain;
   }
 
   private resolveTargetNode(target: Exclude<PointerTarget, undefined>): WidgetNode {
@@ -236,6 +265,16 @@ export class Pilot {
   private assertBounds(x: number, y: number): void {
     if (x < 0 || y < 0 || x >= this.framework.terminalSize.width || y >= this.framework.terminalSize.height) {
       throw new OutOfBounds(`Pointer target (${x}, ${y}) is outside the terminal bounds`);
+    }
+  }
+
+  private assertTargetRegionIsReachable(target: WidgetNode): void {
+    const visibleRegion = target.screenRegion.clip(this.framework.terminalSize.width, this.framework.terminalSize.height);
+
+    // [LAW:single-enforcer] Pointer reachability is validated at this boundary
+    // so all selector/class/instance targeting shares one out-of-bounds rule.
+    if (visibleRegion.isEmpty) {
+      throw new OutOfBounds(`Widget "${target.typeName}" is outside the visible screen region`);
     }
   }
 
@@ -276,7 +315,26 @@ export class Pilot {
 }
 
 function isPointerOptions(target: PointerInput): target is PointerOptions {
-  return typeof target === "object" && target !== null && ("widget" in target || "offset" in target);
+  return typeof target === "object" && target !== null && ("widget" in target || "offset" in target || "times" in target);
+}
+
+function normalizeRepeatedClickTarget(
+  target: PointerTarget | { offset?: { x: number; y: number } } | undefined,
+  times: number,
+): PointerOptions {
+  if (isPointerOptions(target)) {
+    return { ...target, times };
+  }
+
+  return { widget: target as PointerTarget, times };
+}
+
+function normalizeClickCount(times: number | undefined): number {
+  if (times === undefined) {
+    return 1;
+  }
+
+  return Number.isFinite(times) ? Math.max(1, Math.trunc(times)) : 1;
 }
 
 function defaultPointerCoordinate(size: number): number {
@@ -296,6 +354,7 @@ function widgetDepth(widget: WidgetNode): number {
 }
 
 export interface TestSession {
+  app: TextualFramework;
   framework: TextualFramework;
   pilot: Pilot;
   cleanup: () => void;
@@ -326,6 +385,7 @@ export async function runTest(component: AppInput, options: RunTestOptions = {})
   };
 
   return {
+    app: framework,
     framework,
     pilot: new Pilot(framework),
     cleanup: unmount,

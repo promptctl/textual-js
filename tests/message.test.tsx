@@ -2,10 +2,11 @@ import React from "react";
 import { Text } from "ink";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Message, TextualApp, TextualFramework, WidgetHost } from "../src/index.js";
+import { Idle, Message, MouseMove, on, Resize, TextualApp, TextualFramework, WidgetHost } from "../src/index.js";
 import { render } from "ink-testing-library";
 
 class Ping extends Message {}
+class ChildPing extends Ping {}
 
 class ReplaceablePing extends Message {
   override canReplace(message: Message): boolean {
@@ -15,6 +16,22 @@ class ReplaceablePing extends Message {
 
 class SilentPing extends Message {
   static override readonly noDispatch = true;
+}
+
+class DecoratedBaseHandlers {
+  constructor(protected readonly received: string[]) {}
+
+  @on(Ping)
+  handlePing(): void {
+    this.received.push("base");
+  }
+}
+
+class DecoratedDerivedHandlers extends DecoratedBaseHandlers {
+  @on(Ping)
+  override handlePing(): void {
+    this.received.push("derived");
+  }
 }
 
 describe("message dispatch", () => {
@@ -104,6 +121,53 @@ describe("message dispatch", () => {
     instance.cleanup();
   });
 
+  it("coalesces built-in queue messages to their latest value", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Widget"
+          handlers={{
+            onResize: (message) => {
+              received.push(`resize:${message.width}x${message.height}`);
+            },
+            onMouseMove: (message) => {
+              received.push(`move:${message.x},${message.y}`);
+            },
+            onIdle: () => {
+              received.push("idle");
+            },
+          }}
+        >
+          <Text>built-in-coalesce</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.list()[0];
+    received.length = 0;
+
+    framework.postMessage(widget.nodeId, new Resize(10, 5));
+    framework.postMessage(widget.nodeId, new Resize(30, 8));
+    framework.postMessage(widget.nodeId, new MouseMove(1, 1));
+    framework.postMessage(widget.nodeId, new MouseMove(4, 7));
+    framework.postMessage(widget.nodeId, new Idle());
+    framework.postMessage(widget.nodeId, new Idle());
+
+    expect(framework.messageQueueSize).toBe(3);
+
+    await framework.whenIdle();
+
+    expect(received).toEqual(["resize:30x8", "move:4,7", "idle", "idle"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("dispatches compose, mount, and unmount lifecycle messages", async () => {
     const framework = new TextualFramework();
     const received: string[] = [];
@@ -138,6 +202,36 @@ describe("message dispatch", () => {
     await Promise.resolve();
 
     expect(received).toContain("unmount");
+  });
+
+  it("runs an idle pass after startup drains the initial lifecycle queue", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="IdleWidget"
+          handlers={{
+            onMount: () => {
+              received.push("mount");
+            },
+            onIdle: () => {
+              received.push("idle");
+            },
+          }}
+        >
+          <Text>idle-startup</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    expect(received.slice(0, 2)).toEqual(["mount", "idle"]);
+
+    instance.unmount();
+    instance.cleanup();
   });
 
   it("tracks sender and message metadata", async () => {
@@ -254,6 +348,103 @@ describe("message dispatch", () => {
     await framework.whenIdle();
 
     expect(received).toEqual(["child:first", "parent"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("runs selector-filtered on handlers before convention handlers and avoids double-dispatch", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Parent"
+          handlers={{
+            onPing: on(Ping, "#save", () => {
+              received.push("decorated");
+            }),
+            on_ping: () => {
+              received.push("convention");
+            },
+          }}
+        >
+          <WidgetHost typeName="Child" id="save">
+            <Text>selector-match</Text>
+          </WidgetHost>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const child = framework.registry.getByCssId("save");
+    expect(child).toBeDefined();
+
+    framework.postMessage(child!.nodeId, new Ping());
+    await framework.whenIdle();
+
+    expect(received).toEqual(["decorated", "convention"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("deduplicates overlapping on registrations for inherited message types", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+    const handler = on(Ping, on(ChildPing, () => {
+      received.push("handled");
+    }));
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Widget"
+          handlers={{
+            handleChildPing: handler,
+          }}
+        >
+          <Text>dedupe</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.list()[0];
+    framework.postMessage(widget.nodeId, new ChildPing());
+    await framework.whenIdle();
+
+    expect(received).toEqual(["handled"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("runs derived and base decorated prototype handlers in order", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Widget"
+          handlers={new DecoratedDerivedHandlers(received)}
+        >
+          <Text>decorators</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.list()[0];
+    framework.postMessage(widget.nodeId, new Ping());
+    await framework.whenIdle();
+
+    expect(received).toEqual(["derived", "base"]);
 
     instance.unmount();
     instance.cleanup();

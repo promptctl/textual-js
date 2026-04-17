@@ -22,7 +22,9 @@ export class AppFocus extends Message {
   }
 }
 
-export class Idle extends Message {}
+export class Idle extends Message {
+  static readonly canReplace = true;
+}
 
 export class Callback extends Message {
   constructor(
@@ -65,6 +67,8 @@ export class ModeChanged extends Message {
 }
 
 export class Resize extends Message {
+  static readonly canReplace = true;
+
   constructor(
     readonly width: number,
     readonly height: number,
@@ -106,7 +110,9 @@ export class MouseDown extends MouseEvent {}
 
 export class MouseUp extends MouseEvent {}
 
-export class MouseMove extends MouseEvent {}
+export class MouseMove extends MouseEvent {
+  static readonly canReplace = true;
+}
 
 export class Click extends MouseEvent {
   constructor(

@@ -3,6 +3,7 @@ let nextMessageId = 1;
 export interface MessageConstructor<TMessage extends Message = Message> {
   new (...args: never[]): TMessage;
   readonly name: string;
+  readonly canReplace?: boolean;
   readonly noDispatch?: boolean;
 }
 
@@ -56,7 +57,9 @@ export class Message {
   }
 
   canReplace(_message: Message): boolean {
-    return false;
+    // [LAW:one-source-of-truth] Queue coalescing defaults to one static flag on
+    // the message class so built-ins and custom messages share the same contract.
+    return (this.constructor as MessageConstructor).canReplace ?? false;
   }
 }
 
