@@ -106,6 +106,9 @@ export interface ScreenEntry {
   actions: WidgetActions | undefined;
   autoFocus: string | null;
   implicit: boolean;
+  savedFocusNodeId: string | null;
+  // [LAW:one-source-of-truth] Structural focus address remains the canonical
+  // restore token. savedFocusNodeId is a derived public snapshot for API users.
   lastFocusedAddress: FocusAddress | null;
   waiters: Array<(result: unknown) => void>;
   callback?: (result: unknown) => void;
@@ -1152,6 +1155,7 @@ export class TextualFramework {
       actions: undefined,
       autoFocus: options.autoFocus ?? null,
       implicit: false,
+      savedFocusNodeId: null,
       lastFocusedAddress: null,
       waiters: [],
       callback: options.callback,
@@ -1605,6 +1609,7 @@ export class TextualFramework {
 
   private saveScreenFocusSnapshot(screen: ScreenEntry): void {
     const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
+    screen.savedFocusNodeId = focused?.nodeId ?? null;
     screen.lastFocusedAddress = focused === undefined ? null : this.captureFocusAddress(focused);
   }
 
@@ -1815,6 +1820,7 @@ function createImplicitEntry(): ScreenEntry {
     actions: undefined,
     autoFocus: null,
     implicit: true,
+    savedFocusNodeId: null,
     lastFocusedAddress: null,
     waiters: [],
   };

@@ -175,6 +175,38 @@ describe("screen stack", () => {
     instance.cleanup();
   });
 
+  it("stores the covered screen's savedFocusNodeId snapshot when another screen is pushed", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <>
+          <WidgetHost typeName="Label" id="default-first" focusable>
+            <Text>first</Text>
+          </WidgetHost>
+          <WidgetHost typeName="Label" id="default-second" focusable>
+            <Text>second</Text>
+          </WidgetHost>
+        </>
+      </TextualApp>,
+    );
+
+    await settleScreen(framework);
+
+    const defaultSecond = framework.registry.getByCssId("default-second")!;
+    framework.focusWidget(defaultSecond.nodeId);
+    await settleScreen(framework);
+
+    const covered = framework.activeScreen!;
+    framework.pushScreen(<DialogScreen />, { name: "dialog" });
+    await settleScreen(framework);
+
+    expect(covered.savedFocusNodeId).toBe(defaultSecond.nodeId);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("reuses the same installed screen element across repeated pushes by name", async () => {
     const framework = new TextualFramework();
     framework.installScreen("dialog", () => <DialogScreen />);
