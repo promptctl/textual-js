@@ -19,6 +19,20 @@ export interface RunTestOptions {
 
 type AppInput = React.ReactElement | React.ComponentType<Record<string, unknown>>;
 type PointerTarget = string | WidgetNode | React.ComponentType<unknown> | undefined;
+type PointerOffset = { x: number; y: number };
+type PointerInput = PointerTarget | number | PointerOptions | undefined;
+
+export interface PointerOptions {
+  widget?: PointerTarget;
+  offset?: PointerOffset;
+}
+
+interface ResolvedPointerTarget {
+  x: number;
+  y: number;
+  targetNode?: WidgetNode;
+  hitIntendedTarget: boolean;
+}
 
 export function camelToSnake(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
@@ -60,31 +74,24 @@ export class Pilot {
     await this.press(...Array.from(text));
   }
 
-  async mouseDown(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
+  async mouseDown(target?: PointerInput, y?: number): Promise<boolean> {
     return this.dispatchPointer("down", target, y);
   }
 
-  async mouseUp(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
+  async mouseUp(target?: PointerInput, y?: number): Promise<boolean> {
     return this.dispatchPointer("up", target, y);
   }
 
-  async hover(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
+  async hover(target?: PointerInput, y?: number): Promise<boolean> {
     return this.dispatchPointer("move", target, y);
   }
 
-  async click(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
+  async click(target?: PointerInput, y?: number): Promise<boolean> {
     const resolved = this.resolvePointerTarget(target, y);
-    await this.mouseDown(target, y);
-    await this.mouseUp(target, y);
-
-    if (resolved.targetNode !== undefined) {
-      this.framework.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y));
-    } else {
-      this.framework.postClick(resolved.x, resolved.y);
-    }
-
-    await this.pause();
-    return true;
+    await this.dispatchResolvedPointer("down", resolved);
+    await this.dispatchResolvedPointer("up", resolved);
+    await this.dispatchResolvedPointer("click", resolved);
+    return resolved.hitIntendedTarget;
   }
 
   async doubleClick(target?: PointerTarget | { offset?: { x: number; y: number } }, y?: number): Promise<boolean> {
@@ -133,11 +140,18 @@ export class Pilot {
 
   private async dispatchPointer(
     kind: "down" | "up" | "move",
-    target?: PointerTarget | { offset?: { x: number; y: number } },
+    target?: PointerInput,
     y?: number,
   ): Promise<boolean> {
     const resolved = this.resolvePointerTarget(target, y);
+    await this.dispatchResolvedPointer(kind, resolved);
+    return resolved.hitIntendedTarget;
+  }
 
+  private async dispatchResolvedPointer(
+    kind: "down" | "up" | "move" | "click",
+    resolved: ResolvedPointerTarget,
+  ): Promise<void> {
     if (kind === "down") {
       if (resolved.targetNode !== undefined) {
         this.framework.postMessage(resolved.targetNode.nodeId, new MouseDown(resolved.x, resolved.y));
@@ -150,38 +164,48 @@ export class Pilot {
       } else {
         this.framework.postMouseUp(resolved.x, resolved.y);
       }
+    } else if (kind === "move") {
+      if (resolved.targetNode !== undefined) {
+        this.framework.postMessage(resolved.targetNode.nodeId, new MouseMove(resolved.x, resolved.y));
+      } else {
+        this.framework.postMouseMove(resolved.x, resolved.y);
+      }
     } else if (resolved.targetNode !== undefined) {
-      this.framework.postMessage(resolved.targetNode.nodeId, new MouseMove(resolved.x, resolved.y));
+      this.framework.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y));
     } else {
-      this.framework.postMouseMove(resolved.x, resolved.y);
+      this.framework.postClick(resolved.x, resolved.y);
     }
 
     await this.pause();
-    return true;
   }
 
   private resolvePointerTarget(
-    target?: PointerTarget | { offset?: { x: number; y: number } },
+    target?: PointerInput,
     y?: number,
-  ): { x: number; y: number; targetNode?: WidgetNode } {
+  ): ResolvedPointerTarget {
     if (typeof target === "number") {
-      this.assertBounds(target, y ?? 0);
-      return { x: target, y: y ?? 0 };
+      const absoluteX = target;
+      const absoluteY = y ?? 0;
+      this.assertBounds(absoluteX, absoluteY);
+      return this.resolveHitAtPoint(undefined, absoluteX, absoluteY);
     }
 
-    const offset = typeof target === "object" && target !== null && "offset" in target ? target.offset : undefined;
+    const options = isPointerOptions(target) ? target : undefined;
+    const intendedTarget = options?.widget ?? target;
+    const offset = options?.offset;
 
-    if (offset !== undefined) {
-      this.assertBounds(offset.x, offset.y);
-      return { x: offset.x, y: offset.y };
+    if (intendedTarget === undefined) {
+      const absoluteX = offset?.x ?? 0;
+      const absoluteY = offset?.y ?? 0;
+      this.assertBounds(absoluteX, absoluteY);
+      return this.resolveHitAtPoint(undefined, absoluteX, absoluteY);
     }
 
-    if (target === undefined) {
-      return { x: 0, y: 0 };
-    }
-
-    const targetNode = this.resolveTargetNode(target as Exclude<PointerTarget, undefined>);
-    return { x: 0, y: 0, targetNode };
+    const intendedNode = this.resolveTargetNode(intendedTarget as Exclude<PointerTarget, undefined>);
+    const absoluteX = intendedNode.screenRegion.x + (offset?.x ?? defaultPointerCoordinate(intendedNode.screenRegion.width));
+    const absoluteY = intendedNode.screenRegion.y + (offset?.y ?? defaultPointerCoordinate(intendedNode.screenRegion.height));
+    this.assertBounds(absoluteX, absoluteY);
+    return this.resolveHitAtPoint(intendedNode, absoluteX, absoluteY);
   }
 
   private resolveTargetNode(target: Exclude<PointerTarget, undefined>): WidgetNode {
@@ -214,6 +238,61 @@ export class Pilot {
       throw new OutOfBounds(`Pointer target (${x}, ${y}) is outside the terminal bounds`);
     }
   }
+
+  private resolveHitAtPoint(
+    intendedNode: WidgetNode | undefined,
+    absoluteX: number,
+    absoluteY: number,
+  ): ResolvedPointerTarget {
+    const targetNode = this.hitTest(absoluteX, absoluteY);
+    const localX = targetNode === undefined ? absoluteX : absoluteX - targetNode.screenRegion.x;
+    const localY = targetNode === undefined ? absoluteY : absoluteY - targetNode.screenRegion.y;
+
+    return {
+      x: localX,
+      y: localY,
+      targetNode,
+      hitIntendedTarget: intendedNode === undefined ? true : targetNode?.nodeId === intendedNode.nodeId,
+    };
+  }
+
+  private hitTest(x: number, y: number): WidgetNode | undefined {
+    // [LAW:single-enforcer] Pointer targeting is resolved in one place so every
+    // Pilot mouse helper shares the same hit-testing and obscuration rules.
+    const candidates = this.framework.registry
+      .list()
+      .filter((widget: WidgetNode) => widget.isInteractive && !widget.screenRegion.isEmpty && widget.screenRegion.contains(x, y));
+
+    return candidates.sort((left, right) => {
+      const depthDifference = widgetDepth(left) - widgetDepth(right);
+
+      if (depthDifference !== 0) {
+        return depthDifference;
+      }
+
+      return this.framework.registry.list().indexOf(left) - this.framework.registry.list().indexOf(right);
+    }).at(-1);
+  }
+}
+
+function isPointerOptions(target: PointerInput): target is PointerOptions {
+  return typeof target === "object" && target !== null && ("widget" in target || "offset" in target);
+}
+
+function defaultPointerCoordinate(size: number): number {
+  return size <= 0 ? 0 : Math.floor((size - 1) / 2);
+}
+
+function widgetDepth(widget: WidgetNode): number {
+  let depth = 0;
+  let current = widget.parent;
+
+  while (current !== undefined) {
+    depth += 1;
+    current = current.parent;
+  }
+
+  return depth;
 }
 
 export interface TestSession {

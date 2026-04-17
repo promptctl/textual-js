@@ -2,6 +2,7 @@ import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import type { Binding } from "../bindings/index.js";
 import type { Message } from "../events/message.js";
+import { Region } from "../geometry/region.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
@@ -42,6 +43,7 @@ export class WidgetNode {
   readonly pseudoClasses = observable.map<string, boolean>();
   readonly inlineStyles = observable.map<string, string>();
   readonly resolvedStyles = new ResolvedStyles();
+  screenRegion = Region.EMPTY;
   disabled: boolean;
   loading: boolean;
 
@@ -162,6 +164,10 @@ export class WidgetNode {
 
   postMessage(message: Message): void {
     this.framework.postMessage(this.nodeId, message);
+  }
+
+  updateScreenRegion(region: Region): void {
+    this.screenRegion = region;
   }
 
   runWorker<TResult>(work: WorkFunction<TResult>, options: WorkerOptions = {}): Worker<TResult> {

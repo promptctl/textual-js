@@ -8,7 +8,7 @@ import React, {
   type MutableRefObject,
   type PropsWithChildren,
 } from "react";
-import { Transform } from "ink";
+import { Box, Transform, measureElement, type DOMElement } from "ink";
 import { observer } from "mobx-react-lite";
 import stringWidth from "string-width";
 
@@ -24,6 +24,7 @@ import {
   type Binding,
   type BindingDeclaration,
 } from "../bindings/index.js";
+import { Region } from "../geometry/region.js";
 
 const TextualFrameworkContext = createContext<TextualFramework | null>(null);
 const ParentWidgetContext = createContext<string | null>(null);
@@ -296,13 +297,45 @@ export interface WidgetScopeProps extends PropsWithChildren {
 }
 
 export function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
+  const layoutRef = useRef<DOMElement>(null);
+
+  useLayoutEffect(() => {
+    const layoutNode = layoutRef.current;
+
+    if (layoutNode === null) {
+      return;
+    }
+
+    // [LAW:one-source-of-truth] Widget screen regions are derived from the Ink
+    // layout node at one seam so Pilot and any future spatial tooling read the
+    // same measured rectangle instead of maintaining parallel geometry.
+    widget.updateScreenRegion(measureWidgetRegion(layoutNode));
+  });
+
   return (
     <CurrentWidgetContext.Provider value={widget}>
       <ParentWidgetContext.Provider value={widget.nodeId}>
-        <WidgetVisibilityBoundary widget={widget}>{children}</WidgetVisibilityBoundary>
+        <Box ref={layoutRef}>
+          <WidgetVisibilityBoundary widget={widget}>{children}</WidgetVisibilityBoundary>
+        </Box>
       </ParentWidgetContext.Provider>
     </CurrentWidgetContext.Provider>
   );
+}
+
+function measureWidgetRegion(node: DOMElement): Region {
+  const size = measureElement(node);
+  let x = 0;
+  let y = 0;
+  let current: DOMElement | undefined = node;
+
+  while (current !== undefined) {
+    x += current.yogaNode?.getComputedLeft() ?? 0;
+    y += current.yogaNode?.getComputedTop() ?? 0;
+    current = current.parentNode;
+  }
+
+  return new Region(x, y, size.width, size.height);
 }
 
 export const StylesReader = observer(function StylesReader({

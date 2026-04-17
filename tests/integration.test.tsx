@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Text } from "ink";
+import { Box, Text } from "ink";
 import { describe, expect, it } from "vitest";
 
 import { camelToSnake, Key, WidgetHost, runTest } from "../src/index.js";
@@ -76,5 +76,51 @@ describe("runTest and Pilot", () => {
 
   it("exports camelToSnake for test helpers", () => {
     expect(camelToSnake("FooBar")).toBe("foo_bar");
+  });
+
+  it("hit-tests pointer targets and reports obscuration for nested widgets", async () => {
+    const received: string[] = [];
+
+    function PointerApp(): React.JSX.Element {
+      return (
+        <WidgetHost typeName="Parent" id="parent">
+          <Box flexDirection="column">
+            <WidgetHost
+              typeName="Child"
+              id="child"
+              handlers={{
+                onClick: () => {
+                  received.push("child");
+                },
+              }}
+            >
+              <Box width={6} height={1}>
+                <Text>child!</Text>
+              </Box>
+            </WidgetHost>
+            <Box width={6} height={1}>
+              <Text>parent</Text>
+            </Box>
+          </Box>
+        </WidgetHost>
+      );
+    }
+
+    const session = await runTest(<PointerApp />);
+    const parent = session.framework.registry.getByCssId("parent")!;
+    const child = session.framework.registry.getByCssId("child")!;
+    const obscuringOffset = {
+      x: child.screenRegion.x - parent.screenRegion.x,
+      y: child.screenRegion.y - parent.screenRegion.y,
+    };
+
+    const obscuredParentHit = await session.pilot.click({ widget: "#parent", offset: obscuringOffset });
+    const directChildHit = await session.pilot.click("#child");
+
+    expect(obscuredParentHit).toBe(false);
+    expect(directChildHit).toBe(true);
+    expect(received).toEqual(["child", "child"]);
+
+    session.unmount();
   });
 });
