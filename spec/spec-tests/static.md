@@ -26,6 +26,7 @@ The `visual` property returns the content as a `Content` object (from `textual.c
 
 - `visual` is always an instance of `Content`.
 - Its string value matches `content`.
+- `visual` is the canonical styled representation of the widget's content. When the `visual` contains spans (for example, from markup or highlighting), rendering must preserve those spans rather than flattening to plain text first.
 
 ### Update Method
 
@@ -33,6 +34,12 @@ The `visual` property returns the content as a `Content` object (from `textual.c
 
 - `content` returns `"Hello"` (as `str`).
 - `visual` returns `"Hello"` (as `Content`).
+
+### Styled Content Rendering
+
+- `Static("[bold]Styled[/]")` renders the plain text `"Styled"` with the bold style preserved in the rendered output.
+- Passing a `Content` object with spans renders those spans; the render path must consume the `Content`/renderable representation, not just `visual.plain`.
+- Multi-line `Content` preserves both line breaks and per-line styling when rendered.
 
 ---
 
@@ -66,7 +73,7 @@ The `variant` reactive property controls which visual variant the placeholder di
 
 - `Static.content` must always be of type `str`, never `Content`.
 - `Static.visual` must always be of type `Content`.
-- `Static.update()` must keep `content` and `visual` in sync: both reflect the same text value.
+- `Static.update()` must keep `content` and `visual` in sync: both reflect the same text value, and `visual` remains the single source of truth for styled rendering.
 - A newly constructed `Static()` must have empty-string content and visual.
 - `Placeholder` must reject invalid variant strings at construction time by raising `InvalidPlaceholderVariant`.
 - `Placeholder` must reject invalid variant strings when assigned to the `variant` property reactively, also raising `InvalidPlaceholderVariant`.

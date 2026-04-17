@@ -94,6 +94,7 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 - Disabling a container causes all descendants to report as disabled (they gain the `:disabled` pseudo-class and lose `:enabled`), without each descendant being individually disabled.
 - Children of a disabled container lose focus. If a focused widget's ancestor becomes disabled, `app.focused` becomes `None`.
+- Pointer interactions that land on a disabled widget or disabled subtree are consumed at that widget boundary. They do not fall through to an enabled ancestor, sibling, or background widget behind the disabled target.
 
 ### Pseudo-Classes
 
@@ -133,13 +134,16 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 ### Setting Tooltips
 
-- `widget.tooltip` is `None` by default. Assigning a string sets the tooltip text.
+- `widget.tooltip` is `None` by default.
+- Assigning a string sets the tooltip text.
+- Assigning styled content or another supported renderable/visual value sets the tooltip content without stripping its styling.
 
 ### Display Behavior
 
 - The tooltip appears after a delay (`TOOLTIP_DELAY`) when the mouse hovers over a widget that has a tooltip set. Hovering over a widget with no tooltip never shows a tooltip.
 - Moving the mouse to a different widget hides the tooltip.
 - The tooltip is dismissed when the source widget is removed, made invisible (`visible = False`), made not displayed (`display = False`), or shifted out from under the cursor (e.g., by mounting a widget before it).
+- Tooltip rendering preserves the source content's styling/renderable structure. A tooltip built from styled `Content` or markup must render with that styling intact rather than flattening to plain text.
 
 ## Loading State
 
@@ -153,6 +157,7 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 - A widget in the loading state blocks user interaction. Clicks on a loading button do not fire actions. Removing the loading state re-enables interaction.
 - A container in the loading state reports as disabled (`_check_disabled()` returns `True`).
+- Pointer interactions that land on a loading widget or loading overlay are consumed there. They do not fall through to enabled content behind the loading target.
 
 ## Content and Rendering
 

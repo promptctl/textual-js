@@ -1,13 +1,13 @@
 import React, { useLayoutEffect, useState } from "react";
 import { Box, Text } from "ink";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { WidgetScope, type WidgetNode, runTest, useWidget } from "../src/index.js";
+import { Content, WidgetScope, type WidgetNode, runTest, useWidget } from "../src/index.js";
 
 function TooltipLeaf(props: {
   id: string;
   label: string;
-  tooltip?: string | null;
+  tooltip?: string | Content | null;
   onReady?: (widget: WidgetNode) => void;
 }): React.JSX.Element {
   const widget = useWidget({
@@ -73,6 +73,24 @@ describe("tooltip and hover lifecycle", () => {
 
     expect(session.framework.activeTooltip?.content.plain).toBe("details");
     expect(session.lastFrame()).toContain("details");
+
+    session.unmount();
+  });
+
+  it("renders styled tooltip content through the Content render bridge", async () => {
+    const tooltip = Content.styled("details", "bold");
+    const toRichText = vi.spyOn(tooltip, "toRichText");
+    const toSegments = vi.spyOn(tooltip, "toSegments");
+    const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip={tooltip} />, {
+      transients: { tooltips: true },
+    });
+    session.framework.setTooltipDelay(10);
+
+    await session.pilot.hover("#target");
+    await session.pilot.pause(20);
+
+    expect(session.framework.activeTooltip?.content).toBe(tooltip);
+    expect(toRichText.mock.calls.length + toSegments.mock.calls.length).toBeGreaterThan(0);
 
     session.unmount();
   });

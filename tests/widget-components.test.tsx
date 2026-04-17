@@ -1,10 +1,11 @@
 import React from "react";
 import { Text } from "ink";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ButtonPressed,
   ButtonWidget,
+  Content,
   StaticWidget,
   SwitchChanged,
   SwitchWidget,
@@ -21,10 +22,14 @@ describe("StaticWidget", () => {
     session.unmount();
   });
 
-  it("renders markup content with plain text output", async () => {
-    const session = await runTest(<StaticWidget content="[bold]Styled[/]" />);
+  it("renders styled content through the Content render bridge", async () => {
+    const content = Content.styled("Styled", "bold");
+    const toRichText = vi.spyOn(content, "toRichText");
+    const toSegments = vi.spyOn(content, "toSegments");
+    const session = await runTest(<StaticWidget content={content} />);
 
     expect(session.lastFrame()).toContain("Styled");
+    expect(toRichText.mock.calls.length + toSegments.mock.calls.length).toBeGreaterThan(0);
 
     session.unmount();
   });
@@ -58,6 +63,18 @@ describe("ButtonWidget", () => {
     const session = await runTest(<ButtonWidget label="Click Me" />);
 
     expect(session.lastFrame()).toContain("Click Me");
+
+    session.unmount();
+  });
+
+  it("renders styled label content through the Content render bridge", async () => {
+    const label = Content.styled("Click Me", "bold red");
+    const toRichText = vi.spyOn(label, "toRichText");
+    const toSegments = vi.spyOn(label, "toSegments");
+    const session = await runTest(<ButtonWidget label={label} />);
+
+    expect(session.lastFrame()).toContain("Click Me");
+    expect(toRichText.mock.calls.length + toSegments.mock.calls.length).toBeGreaterThan(0);
 
     session.unmount();
   });
