@@ -292,6 +292,82 @@ describe("Input max length", () => {
   });
 });
 
+describe("Input password mode word operations", () => {
+  it("deleteWordLeft removes everything to the left in password mode", () => {
+    const input = new Input({ value: "hello world", password: true });
+    input.cursorPosition = 5;
+
+    expect(input.deleteWordLeft()).toBe(true);
+    expect(input.value).toBe(" world");
+    expect(input.cursorPosition).toBe(0);
+  });
+
+  it("deleteWordRight removes everything to the right in password mode", () => {
+    const input = new Input({ value: "hello world", password: true });
+    input.cursorPosition = 5;
+
+    expect(input.deleteWordRight()).toBe(true);
+    expect(input.value).toBe("hello");
+  });
+});
+
+describe("Input restrict on replace", () => {
+  it("rejects replace that violates restrict pattern", () => {
+    const input = new Input({ type: "integer", value: "123" });
+
+    expect(input.replace("abc", 0, 3)).toBe(false);
+    expect(input.value).toBe("123");
+  });
+
+  it("accepts replace that satisfies restrict pattern", () => {
+    const input = new Input({ type: "integer", value: "123" });
+
+    expect(input.replace("456", 0, 3)).toBe(true);
+    expect(input.value).toBe("456");
+  });
+
+  it("rejects replace that exceeds max length", () => {
+    const input = new Input({ maxLength: 5, value: "abc" });
+
+    expect(input.replace("123456", 0, 3)).toBe(false);
+    expect(input.value).toBe("abc");
+  });
+});
+
+describe("Input value setter", () => {
+  it("clamps cursor position when value shrinks", () => {
+    const input = new Input({ value: "hello world" });
+    input.cursorPosition = 11;
+    input.value = "hi";
+
+    expect(input.cursorPosition).toBe(2);
+  });
+
+  it("clears selection on value set", () => {
+    const input = new Input({ value: "hello" });
+    input.selectAll();
+    input.value = "new";
+
+    expect(input.selection).toBeNull();
+  });
+});
+
+describe("Input cursor position setter", () => {
+  it("clamps negative cursor position to zero", () => {
+    const input = new Input({ value: "hello" });
+    input.cursorPosition = -5;
+
+    expect(input.cursorPosition).toBe(0);
+  });
+
+  it("clamps cursor position beyond value length", () => {
+    const input = new Input({ value: "hi" });
+    input.cursorPosition = 100;
+
+    expect(input.cursorPosition).toBe(2);
+  });
+});
+
 describe("Input messages", () => {
   it("creates InputChanged with value", () => {
     const changed = new InputChanged("hello");
