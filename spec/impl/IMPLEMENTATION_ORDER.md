@@ -423,6 +423,7 @@ Use this order when creating or refining implementation phases:
 3. Split broad current phases where the dependencies differ, especially the current Phase 4, Phase 5, and Phase 6 buckets.
 4. Keep animation last, but keep conformance tracking continuous.
 5. Treat any spec-test replaced by Ink or React as an explicit seam review, not an ignored file.
+6. Every stage that produces widget components must also produce paired visual fixtures in `visual-tests/fixtures/` (`.py` + `.tsx`). Run `bash visual-tests/run.sh` as part of the stage exit check. The harness uses `uv` to manage the Python Textual dependency — it must never be silently skipped.
 
 ## Suggested Mapping Back To The Existing Phase Files
 

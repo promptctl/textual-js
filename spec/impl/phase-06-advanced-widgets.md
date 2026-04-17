@@ -188,6 +188,7 @@ Deliver data-rich interactive widgets, the text editing subsystem, and markdown 
 8. Sparkline tests: correct block character rendering, width=null, max reduction.
 9. All prior phase tests still pass.
 10. `npm run build` and `npm run lint` pass.
+11. Each widget component has a paired visual fixture in `visual-tests/fixtures/` (`.py` + `.tsx`). `bash visual-tests/run.sh` runs to completion with no text-content divergence.
 
 ## What the Next Phase Expects
 

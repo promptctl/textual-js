@@ -81,8 +81,11 @@ Run each of these commands. Read the full output of each:
 - `npm run build`
 - `npm run lint`
 - `npm test`
+- `bash visual-tests/run.sh`
 
-If any of these fail, the codebase is in a broken state. Do not start new work on a broken codebase. Investigate the failures first.
+If any of the first three fail, the codebase is in a broken state. Do not start new work on a broken codebase. Investigate the failures first.
+
+The visual comparison (`visual-tests/run.sh`) captures screenshots from Python Textual and textual-js for the same widget layouts and diffs them. It requires `uv` and `tsx` on PATH. If either is missing, the script will fail immediately — do not work around this by skipping the step. Install the tools. Read the comparison output: MATCH means identical rendering, DIFF with only border/slider character differences is expected in early stages, DIFF where text content diverges is a real bug to investigate before proceeding.
 
 ### Step 0.9 — Confirm completion
 
@@ -246,8 +249,10 @@ Run each of these and confirm the result before reporting completion:
 1. `npm run build` — must pass.
 2. `npm run lint` — must pass.
 3. `npm test` — must pass. All suites, including those from prior stages.
-4. Walk through every exit criterion in the phase file that corresponds to the active stage. For each one, run the specific check the criterion describes. Do not declare a criterion satisfied unless you have run its check and seen it pass.
-5. Retroactive check: re-verify that every behavior required by the active stage's spec-tests files has a passing test. If you find a gap you missed during implementation, fill it now.
+4. `bash visual-tests/run.sh` — must run to completion. Read the comparison output. Any fixture where text content diverges (not just border characters) is a bug to fix before declaring done.
+5. Walk through every exit criterion in the phase file that corresponds to the active stage. For each one, run the specific check the criterion describes. Do not declare a criterion satisfied unless you have run its check and seen it pass.
+6. Retroactive check: re-verify that every behavior required by the active stage's spec-tests files has a passing test. If you find a gap you missed during implementation, fill it now.
+7. If the active stage introduced new widget components, verify that each has a paired visual fixture in `visual-tests/fixtures/` (a `.py` and a `.tsx` file rendering the same layout). Missing fixtures are a gap — create them before declaring the stage complete.
 
 ## Files you must not modify
 
@@ -260,6 +265,9 @@ The authoritative ledger of what exists in this project is: the code under `src/
 ## Key directories
 
 - `src/` — implementation source
+- `tests/` — unit and integration tests (Vitest)
+- `visual-tests/` — cross-implementation visual comparison harness
+- `visual-tests/fixtures/` — paired Python + JS fixture files
 - `spec/impl/` — phase plan files (your instructions)
 - `spec/spec-src/` — behavioral specifications (numbered 00–14)
 - `spec/spec-tests/` — test case specifications (your test backlog)

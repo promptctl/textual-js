@@ -120,6 +120,7 @@ Ink handles all rendering and layout via Yoga flexbox. Widgets compose Ink's `<B
 10. All widgets use TCSS for styling — no hardcoded Ink style props (styles come from DEFAULT_CSS through the cascade).
 11. All prior phase tests still pass.
 12. `npm run build` and `npm run lint` pass.
+13. Each widget component has a paired visual fixture in `visual-tests/fixtures/` (`.py` + `.tsx`). `bash visual-tests/run.sh` runs to completion with no text-content divergence (border/slider character differences from Ink vs Textual renderers are acceptable).
 
 ## What the Next Phase Expects
 

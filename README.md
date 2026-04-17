@@ -49,12 +49,22 @@ Phases execute serially. Each has preconditions, scope, spec references, and mac
 ## Scripts
 
 ```bash
-npm install       # Install dependencies
-npm run build     # Compile TypeScript to dist/
-npm run lint      # Type-check (no emit)
-npm test          # Run Vitest suites
-npm run test:watch # Run Vitest in watch mode
-npm run clean     # Remove dist/
+npm install                    # Install dependencies
+npm run build                  # Compile TypeScript to dist/
+npm run lint                   # Type-check (no emit)
+npm test                       # Run Vitest suites
+npm run test:watch             # Run Vitest in watch mode
+npm run clean                  # Remove dist/
+bash visual-tests/run.sh       # Visual comparison: Python Textual vs textual-js
+```
+
+### Visual comparison harness
+
+`visual-tests/run.sh` captures screenshots from both Python Textual and textual-js for paired widget fixtures, then diffs them cell by cell. Requires `uv` (manages Python + textual automatically) and `tsx` on PATH. See `visual-tests/README.md` for details.
+
+```bash
+bash visual-tests/run.sh              # All fixtures
+bash visual-tests/run.sh static_basic # Single fixture
 ```
 
 ## License
