@@ -546,12 +546,21 @@ export class TextualFramework {
     this.scheduleDrain();
   }
 
+  dispatchMessage(message: Message): void {
+    const target = this.resolveDefaultDispatchTarget();
+
+    if (target === undefined) {
+      return;
+    }
+
+    // [LAW:single-enforcer] App-level dispatch chooses its target here so root
+    // callers and test harnesses share one targeting rule without forging sender state.
+    this.queue.push({ targetId: target.nodeId, message });
+    this.scheduleDrain();
+  }
+
   postToFocused(message: Message): void {
-    const interactiveWidgets = this.registry.list().filter((entry) => entry.isInteractive);
-    const target =
-      interactiveWidgets.find((entry) => entry.nodeId === this.focusedNodeId) ??
-      interactiveWidgets.find((entry) => entry.focusable) ??
-      interactiveWidgets[0];
+    const target = this.resolveDefaultDispatchTarget();
 
     if (target !== undefined) {
       this.postMessage(target.nodeId, message);
@@ -1150,6 +1159,18 @@ export class TextualFramework {
     }
 
     return chain;
+  }
+
+  private resolveDefaultDispatchTarget(): WidgetNode | undefined {
+    const interactiveWidgets = this.registry.list().filter((entry) => entry.isInteractive);
+
+    // [LAW:one-source-of-truth] Focus/default dispatch target resolution lives
+    // in one helper so input routing and app-level dispatch share the same target choice.
+    return (
+      interactiveWidgets.find((entry) => entry.nodeId === this.focusedNodeId) ??
+      interactiveWidgets.find((entry) => entry.focusable) ??
+      interactiveWidgets[0]
+    );
   }
 
   private scheduleDrain(): void {

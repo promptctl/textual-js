@@ -1,9 +1,21 @@
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 
-import { normalizeColor, TextualApp, TextualFramework, WidgetHost } from "../src/index.js";
+import { Message, normalizeColor, TextualApp, TextualFramework, WidgetHost, useTextual } from "../src/index.js";
+
+class Ping extends Message {}
+
+function AppDispatcher(props: { onReady: (framework: TextualFramework) => void }): null {
+  const framework = useTextual();
+
+  useLayoutEffect(() => {
+    props.onReady(framework);
+  }, [framework, props]);
+
+  return null;
+}
 
 describe("TextualApp and widget registry", () => {
   it("renders inside ink-testing-library and exposes framework services", async () => {
@@ -73,6 +85,45 @@ describe("TextualApp and widget registry", () => {
     await framework.whenIdle();
 
     expect(framework.registry.getByCssId("styled-label")?.resolvedStyles.getRule("color")).toBe(normalizeColor("red"));
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("exposes an app-level dispatch surface through TextualApp context", async () => {
+    const framework = new TextualFramework();
+    let appContext!: TextualFramework;
+    const senders: unknown[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <AppDispatcher
+          onReady={(value) => {
+            appContext = value;
+          }}
+        />
+        <WidgetHost
+          typeName="Leaf"
+          id="leaf"
+          focusable
+          autoFocus
+          handlers={{
+            onPing: (message) => {
+              senders.push(message.sender);
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    appContext.dispatchMessage(new Ping());
+    await framework.whenIdle();
+
+    expect(senders).toEqual([null]);
 
     instance.unmount();
     instance.cleanup();
