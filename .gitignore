@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.tsbuildinfo
 visual-tests/snapshots/
+__pycache__/
