@@ -81,85 +81,187 @@ function parseArgList(argsRaw: string, source: string): unknown[] {
     throw new ActionError(`Unbalanced parentheses in "${source}"`);
   }
 
-  const body = argsRaw.slice(1, -1).trim();
+  const state: ParserState = {
+    input: argsRaw.slice(1, -1),
+    source,
+    index: 0,
+  };
 
-  if (body.length === 0) {
+  skipWhitespace(state);
+
+  if (state.index >= state.input.length) {
     return [];
   }
 
-  const parts = splitParams(body, source);
+  const params: unknown[] = [];
 
-  return parts.map((part) => parseLiteral(part.trim(), source));
+  while (state.index < state.input.length) {
+    params.push(parseLiteral(state));
+    skipWhitespace(state);
+
+    if (state.index >= state.input.length) {
+      return params;
+    }
+
+    if (state.input[state.index] !== ",") {
+      throw new ActionError(`Malformed argument list in "${source}"`);
+    }
+
+    state.index += 1;
+    skipWhitespace(state);
+
+    if (state.index >= state.input.length) {
+      throw new ActionError(`Malformed argument list in "${source}"`);
+    }
+  }
+
+  return params;
 }
 
-function splitParams(body: string, source: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let depth = 0;
-  let inString: string | null = null;
+interface ParserState {
+  input: string;
+  source: string;
+  index: number;
+}
 
-  for (let index = 0; index < body.length; index += 1) {
-    const character = body[index];
+function skipWhitespace(state: ParserState): void {
+  while (state.index < state.input.length && /\s/.test(state.input[state.index])) {
+    state.index += 1;
+  }
+}
 
-    if (inString !== null) {
-      current += character;
-      if (character === inString && body[index - 1] !== "\\") {
-        inString = null;
+function parseLiteral(state: ParserState): unknown {
+  skipWhitespace(state);
+
+  if (state.index >= state.input.length) {
+    throw new ActionError(`Malformed argument list in "${state.source}"`);
+  }
+
+  const character = state.input[state.index];
+
+  if (character === "'" || character === '"') {
+    return parseString(state);
+  }
+
+  if (character === "[") {
+    return parseSequence(state, "[", "]");
+  }
+
+  if (character === "(") {
+    return parseSequence(state, "(", ")");
+  }
+
+  if (character === "-" || /\d/.test(character)) {
+    return parseNumber(state);
+  }
+
+  if (/[A-Za-z_]/.test(character)) {
+    return parseIdentifier(state);
+  }
+
+  throw new ActionError(`Unsupported literal "${character}" in "${state.source}"`);
+}
+
+function parseString(state: ParserState): string {
+  const quote = state.input[state.index];
+  let value = "";
+
+  state.index += 1;
+
+  while (state.index < state.input.length) {
+    const character = state.input[state.index];
+
+    if (character === "\\") {
+      state.index += 1;
+
+      if (state.index >= state.input.length) {
+        throw new ActionError(`Malformed argument list in "${state.source}"`);
       }
+
+      value += state.input[state.index];
+      state.index += 1;
       continue;
     }
 
-    if (character === "'" || character === '"') {
-      current += character;
-      inString = character;
-      continue;
+    if (character === quote) {
+      state.index += 1;
+      return value;
     }
 
-    if (character === "(" || character === "[") {
-      depth += 1;
-      current += character;
-      continue;
-    }
-
-    if (character === ")" || character === "]") {
-      depth -= 1;
-      current += character;
-      continue;
-    }
-
-    if (character === "," && depth === 0) {
-      parts.push(current);
-      current = "";
-      continue;
-    }
-
-    current += character;
+    value += character;
+    state.index += 1;
   }
 
-  if (depth !== 0 || inString !== null) {
-    throw new ActionError(`Malformed argument list in "${source}"`);
-  }
-
-  parts.push(current);
-  return parts;
+  throw new ActionError(`Malformed argument list in "${state.source}"`);
 }
 
-function parseLiteral(part: string, source: string): unknown {
-  if (part === "true") return true;
-  if (part === "false") return false;
-  if (part === "null") return null;
-  if (part === "undefined") return undefined;
+function parseSequence(state: ParserState, open: string, close: string): unknown[] {
+  const values: unknown[] = [];
 
-  if (/^-?\d+(\.\d+)?$/.test(part)) {
-    return Number(part);
+  state.index += 1;
+  skipWhitespace(state);
+
+  if (state.input[state.index] === close) {
+    state.index += 1;
+    return values;
   }
 
-  if (
-    (part.startsWith("'") && part.endsWith("'")) ||
-    (part.startsWith('"') && part.endsWith('"'))
-  ) {
-    return part.slice(1, -1);
+  while (state.index < state.input.length) {
+    values.push(parseLiteral(state));
+    skipWhitespace(state);
+
+    if (state.index >= state.input.length) {
+      break;
+    }
+
+    const character = state.input[state.index];
+
+    if (character === close) {
+      state.index += 1;
+      return values;
+    }
+
+    if (character !== ",") {
+      throw new ActionError(`Malformed argument list in "${state.source}"`);
+    }
+
+    state.index += 1;
+    skipWhitespace(state);
+
+    if (state.index >= state.input.length || state.input[state.index] === close) {
+      throw new ActionError(`Malformed argument list in "${state.source}"`);
+    }
   }
 
-  throw new ActionError(`Unsupported literal "${part}" in "${source}"`);
+  throw new ActionError(`Malformed argument list in "${state.source}"`);
+}
+
+function parseNumber(state: ParserState): number {
+  const fragment = state.input.slice(state.index);
+  const match = /^-?\d+(\.\d+)?/.exec(fragment);
+
+  if (match === null) {
+    throw new ActionError(`Unsupported literal "${fragment}" in "${state.source}"`);
+  }
+
+  state.index += match[0].length;
+  return Number(match[0]);
+}
+
+function parseIdentifier(state: ParserState): unknown {
+  const fragment = state.input.slice(state.index);
+  const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(fragment);
+
+  if (match === null) {
+    throw new ActionError(`Malformed argument list in "${state.source}"`);
+  }
+
+  state.index += match[0].length;
+
+  if (match[0] === "true") return true;
+  if (match[0] === "false") return false;
+  if (match[0] === "null") return null;
+  if (match[0] === "undefined") return undefined;
+
+  throw new ActionError(`Unsupported literal "${match[0]}" in "${state.source}"`);
 }

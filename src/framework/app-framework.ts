@@ -84,6 +84,8 @@ interface ScreenFactoryRecord {
   cachedElement: React.ReactElement | null;
 }
 
+export type KeymapInput = ReadonlyMap<string, string> | Record<string, string>;
+
 export type ScreenDescriptor =
   | React.ReactElement
   | React.ComponentType<Record<string, unknown>>
@@ -107,6 +109,18 @@ export interface ScreenEntry {
   lastFocusedAddress: FocusAddress | null;
   waiters: Array<(result: unknown) => void>;
   callback?: (result: unknown) => void;
+}
+
+export interface BindingNamespace {
+  kind: "app" | "screen" | "widget";
+  key: string;
+  name: string | null;
+  nodeId: string | null;
+}
+
+export interface BindingClash {
+  key: string;
+  bindings: Binding[];
 }
 
 type MessageSubscriber = (message: Message) => void;
@@ -137,6 +151,7 @@ function normalizeCssSource(source: string | undefined): string | undefined {
 const SPECIAL_KEY_NAMES = new Map<string, string>([
   [" ", "space"],
   ["?", "question_mark"],
+  ["$", "dollar_sign"],
   [",", "comma"],
   [".", "period"],
   ["~", "tilde"],
@@ -178,6 +193,9 @@ const DEFAULT_MODE = "_default";
 const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
   { key: "tab", action: "app.focus_next" },
   { key: "shift+tab", action: "app.focus_previous" },
+  { key: "ctrl+q", action: "app.quit", priority: true },
+  { key: "ctrl+c", action: "app.quit" },
+  { key: "ctrl+p", action: "app.command_palette" },
 ];
 
 let nextScreenId = 1;
@@ -212,10 +230,12 @@ export class TextualFramework {
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
+  private keymap = new Map<string, string[]>();
   private appAutoFocus: string | null = null;
   private isAppBlurred = false;
   private blurredFocusAddress: FocusAddress | null = null;
   private focusChangedWhileBlurred = false;
+  private readonly bindingClashSignatures = new Map<string, string>();
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
@@ -265,6 +285,9 @@ export class TextualFramework {
         installedScreens: false,
         appBindings: false,
         appActions: false,
+        keymap: false,
+        bindingClashSignatures: false,
+        handleBindingsClash: false,
       } as never,
       { autoBind: true },
     );
@@ -274,7 +297,25 @@ export class TextualFramework {
     // [LAW:one-source-of-truth] App bindings are merged with navigation defaults
     // at one point; callers never assemble their own binding list.
     this.appBindings = makeBindings([...APP_NAVIGATION_BINDINGS, ...declarations]);
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.notifyBindingsUpdated();
+  }
+
+  setKeymap(next: KeymapInput): void {
+    // [LAW:one-source-of-truth] Runtime key remaps are canonicalized into one
+    // internal keymap store; dispatch and footer consumers derive from it.
+    this.keymap = normalizeKeymap(next);
+    this.notifyBindingsUpdated();
+  }
+
+  updateKeymap(patch: KeymapInput): void {
+    const next = new Map(this.keymap);
+
+    for (const [bindingId, keys] of normalizeKeymap(patch).entries()) {
+      next.set(bindingId, keys);
+    }
+
+    this.keymap = next;
+    this.notifyBindingsUpdated();
   }
 
   setAppActions(actions: WidgetActions | undefined): void {
@@ -288,6 +329,9 @@ export class TextualFramework {
       action_quit: () => {
         this.exit();
       },
+      action_command_palette: () => {
+        return undefined;
+      },
     };
     this.appActions = { ...navigation, ...(actions ?? {}) };
   }
@@ -298,6 +342,10 @@ export class TextualFramework {
     if (this.isRunning && !this.isAppBlurred && this.focusedNodeId === null) {
       this.scheduleActiveScreenFocusResolution(true);
     }
+  }
+
+  handleBindingsClash(_clashes: BindingClash[], _namespace: BindingNamespace): void {
+    // Default no-op; apps may override to surface clashes.
   }
 
   startup(): void {
@@ -903,7 +951,7 @@ export class TextualFramework {
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(this.activeScreen?.name ?? null);
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.notifyBindingsUpdated();
   }
 
   get activeScreen(): ScreenEntry | null {
@@ -949,7 +997,7 @@ export class TextualFramework {
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(entry.name);
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.notifyBindingsUpdated();
 
     return entry;
   }
@@ -980,7 +1028,7 @@ export class TextualFramework {
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(this.activeScreen?.name ?? null);
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.notifyBindingsUpdated();
 
     return popped;
   }
@@ -1013,46 +1061,13 @@ export class TextualFramework {
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(entry.name);
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.notifyBindingsUpdated();
 
     return entry;
   }
 
   runAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
-    const parsed = parseAction(action);
-    const target = this.resolveActionTarget(parsed.namespace, defaultTarget);
-
-    if (target === null) {
-      return false;
-    }
-
-    const actions = target.actions;
-    const checkAction: WidgetCheckAction | undefined =
-      typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
-    const gate = checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
-
-    if (gate === false || gate === null) {
-      return false;
-    }
-
-    const candidate =
-      pickActionCallback(actions, `_action_${parsed.actionName}`) ??
-      pickActionCallback(actions, `action_${parsed.actionName}`);
-
-    if (candidate === undefined) {
-      return false;
-    }
-
-    try {
-      candidate(...parsed.params);
-      return true;
-    } catch (error) {
-      if (error instanceof SkipAction) {
-        return false;
-      }
-
-      throw error;
-    }
+    return this.dispatchAction(action, defaultTarget) === "handled";
   }
 
   checkAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean | null {
@@ -1068,6 +1083,43 @@ export class TextualFramework {
       typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
 
     return checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
+  }
+
+  private dispatchAction(action: string, defaultTarget?: ActionTargetDescriptor): ActionDispatchResult {
+    const parsed = parseAction(action);
+    const target = this.resolveActionTarget(parsed.namespace, defaultTarget);
+
+    if (target === null) {
+      return "unhandled";
+    }
+
+    const actions = target.actions;
+    const checkAction: WidgetCheckAction | undefined =
+      typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
+    const gate = checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
+
+    if (gate === false || gate === null) {
+      return "consumed";
+    }
+
+    const candidate =
+      pickActionCallback(actions, `_action_${parsed.actionName}`) ??
+      pickActionCallback(actions, `action_${parsed.actionName}`);
+
+    if (candidate === undefined) {
+      return "unhandled";
+    }
+
+    try {
+      candidate(...parsed.params);
+      return "handled";
+    } catch (error) {
+      if (error instanceof SkipAction) {
+        return "unhandled";
+      }
+
+      throw error;
+    }
   }
 
   private resolveScreenElement(descriptor: ScreenDescriptor, name?: string): React.ReactElement {
@@ -1185,7 +1237,98 @@ export class TextualFramework {
     return { actions: this.appActions };
   }
 
+  private dispatchBindingAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
+    return this.dispatchAction(action, defaultTarget) !== "unhandled";
+  }
+
   // ---- Binding dispatch -------------------------------------------------
+
+  private resolveBindingsForApp(): Binding[] {
+    return this.rewriteBindings(this.appBindings, createAppBindingNamespace());
+  }
+
+  private resolveBindingsForScreen(screen: ScreenEntry): Binding[] {
+    return this.rewriteBindings(screen.bindings, createScreenBindingNamespace(screen));
+  }
+
+  private resolveBindingsForNode(node: WidgetNode): Binding[] {
+    return this.rewriteBindings(node.bindings, createWidgetBindingNamespace(node));
+  }
+
+  private rewriteBindings(bindings: Binding[], namespace: BindingNamespace): Binding[] {
+    const rewritten: Binding[] = [];
+    const remappedIds = new Set<string>();
+
+    // [LAW:single-enforcer] Keymap application lives in one rewrite path so app,
+    // screen, and widget bindings cannot drift in remap semantics.
+    for (const binding of bindings) {
+      const bindingId = binding.id;
+      const mappedKeys = bindingId === undefined ? undefined : this.keymap.get(bindingId);
+
+      if (bindingId === undefined || mappedKeys === undefined) {
+        rewritten.push(binding);
+        continue;
+      }
+
+      if (remappedIds.has(bindingId)) {
+        continue;
+      }
+
+      remappedIds.add(bindingId);
+
+      for (const key of mappedKeys) {
+        rewritten.push({ ...binding, key });
+      }
+    }
+
+    this.reportBindingClashes(namespace, rewritten);
+    return rewritten;
+  }
+
+  private reportBindingClashes(namespace: BindingNamespace, bindings: Binding[]): void {
+    const bindingsByKey = new Map<string, Binding[]>();
+
+    for (const binding of bindings) {
+      const bucket = bindingsByKey.get(binding.key) ?? [];
+      bucket.push(binding);
+      bindingsByKey.set(binding.key, bucket);
+    }
+
+    const clashes = Array.from(bindingsByKey.entries())
+      .filter(([, entries]) => entries.length > 1)
+      .map(([key, entries]) => ({ key, bindings: entries.slice() }));
+    const signature = clashes
+      .map((entry) => `${entry.key}:${entry.bindings.map((binding) => binding.id ?? binding.action).join("|")}`)
+      .join(";");
+    const previous = this.bindingClashSignatures.get(namespace.key);
+
+    if (signature.length === 0) {
+      this.bindingClashSignatures.delete(namespace.key);
+      return;
+    }
+
+    if (previous === signature) {
+      return;
+    }
+
+    this.bindingClashSignatures.set(namespace.key, signature);
+    this.handleBindingsClash(clashes, namespace);
+  }
+
+  private notifyBindingsUpdated(): void {
+    this.syncActiveBindingClashes();
+    this.signals.bindings_updated_signal.publish(undefined);
+  }
+
+  private syncActiveBindingClashes(): void {
+    const activeNamespaces = new Set(this.buildBindingChain().map((entry) => entry.namespace.key));
+
+    for (const namespaceKey of this.bindingClashSignatures.keys()) {
+      if (!activeNamespaces.has(namespaceKey)) {
+        this.bindingClashSignatures.delete(namespaceKey);
+      }
+    }
+  }
 
   private dispatchPriorityBindings(key: string): boolean {
     const chain = this.buildBindingChain();
@@ -1195,7 +1338,7 @@ export class TextualFramework {
     for (const level of chain) {
       for (const binding of level.bindings) {
         if (binding.priority === true && binding.key === key) {
-          if (this.runAction(binding.action, { actions: level.actions })) {
+          if (this.dispatchBindingAction(binding.action, { actions: level.actions })) {
             return true;
           }
         }
@@ -1206,9 +1349,9 @@ export class TextualFramework {
   }
 
   dispatchNodeKeyBindings(node: WidgetNode, key: string): boolean {
-    for (const binding of node.bindings) {
+    for (const binding of this.resolveBindingsForNode(node)) {
       if (binding.priority !== true && binding.key === key) {
-        if (this.runAction(binding.action, { actions: node.actions })) {
+        if (this.dispatchBindingAction(binding.action, { actions: node.actions })) {
           return true;
         }
       }
@@ -1221,18 +1364,18 @@ export class TextualFramework {
     const screen = this.activeScreen;
 
     if (screen !== null) {
-      for (const binding of screen.bindings) {
+      for (const binding of this.resolveBindingsForScreen(screen)) {
         if (binding.priority !== true && binding.key === key) {
-          if (this.runAction(binding.action, { actions: screen.actions })) {
+          if (this.dispatchBindingAction(binding.action, { actions: screen.actions })) {
             return true;
           }
         }
       }
     }
 
-    for (const binding of this.appBindings) {
+    for (const binding of this.resolveBindingsForApp()) {
       if (binding.priority !== true && binding.key === key) {
-        if (this.runAction(binding.action, { actions: this.appActions })) {
+        if (this.dispatchBindingAction(binding.action, { actions: this.appActions })) {
           return true;
         }
       }
@@ -1245,12 +1388,20 @@ export class TextualFramework {
     const chain: BindingChainEntry[] = [];
 
     // App layer first so priority bindings are evaluated top-down.
-    chain.push({ bindings: this.appBindings, actions: this.appActions });
+    chain.push({
+      namespace: createAppBindingNamespace(),
+      bindings: this.resolveBindingsForApp(),
+      actions: this.appActions,
+    });
 
     const screen = this.activeScreen;
 
     if (screen !== null) {
-      chain.push({ bindings: screen.bindings, actions: screen.actions });
+      chain.push({
+        namespace: createScreenBindingNamespace(screen),
+        bindings: this.resolveBindingsForScreen(screen),
+        actions: screen.actions,
+      });
     }
 
     const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
@@ -1265,7 +1416,11 @@ export class TextualFramework {
       }
 
       for (const node of ancestry) {
-        chain.push({ bindings: node.bindings, actions: node.actions });
+        chain.push({
+          namespace: createWidgetBindingNamespace(node),
+          bindings: this.resolveBindingsForNode(node),
+          actions: node.actions,
+        });
       }
     }
 
@@ -1439,7 +1594,7 @@ export class TextualFramework {
       this.enqueueDirectMessage(nextNode, new Focus({ bubble: false }));
     }
 
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.notifyBindingsUpdated();
   }
 
   private saveScreenFocusSnapshot(screen: ScreenEntry): void {
@@ -1634,6 +1789,7 @@ export class TextualFramework {
 }
 
 interface BindingChainEntry {
+  namespace: BindingNamespace;
   bindings: Binding[];
   actions: WidgetActions | undefined;
 }
@@ -1641,6 +1797,8 @@ interface BindingChainEntry {
 interface ActionTargetDescriptor {
   actions: WidgetActions | undefined;
 }
+
+type ActionDispatchResult = "handled" | "consumed" | "unhandled";
 
 function createImplicitEntry(): ScreenEntry {
   return {
@@ -1674,6 +1832,51 @@ function pickActionCallback(actions: WidgetActions | undefined, key: string): Wi
 
   const candidate = actions[key];
   return typeof candidate === "function" ? (candidate as WidgetActionCallback) : undefined;
+}
+
+function createAppBindingNamespace(): BindingNamespace {
+  return {
+    kind: "app",
+    key: "app",
+    name: "app",
+    nodeId: null,
+  };
+}
+
+function createScreenBindingNamespace(screen: ScreenEntry): BindingNamespace {
+  return {
+    kind: "screen",
+    key: `screen:${screen.id}`,
+    name: screen.name,
+    nodeId: null,
+  };
+}
+
+function createWidgetBindingNamespace(widget: WidgetNode): BindingNamespace {
+  return {
+    kind: "widget",
+    key: `widget:${widget.nodeId}`,
+    name: widget.id ?? widget.typeName,
+    nodeId: widget.nodeId,
+  };
+}
+
+function normalizeKeymap(input: KeymapInput): Map<string, string[]> {
+  const entries = input instanceof Map ? input.entries() : Object.entries(input);
+  const normalized = new Map<string, string[]>();
+
+  for (const [bindingId, keyList] of entries) {
+    normalized.set(bindingId, normalizeKeyList(keyList));
+  }
+
+  return normalized;
+}
+
+function normalizeKeyList(source: string): string[] {
+  return source
+    .split(",")
+    .map((key) => normalizeKeyName(key).key)
+    .filter((key) => key.length > 0);
 }
 
 function shouldSuppressAtNode(node: WidgetNode, message: Message): boolean {

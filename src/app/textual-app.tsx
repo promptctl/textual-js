@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useState, type PropsWithChildren } from "react"
 import { Box, useInput, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
 
-import { TextualFramework } from "../framework/app-framework.js";
+import { TextualFramework, type KeymapInput } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
 import type { BindingDeclaration } from "../bindings/index.js";
@@ -15,6 +15,7 @@ export interface TextualAppProps extends PropsWithChildren {
   stylesheet?: string;
   theme?: string;
   bindings?: BindingDeclaration[];
+  keymap?: KeymapInput;
   actions?: WidgetActions;
   autoFocus?: string | null;
 }
@@ -77,6 +78,7 @@ export const TextualApp = observer(function TextualApp({
   stylesheet,
   theme,
   bindings,
+  keymap,
   actions,
   autoFocus,
 }: TextualAppProps): React.JSX.Element {
@@ -97,6 +99,12 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedFramework.setAppBindings(bindings ?? []);
   }, [bindings, ownedFramework]);
+
+  useLayoutEffect(() => {
+    if (keymap !== undefined) {
+      ownedFramework.setKeymap(keymap);
+    }
+  }, [keymap, ownedFramework]);
 
   useLayoutEffect(() => {
     ownedFramework.setAppActions(actions);

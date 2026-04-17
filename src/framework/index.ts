@@ -1,6 +1,9 @@
 export {
   ActiveModeError,
+  type BindingClash,
+  type BindingNamespace,
   InvalidModeError,
+  type KeymapInput,
   ScreenStackError,
   TextualFramework,
   UnknownModeError,

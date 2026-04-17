@@ -39,7 +39,10 @@ export {
 export { clamp, Offset, Region, Size, Spacing } from "./geometry/index.js";
 export {
   ActiveModeError,
+  type BindingClash,
+  type BindingNamespace,
   InvalidModeError,
+  type KeymapInput,
   ScreenStackError,
   TextualFramework,
   TextualProvider,
