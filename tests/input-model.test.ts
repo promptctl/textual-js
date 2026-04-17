@@ -1,0 +1,305 @@
+import { describe, expect, it } from "vitest";
+
+import { Input, InputChanged, InputSubmitted } from "../src/index.js";
+
+describe("Input model", () => {
+  it("constructs with default empty value", () => {
+    const input = new Input();
+
+    expect(input.value).toBe("");
+    expect(input.cursorPosition).toBe(0);
+    expect(input.type).toBe("text");
+  });
+
+  it("constructs with initial value and positions cursor at end", () => {
+    const input = new Input({ value: "hello" });
+
+    expect(input.value).toBe("hello");
+    expect(input.cursorPosition).toBe(5);
+  });
+
+  it("rejects invalid input type", () => {
+    expect(() => new Input({ type: "bogus" })).toThrow();
+  });
+});
+
+describe("Input cursor movement", () => {
+  it("moves left and right with boundary clamping", () => {
+    const input = new Input({ value: "abc" });
+    input.cursorPosition = 1;
+
+    input.moveCursorRight();
+    expect(input.cursorPosition).toBe(2);
+
+    input.moveCursorLeft();
+    expect(input.cursorPosition).toBe(1);
+
+    input.moveCursorHome();
+    expect(input.cursorPosition).toBe(0);
+
+    input.moveCursorLeft();
+    expect(input.cursorPosition).toBe(0);
+
+    input.moveCursorEnd();
+    expect(input.cursorPosition).toBe(3);
+
+    input.moveCursorRight();
+    expect(input.cursorPosition).toBe(3);
+  });
+
+  it("moves by word boundaries", () => {
+    const input = new Input({ value: "hello world test" });
+    input.cursorPosition = 0;
+
+    input.moveCursorWordRight();
+    expect(input.cursorPosition).toBe(6);
+
+    input.moveCursorWordRight();
+    expect(input.cursorPosition).toBe(12);
+
+    input.moveCursorWordLeft();
+    expect(input.cursorPosition).toBe(6);
+
+    input.moveCursorWordLeft();
+    expect(input.cursorPosition).toBe(0);
+  });
+
+  it("treats entire value as one word in password mode", () => {
+    const input = new Input({ value: "hello world", password: true });
+    input.cursorPosition = 5;
+
+    input.moveCursorWordLeft();
+    expect(input.cursorPosition).toBe(0);
+
+    input.moveCursorWordRight();
+    expect(input.cursorPosition).toBe(11);
+  });
+});
+
+describe("Input selection", () => {
+  it("selects a range and reports selected text", () => {
+    const input = new Input({ value: "hello world" });
+    input.select(0, 5);
+
+    expect(input.selectedText).toBe("hello");
+    expect(input.selection).toEqual({ start: 0, end: 5 });
+  });
+
+  it("selects all text", () => {
+    const input = new Input({ value: "hello" });
+    input.selectAll();
+
+    expect(input.selectedText).toBe("hello");
+  });
+
+  it("handles reversed selection (end < start)", () => {
+    const input = new Input({ value: "hello" });
+    input.select(5, 2);
+
+    expect(input.selectedText).toBe("llo");
+  });
+
+  it("clears selection", () => {
+    const input = new Input({ value: "hello" });
+    input.selectAll();
+    input.clearSelection();
+
+    expect(input.selection).toBeNull();
+    expect(input.selectedText).toBe("");
+  });
+
+  it("deletes selection and repositions cursor", () => {
+    const input = new Input({ value: "hello world" });
+    input.select(5, 11);
+
+    expect(input.deleteSelection()).toBe(true);
+    expect(input.value).toBe("hello");
+    expect(input.cursorPosition).toBe(5);
+    expect(input.selection).toBeNull();
+  });
+
+  it("returns false when deleting empty or no selection", () => {
+    const input = new Input({ value: "hello" });
+    expect(input.deleteSelection()).toBe(false);
+
+    input.select(3, 3);
+    expect(input.deleteSelection()).toBe(false);
+  });
+});
+
+describe("Input text insertion and deletion", () => {
+  it("inserts text at cursor position", () => {
+    const input = new Input({ value: "helo" });
+    input.cursorPosition = 3;
+
+    expect(input.insert("l")).toBe(true);
+    expect(input.value).toBe("hello");
+    expect(input.cursorPosition).toBe(4);
+  });
+
+  it("replaces selection on insert", () => {
+    const input = new Input({ value: "hello world" });
+    input.select(6, 11);
+
+    expect(input.insert("there")).toBe(true);
+    expect(input.value).toBe("hello there");
+  });
+
+  it("deletes left (backspace)", () => {
+    const input = new Input({ value: "hello" });
+    input.cursorPosition = 5;
+
+    expect(input.deleteLeft()).toBe(true);
+    expect(input.value).toBe("hell");
+    expect(input.cursorPosition).toBe(4);
+  });
+
+  it("deletes right (delete key)", () => {
+    const input = new Input({ value: "hello" });
+    input.cursorPosition = 0;
+
+    expect(input.deleteRight()).toBe(true);
+    expect(input.value).toBe("ello");
+    expect(input.cursorPosition).toBe(0);
+  });
+
+  it("delete left at start is a no-op", () => {
+    const input = new Input({ value: "hello" });
+    input.cursorPosition = 0;
+    expect(input.deleteLeft()).toBe(false);
+  });
+
+  it("delete right at end is a no-op", () => {
+    const input = new Input({ value: "hello" });
+    input.cursorPosition = 5;
+    expect(input.deleteRight()).toBe(false);
+  });
+
+  it("deletes word left", () => {
+    const input = new Input({ value: "hello world" });
+    input.cursorPosition = 11;
+
+    expect(input.deleteWordLeft()).toBe(true);
+    expect(input.value).toBe("hello ");
+  });
+
+  it("deletes word right", () => {
+    const input = new Input({ value: "hello world" });
+    input.cursorPosition = 0;
+
+    expect(input.deleteWordRight()).toBe(true);
+    expect(input.value).toBe("world");
+  });
+
+  it("deletes to start", () => {
+    const input = new Input({ value: "hello world" });
+    input.cursorPosition = 5;
+
+    expect(input.deleteToStart()).toBe(true);
+    expect(input.value).toBe(" world");
+    expect(input.cursorPosition).toBe(0);
+  });
+
+  it("deletes to end", () => {
+    const input = new Input({ value: "hello world" });
+    input.cursorPosition = 5;
+
+    expect(input.deleteToEnd()).toBe(true);
+    expect(input.value).toBe("hello");
+  });
+
+  it("clears all content", () => {
+    const input = new Input({ value: "hello" });
+    input.clear();
+
+    expect(input.value).toBe("");
+    expect(input.cursorPosition).toBe(0);
+    expect(input.selection).toBeNull();
+  });
+});
+
+describe("Input programmatic delete and replace", () => {
+  it("deletes a range regardless of direction", () => {
+    const input = new Input({ value: "hello world" });
+
+    expect(input.delete(0, 6)).toBe(true);
+    expect(input.value).toBe("world");
+
+    const input2 = new Input({ value: "hello world" });
+    expect(input2.delete(6, 0)).toBe(true);
+    expect(input2.value).toBe("world");
+  });
+
+  it("replaces a range with new text", () => {
+    const input = new Input({ value: "hello world" });
+
+    expect(input.replace("there", 6, 11)).toBe(true);
+    expect(input.value).toBe("hello there");
+  });
+
+  it("clamps delete/replace ranges to value bounds", () => {
+    const input = new Input({ value: "hello" });
+
+    expect(input.delete(-5, 100)).toBe(true);
+    expect(input.value).toBe("");
+  });
+});
+
+describe("Input restrict pattern", () => {
+  it("rejects insertions that violate the restrict pattern", () => {
+    const input = new Input({ type: "integer" });
+
+    expect(input.insert("5")).toBe(true);
+    expect(input.insert("a")).toBe(false);
+    expect(input.value).toBe("5");
+  });
+
+  it("allows negative integers with the integer type", () => {
+    const input = new Input({ type: "integer" });
+
+    expect(input.insert("-")).toBe(true);
+    expect(input.insert("3")).toBe(true);
+    expect(input.value).toBe("-3");
+  });
+
+  it("supports number type with decimal points", () => {
+    const input = new Input({ type: "number" });
+
+    expect(input.insert("3")).toBe(true);
+    expect(input.insert(".")).toBe(true);
+    expect(input.insert("1")).toBe(true);
+    expect(input.insert("4")).toBe(true);
+    expect(input.value).toBe("3.14");
+    expect(input.insert(".")).toBe(false);
+  });
+
+  it("supports custom restrict regex", () => {
+    const input = new Input({ restrict: /^[a-z]*$/ });
+
+    expect(input.insert("abc")).toBe(true);
+    expect(input.insert("1")).toBe(false);
+    expect(input.value).toBe("abc");
+  });
+});
+
+describe("Input max length", () => {
+  it("rejects insertions that exceed max length", () => {
+    const input = new Input({ maxLength: 5 });
+
+    expect(input.insert("hello")).toBe(true);
+    expect(input.insert("x")).toBe(false);
+    expect(input.value).toBe("hello");
+  });
+});
+
+describe("Input messages", () => {
+  it("creates InputChanged with value", () => {
+    const changed = new InputChanged("hello");
+    expect(changed.value).toBe("hello");
+  });
+
+  it("creates InputSubmitted with value", () => {
+    const submitted = new InputSubmitted("hello");
+    expect(submitted.value).toBe("hello");
+  });
+});
