@@ -211,4 +211,10 @@ export {
   type InputType,
   type RuleOrientation,
   type SparklineOptions,
+  StaticWidget,
+  ButtonWidget,
+  SwitchWidget,
+  type StaticWidgetProps,
+  type ButtonWidgetProps,
+  type SwitchWidgetProps,
 } from "./widgets/index.js";

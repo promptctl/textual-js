@@ -8,3 +8,6 @@ export { ProgressBar } from "./progress-bar.js";
 export { Selection } from "./selection.js";
 export { Input, InputChanged, InputSubmitted, type InputSelection, type InputType } from "./input.js";
 export { Sparkline, renderSparkline, type SparklineOptions } from "./sparkline.js";
+export { StaticWidget, type StaticWidgetProps } from "./static-component.js";
+export { ButtonWidget, type ButtonWidgetProps } from "./button-component.js";
+export { SwitchWidget, type SwitchWidgetProps } from "./switch-component.js";
