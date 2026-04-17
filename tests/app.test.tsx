@@ -1,9 +1,18 @@
-import React, { useLayoutEffect } from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 
-import { Message, normalizeColor, TextualApp, TextualFramework, WidgetHost, useTextual } from "../src/index.js";
+import {
+  AppBlur,
+  AppFocus,
+  Message,
+  normalizeColor,
+  TextualApp,
+  TextualFramework,
+  WidgetHost,
+  useTextual,
+} from "../src/index.js";
 
 class Ping extends Message {}
 
@@ -15,6 +24,35 @@ function AppDispatcher(props: { onReady: (framework: TextualFramework) => void }
   }, [framework, props]);
 
   return null;
+}
+
+function BlurHarness(props: { onToggleReady?: (setVisible: (visible: boolean) => void) => void }): React.JSX.Element {
+  const [showFirst, setShowFirst] = useState(true);
+
+  useLayoutEffect(() => {
+    props.onToggleReady?.((visible) => {
+      setShowFirst(visible);
+    });
+  }, [props]);
+
+  return (
+    <>
+      {showFirst ? (
+        <WidgetHost typeName="Label" id="focus-a" focusable>
+          <Text>a</Text>
+        </WidgetHost>
+      ) : null}
+      <WidgetHost typeName="Label" id="focus-b" focusable>
+        <Text>b</Text>
+      </WidgetHost>
+    </>
+  );
+}
+
+async function settleApp(framework: TextualFramework): Promise<void> {
+  await framework.whenIdle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await framework.whenIdle();
 }
 
 describe("TextualApp and widget registry", () => {
@@ -124,6 +162,98 @@ describe("TextualApp and widget registry", () => {
     await framework.whenIdle();
 
     expect(senders).toEqual([null]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("clears focus on app blur and restores it on app focus", async () => {
+    const framework = new TextualFramework();
+    const events: string[] = [];
+
+    const unsubscribe = framework.subscribeToMessages((message) => {
+      if (message instanceof AppBlur) {
+        events.push("blur");
+      } else if (message instanceof AppFocus) {
+        events.push("focus");
+      }
+    });
+
+    const instance = render(
+      <TextualApp framework={framework} autoFocus="#focus-a">
+        <BlurHarness />
+      </TextualApp>,
+    );
+
+    await settleApp(framework);
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("focus-a")!.nodeId);
+
+    framework.handleAppBlur();
+    await settleApp(framework);
+    expect(framework.focusedNodeId).toBeNull();
+
+    framework.handleAppFocus();
+    await settleApp(framework);
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("focus-a")!.nodeId);
+    expect(events).toEqual(["blur", "focus"]);
+
+    unsubscribe();
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("leaves focus cleared when the blurred widget is removed before app focus returns", async () => {
+    const framework = new TextualFramework();
+    let setVisible!: (visible: boolean) => void;
+
+    const instance = render(
+      <TextualApp framework={framework} autoFocus="#focus-a">
+        <BlurHarness
+          onToggleReady={(callback) => {
+            setVisible = callback;
+          }}
+        />
+      </TextualApp>,
+    );
+
+    await settleApp(framework);
+
+    framework.handleAppBlur();
+    await settleApp(framework);
+
+    setVisible(false);
+    await settleApp(framework);
+
+    framework.handleAppFocus();
+    await settleApp(framework);
+
+    expect(framework.focusedNodeId).toBeNull();
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("preserves explicit focus changes made while the app is blurred", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework} autoFocus="#focus-a">
+        <BlurHarness />
+      </TextualApp>,
+    );
+
+    await settleApp(framework);
+
+    framework.handleAppBlur();
+    await settleApp(framework);
+
+    framework.focusWidget(framework.registry.getByCssId("focus-b")!.nodeId);
+    await settleApp(framework);
+
+    framework.handleAppFocus();
+    await settleApp(framework);
+
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("focus-b")!.nodeId);
 
     instance.unmount();
     instance.cleanup();

@@ -16,6 +16,7 @@ export interface TextualAppProps extends PropsWithChildren {
   theme?: string;
   bindings?: BindingDeclaration[];
   actions?: WidgetActions;
+  autoFocus?: string | null;
 }
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
@@ -77,6 +78,7 @@ export const TextualApp = observer(function TextualApp({
   theme,
   bindings,
   actions,
+  autoFocus,
 }: TextualAppProps): React.JSX.Element {
   const [ownedFramework] = useState(() => framework ?? new TextualFramework());
 
@@ -99,6 +101,10 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedFramework.setAppActions(actions);
   }, [actions, ownedFramework]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setAppAutoFocus(autoFocus);
+  }, [autoFocus, ownedFramework]);
 
   return (
     <TextualProvider framework={ownedFramework}>

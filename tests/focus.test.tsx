@@ -24,6 +24,38 @@ function FocusHarness(): React.JSX.Element {
   );
 }
 
+function DefaultRestoreScreen(): React.JSX.Element {
+  return (
+    <>
+      <WidgetHost typeName="Label" id="default-first" focusable>
+        <Text>default-first</Text>
+      </WidgetHost>
+      <WidgetHost typeName="Label" id="default-second" focusable>
+        <Text>default-second</Text>
+      </WidgetHost>
+    </>
+  );
+}
+
+function DialogRestoreScreen(): React.JSX.Element {
+  return (
+    <>
+      <WidgetHost typeName="Label" id="dialog-first" focusable>
+        <Text>dialog-first</Text>
+      </WidgetHost>
+      <WidgetHost typeName="Label" id="dialog-second" focusable>
+        <Text>dialog-second</Text>
+      </WidgetHost>
+    </>
+  );
+}
+
+async function settleFocus(framework: TextualFramework): Promise<void> {
+  await framework.whenIdle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await framework.whenIdle();
+}
+
 describe("focus manager", () => {
   it("tracks :focus pseudo-class and emits Focus/Blur on transitions", async () => {
     const framework = new TextualFramework();
@@ -115,5 +147,85 @@ describe("focus manager", () => {
     expect(session.framework.focusedNodeId).toBe(session.framework.registry.getByCssId("first")!.nodeId);
 
     session.unmount();
+  });
+
+  it("restores focus to the previous screen after pop and mode return", async () => {
+    const framework = new TextualFramework();
+    framework.addMode("secondary", () => <DialogRestoreScreen />);
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <DefaultRestoreScreen />
+      </TextualApp>,
+    );
+
+    await settleFocus(framework);
+
+    framework.focusWidget(framework.registry.getByCssId("default-second")!.nodeId);
+    await settleFocus(framework);
+
+    framework.pushScreen(<DialogRestoreScreen />, { autoFocus: "#dialog-first" });
+    await settleFocus(framework);
+
+    framework.focusWidget(framework.registry.getByCssId("dialog-second")!.nodeId);
+    await settleFocus(framework);
+
+    framework.popScreen();
+    await settleFocus(framework);
+
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("default-second")!.nodeId);
+
+    framework.switchMode("secondary");
+    await settleFocus(framework);
+
+    framework.focusWidget(framework.registry.getByCssId("dialog-second")!.nodeId);
+    await settleFocus(framework);
+
+    framework.switchMode("_default");
+    await settleFocus(framework);
+
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("default-second")!.nodeId);
+
+    framework.switchMode("secondary");
+    await settleFocus(framework);
+
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("dialog-second")!.nodeId);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("applies app and screen auto-focus selectors with screen precedence", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework} autoFocus="Label">
+        <DefaultRestoreScreen />
+      </TextualApp>,
+    );
+
+    await settleFocus(framework);
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("default-first")!.nodeId);
+
+    framework.pushScreen(<DialogRestoreScreen />, { autoFocus: "#dialog-second" });
+    await settleFocus(framework);
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("dialog-second")!.nodeId);
+
+    framework.popScreen();
+    await settleFocus(framework);
+
+    framework.pushScreen(<DialogRestoreScreen />);
+    await settleFocus(framework);
+    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("dialog-first")!.nodeId);
+
+    framework.popScreen();
+    await settleFocus(framework);
+
+    framework.pushScreen(<DialogRestoreScreen />, { autoFocus: "" });
+    await settleFocus(framework);
+    expect(framework.focusedNodeId).toBeNull();
+
+    instance.unmount();
+    instance.cleanup();
   });
 });

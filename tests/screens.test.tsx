@@ -6,13 +6,16 @@ import { render } from "ink-testing-library";
 import {
   ActiveModeError,
   InvalidModeError,
+  NoActiveWorker,
   ScreenResume,
   ScreenStackError,
   ScreenSuspend,
   TextualApp,
   TextualFramework,
   UnknownModeError,
+  WidgetNode,
   WidgetHost,
+  Worker,
 } from "../src/index.js";
 
 function DefaultScreen(): React.JSX.Element {
@@ -31,7 +34,65 @@ function DialogScreen(): React.JSX.Element {
   );
 }
 
+let nextDetachedNodeId = 1;
+
+function createDetachedWorker<TResult>(
+  framework: TextualFramework,
+  work: () => Promise<TResult> | TResult,
+): Worker<TResult> {
+  const node = new WidgetNode({
+    framework,
+    nodeId: `detached-worker-${nextDetachedNodeId++}`,
+    parentId: null,
+    classes: [],
+    typeName: "DetachedWorker",
+    handlersRef: { current: undefined },
+    actionsRef: { current: undefined },
+    bindingsRef: { current: [] },
+    focusable: false,
+    autoFocus: false,
+    disabled: false,
+    loading: false,
+  });
+
+  return new Worker(
+    node,
+    async () => work(),
+    "detached-worker",
+    undefined,
+    "detached worker",
+    false,
+    (targetId, message) => {
+      framework.postMessage(targetId, message);
+    },
+    () => {},
+  );
+}
+
+async function settleScreen(framework: TextualFramework): Promise<void> {
+  await framework.whenIdle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await framework.whenIdle();
+}
+
 describe("screen stack", () => {
+  it("installs named screens, reuses cached elements, and enforces expected types", () => {
+    const framework = new TextualFramework();
+
+    framework.installScreen("dialog", () => <DialogScreen />);
+
+    expect(framework.isScreenInstalled("dialog")).toBe(true);
+
+    const installed = framework.getScreen("dialog");
+    expect(installed.type).toBe(DialogScreen);
+    expect(framework.getScreen("dialog")).toBe(installed);
+    expect(framework.getScreen("dialog", DialogScreen)).toBe(installed);
+    expect(() => framework.getScreen("dialog", DefaultScreen)).toThrow(TypeError);
+
+    framework.uninstallScreen("dialog");
+    expect(framework.isScreenInstalled("dialog")).toBe(false);
+  });
+
   it("renders pushed screens instead of the default children and emits suspend/resume messages", async () => {
     const framework = new TextualFramework();
     const events: string[] = [];
@@ -55,16 +116,14 @@ describe("screen stack", () => {
     expect(instance.lastFrame()).toContain("default");
 
     framework.pushScreen(<DialogScreen />, { name: "dialog" });
-    await framework.whenIdle();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settleScreen(framework);
 
     expect(instance.lastFrame()).toContain("dialog");
     expect(instance.lastFrame()).not.toContain("default");
     expect(events).toContain("resume:dialog");
 
     framework.popScreen();
-    await framework.whenIdle();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settleScreen(framework);
 
     expect(instance.lastFrame()).toContain("default");
     expect(events.filter((entry) => entry === "suspend:dialog")).toHaveLength(1);
@@ -116,6 +175,95 @@ describe("screen stack", () => {
     instance.cleanup();
   });
 
+  it("reuses the same installed screen element across repeated pushes by name", async () => {
+    const framework = new TextualFramework();
+    framework.installScreen("dialog", () => <DialogScreen />);
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <DefaultScreen />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const first = framework.pushScreen("dialog", { name: "dialog" });
+    await settleScreen(framework);
+    framework.popScreen();
+    await settleScreen(framework);
+
+    const second = framework.pushScreen("dialog", { name: "dialog" });
+    await settleScreen(framework);
+
+    expect(first.element).toBe(second.element);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("supports pushScreenWait inside a worker and rejects it outside one", async () => {
+    const framework = new TextualFramework();
+    framework.installScreen("dialog", () => <DialogScreen />);
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <DefaultScreen />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    expect(() => framework.pushScreenWait("dialog")).toThrow(NoActiveWorker);
+
+    const worker = createDetachedWorker(framework, async () => framework.pushScreenWait("dialog"));
+    const waiting = worker.start();
+    await settleScreen(framework);
+
+    framework.dismissScreen("done");
+    await settleScreen(framework);
+
+    await expect(waiting).resolves.toBe("done");
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("runs built-in dismiss actions and resolves callbacks and waiters exactly once", async () => {
+    const framework = new TextualFramework();
+    framework.installScreen("dialog", () => <DialogScreen />);
+    const callbackResults: unknown[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <DefaultScreen />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.pushScreen("dialog", (result) => {
+      callbackResults.push(result);
+    });
+    await settleScreen(framework);
+
+    expect(framework.runAction("screen.dismiss(true)")).toBe(true);
+    await settleScreen(framework);
+
+    expect(callbackResults).toEqual([true]);
+
+    const worker = createDetachedWorker(framework, async () => framework.pushScreenWait("dialog"));
+    const waiting = worker.start();
+    await settleScreen(framework);
+
+    expect(framework.runAction("screen.dismiss('again')")).toBe(true);
+    await settleScreen(framework);
+
+    await expect(waiting).resolves.toBe("again");
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("switchScreen replaces the top of the stack without changing depth", async () => {
     const framework = new TextualFramework();
 
@@ -133,7 +281,7 @@ describe("screen stack", () => {
     expect(framework.screenStackDepth).toBe(1);
 
     framework.switchScreen(<DialogScreen />, { name: "two" });
-    await framework.whenIdle();
+    await settleScreen(framework);
 
     expect(framework.screenStackDepth).toBe(1);
     expect(framework.activeScreen?.name).toBe("two");
@@ -157,20 +305,20 @@ describe("screen modes", () => {
     await framework.whenIdle();
 
     framework.pushScreen(<DialogScreen />, { name: "default-dialog" });
-    await framework.whenIdle();
+    await settleScreen(framework);
 
     expect(framework.screenStackDepth).toBe(1);
     expect(framework.activeScreen?.name).toBe("default-dialog");
 
     framework.switchMode("secondary");
-    await framework.whenIdle();
+    await settleScreen(framework);
 
     expect(framework.activeMode).toBe("secondary");
     expect(framework.screenStackDepth).toBe(1);
     expect(framework.activeScreen?.name).toBeNull();
 
     framework.switchMode("_default");
-    await framework.whenIdle();
+    await settleScreen(framework);
 
     expect(framework.activeMode).toBe("_default");
     expect(framework.activeScreen?.name).toBe("default-dialog");

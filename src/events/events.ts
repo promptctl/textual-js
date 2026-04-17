@@ -10,6 +10,18 @@ export class Focus extends Message {}
 
 export class Blur extends Message {}
 
+export class AppBlur extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class AppFocus extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
 export class Idle extends Message {}
 
 export class Callback extends Message {

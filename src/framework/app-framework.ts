@@ -2,6 +2,8 @@ import React from "react";
 import { makeAutoObservable } from "mobx";
 
 import {
+  AppBlur,
+  AppFocus,
   Blur,
   Callback,
   Click,
@@ -32,7 +34,7 @@ import { Notification, Notifications, type NotificationSeverity } from "../servi
 import { Signal } from "../services/signal.js";
 import { ThemeManager, type ActiveTheme, type ThemeDefinition } from "../services/theme.js";
 import { ManagedTimer, type TimerCallback, type TimerOptions } from "../services/timer.js";
-import { Worker, WorkerManager, type WorkFunction, type WorkerOptions } from "../services/worker.js";
+import { Worker, WorkerManager, getCurrentWorker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
 import {
   matchesSelector as selectorMatchesWidget,
   parseSelectorList,
@@ -77,6 +79,11 @@ interface WidgetTypeState {
   defaultStylesheet?: ParsedStylesheet;
 }
 
+interface ScreenFactoryRecord {
+  factory: () => React.ReactElement;
+  cachedElement: React.ReactElement | null;
+}
+
 export type ScreenDescriptor =
   | React.ReactElement
   | React.ComponentType<Record<string, unknown>>
@@ -97,6 +104,8 @@ export interface ScreenEntry {
   actions: WidgetActions | undefined;
   autoFocus: string | null;
   implicit: boolean;
+  lastFocusedAddress: FocusAddress | null;
+  waiters: Array<(result: unknown) => void>;
   callback?: (result: unknown) => void;
 }
 
@@ -172,6 +181,11 @@ const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
 ];
 
 let nextScreenId = 1;
+interface FocusAddress {
+  path: number[];
+  widgetId: string | null;
+  typeName: string;
+}
 
 export class TextualFramework {
   readonly registry = new WidgetRegistry();
@@ -187,7 +201,7 @@ export class TextualFramework {
   activeMode = DEFAULT_MODE;
   private readonly modeStacks = new Map<string, ScreenEntry[]>();
   private readonly modeFactories = new Map<string, () => React.ReactElement>();
-  private readonly installedScreens = new Map<string, () => React.ReactElement>();
+  private readonly installedScreens = new Map<string, ScreenFactoryRecord>();
   private readonly queue: QueuedMessage[] = [];
   private drainPromise: Promise<void> | null = null;
   private userStylesheets: ParsedStylesheet[] = [];
@@ -198,6 +212,10 @@ export class TextualFramework {
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
+  private appAutoFocus: string | null = null;
+  private isAppBlurred = false;
+  private blurredFocusAddress: FocusAddress | null = null;
+  private focusChangedWhileBlurred = false;
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
@@ -274,6 +292,14 @@ export class TextualFramework {
     this.appActions = { ...navigation, ...(actions ?? {}) };
   }
 
+  setAppAutoFocus(selector: string | null | undefined): void {
+    this.appAutoFocus = selector ?? null;
+
+    if (this.isRunning && !this.isAppBlurred && this.focusedNodeId === null) {
+      this.scheduleActiveScreenFocusResolution(true);
+    }
+  }
+
   startup(): void {
     if (this.isRunning) {
       return;
@@ -285,6 +311,10 @@ export class TextualFramework {
     for (const widget of this.registry.list()) {
       this.enqueueLifecycleMessages(widget);
     }
+
+    if (this.focusedNodeId === null) {
+      this.scheduleActiveScreenFocusResolution(true);
+    }
   }
 
   shutdown(): void {
@@ -292,6 +322,9 @@ export class TextualFramework {
     this.focusedNodeId = null;
     this.workers.cancelAll();
     this.clearAllTimers();
+    this.isAppBlurred = false;
+    this.blurredFocusAddress = null;
+    this.focusChangedWhileBlurred = false;
     this.isRunning = false;
     this.signals.app_suspend_signal.publish(undefined);
   }
@@ -377,29 +410,7 @@ export class TextualFramework {
   }
 
   focusWidget(nodeId: string | null): void {
-    if (this.focusedNodeId === nodeId) {
-      return;
-    }
-
-    const previousId = this.focusedNodeId;
-    this.focusedNodeId = nodeId;
-    this.recalculateStyles();
-
-    // [LAW:single-enforcer] Focus transitions are the sole source of Focus/Blur
-    // messages; each call dispatches both sides in the same pass.
-    const previousNode = previousId === null ? undefined : this.registry.get(previousId);
-
-    if (previousNode !== undefined) {
-      this.enqueueDirectMessage(previousNode, new Blur({ bubble: false }));
-    }
-
-    const nextNode = nodeId === null ? undefined : this.registry.get(nodeId);
-
-    if (nextNode !== undefined) {
-      this.enqueueDirectMessage(nextNode, new Focus({ bubble: false }));
-    }
-
-    this.signals.bindings_updated_signal.publish(undefined);
+    this.applyFocusChange(nodeId, { markBlurOverride: true });
   }
 
   getFocusChain(): WidgetNode[] {
@@ -731,6 +742,41 @@ export class TextualFramework {
     });
   }
 
+  handleAppBlur(): void {
+    if (this.isAppBlurred) {
+      return;
+    }
+
+    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
+    this.blurredFocusAddress = focused === undefined ? null : this.captureFocusAddress(focused);
+    this.isAppBlurred = true;
+    this.focusChangedWhileBlurred = false;
+    this.emitBroadcast(new AppBlur());
+    this.applyFocusChange(null, { markBlurOverride: false });
+  }
+
+  handleAppFocus(): void {
+    this.emitBroadcast(new AppFocus());
+
+    if (!this.isAppBlurred) {
+      return;
+    }
+
+    const shouldRestore = !this.focusChangedWhileBlurred;
+    const blurredAddress = this.blurredFocusAddress;
+
+    this.isAppBlurred = false;
+    this.blurredFocusAddress = null;
+    this.focusChangedWhileBlurred = false;
+
+    if (!shouldRestore) {
+      return;
+    }
+
+    const target = blurredAddress === null ? null : this.resolveExactFocusTarget(blurredAddress);
+    this.applyFocusChange(target?.nodeId ?? null, { markBlurOverride: false });
+  }
+
   attachAfterRefreshRequester(requester: () => void): () => void {
     this.afterRefreshRequester = requester;
 
@@ -760,7 +806,7 @@ export class TextualFramework {
       throw new Error(`Screen "${name}" is already installed`);
     }
 
-    this.installedScreens.set(name, factory);
+    this.installedScreens.set(name, { factory, cachedElement: null });
   }
 
   uninstallScreen(name: string): void {
@@ -775,6 +821,31 @@ export class TextualFramework {
 
   isScreenInstalled(name: string): boolean {
     return this.installedScreens.has(name);
+  }
+
+  getScreen(name: string): React.ReactElement;
+  getScreen<TComponent extends React.ComponentType<Record<string, unknown>>>(
+    name: string,
+    expectedType: TComponent,
+  ): React.ReactElement;
+  getScreen(
+    name: string,
+    expectedType?: React.ComponentType<Record<string, unknown>>,
+  ): React.ReactElement {
+    const record = this.installedScreens.get(name);
+
+    if (record === undefined) {
+      throw new Error(`Screen "${name}" is not installed`);
+    }
+
+    const element = record.cachedElement ?? record.factory();
+    record.cachedElement = element;
+
+    if (expectedType !== undefined && element.type !== expectedType) {
+      throw new TypeError(`Installed screen "${name}" does not match the expected type`);
+    }
+
+    return element;
   }
 
   addMode(name: string, factory: () => React.ReactElement): void {
@@ -832,6 +903,7 @@ export class TextualFramework {
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(this.activeScreen?.name ?? null);
+    this.signals.bindings_updated_signal.publish(undefined);
   }
 
   get activeScreen(): ScreenEntry | null {
@@ -882,6 +954,15 @@ export class TextualFramework {
     return entry;
   }
 
+  pushScreenWait(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Promise<unknown> {
+    getCurrentWorker();
+
+    return new Promise((resolve) => {
+      const entry = this.pushScreen(descriptor, options);
+      entry.waiters.push(resolve);
+    });
+  }
+
   popScreen(result?: unknown): ScreenEntry | null {
     const stack = this.modeStacks.get(this.activeMode) ?? [];
 
@@ -895,13 +976,17 @@ export class TextualFramework {
     this.modeStacks.set(this.activeMode, stack);
     this.screenStackVersion += 1;
 
-    popped.callback?.(result);
+    this.resolveScreenResult(popped, result);
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(this.activeScreen?.name ?? null);
     this.signals.bindings_updated_signal.publish(undefined);
 
     return popped;
+  }
+
+  dismissScreen(result?: unknown): ScreenEntry | null {
+    return this.popScreen(result);
   }
 
   switchScreen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): ScreenEntry {
@@ -911,10 +996,17 @@ export class TextualFramework {
       return this.pushScreen(descriptor, options);
     }
 
+    const element = this.resolveScreenElement(descriptor, options.name);
+    const current = stack[stack.length - 1];
+
+    if (current !== undefined && current.element === element) {
+      return current;
+    }
+
     this.suspendCurrentScreen();
 
-    const element = this.resolveScreenElement(descriptor, options.name);
     const entry = this.createScreenEntry(element, options);
+    this.clearScreenWaiters(current);
     stack[stack.length - 1] = entry;
     this.modeStacks.set(this.activeMode, stack);
     this.screenStackVersion += 1;
@@ -980,13 +1072,7 @@ export class TextualFramework {
 
   private resolveScreenElement(descriptor: ScreenDescriptor, name?: string): React.ReactElement {
     if (typeof descriptor === "string") {
-      const factory = this.installedScreens.get(descriptor);
-
-      if (factory === undefined) {
-        throw new Error(`Screen "${descriptor}" is not installed`);
-      }
-
-      return factory();
+      return this.getScreen(descriptor);
     }
 
     if (typeof descriptor === "function") {
@@ -1003,15 +1089,38 @@ export class TextualFramework {
     options: ScreenOptions & { callback?: (result: unknown) => void },
   ): ScreenEntry {
     const bindings = makeBindings(options.bindings ?? []);
-    return {
+    const entry: ScreenEntry = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
       element,
       bindings,
-      actions: options.actions,
+      actions: undefined,
       autoFocus: options.autoFocus ?? null,
       implicit: false,
+      lastFocusedAddress: null,
+      waiters: [],
       callback: options.callback,
+    };
+
+    entry.actions = this.mergeScreenActions(entry, options.actions);
+    return entry;
+  }
+
+  private mergeScreenActions(entry: ScreenEntry, actions: WidgetActions | undefined): WidgetActions {
+    const builtins: WidgetActions = {
+      action_dismiss: (result?: unknown) => {
+        void entry;
+        this.dismissScreen(result);
+      },
+      _action_dismiss: (result?: unknown) => {
+        void entry;
+        this.dismissScreen(result);
+      },
+    };
+
+    return {
+      ...builtins,
+      ...(actions ?? {}),
     };
   }
 
@@ -1022,6 +1131,7 @@ export class TextualFramework {
       return;
     }
 
+    this.saveScreenFocusSnapshot(screen);
     this.emitBroadcast(new ScreenSuspend(screen.name));
   }
 
@@ -1033,6 +1143,7 @@ export class TextualFramework {
     }
 
     this.emitBroadcast(new ScreenResume(screen.name));
+    this.scheduleActiveScreenFocusResolution(true);
   }
 
   private emitBroadcast(message: Message): void {
@@ -1300,6 +1411,169 @@ export class TextualFramework {
     return new Signal<TValue>(() => this.isRunning, (node) => this.isNodeMounted(node), (callback) => this.callLater(callback));
   }
 
+  private applyFocusChange(nodeId: string | null, options: { markBlurOverride: boolean }): void {
+    if (this.focusedNodeId === nodeId) {
+      return;
+    }
+
+    const previousId = this.focusedNodeId;
+
+    if (this.isAppBlurred && options.markBlurOverride) {
+      this.focusChangedWhileBlurred = true;
+    }
+
+    this.focusedNodeId = nodeId;
+    this.recalculateStyles();
+
+    // [LAW:single-enforcer] Focus transitions are emitted from one method so
+    // restore, user focus changes, and blur-driven clears share one path.
+    const previousNode = previousId === null ? undefined : this.registry.get(previousId);
+
+    if (previousNode !== undefined) {
+      this.enqueueDirectMessage(previousNode, new Blur({ bubble: false }));
+    }
+
+    const nextNode = nodeId === null ? undefined : this.registry.get(nodeId);
+
+    if (nextNode !== undefined) {
+      this.enqueueDirectMessage(nextNode, new Focus({ bubble: false }));
+    }
+
+    this.signals.bindings_updated_signal.publish(undefined);
+  }
+
+  private saveScreenFocusSnapshot(screen: ScreenEntry): void {
+    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
+    screen.lastFocusedAddress = focused === undefined ? null : this.captureFocusAddress(focused);
+  }
+
+  private captureFocusAddress(widget: WidgetNode): FocusAddress {
+    const segments: number[] = [];
+    let current: WidgetNode | undefined = widget;
+
+    // [LAW:one-source-of-truth] Focus restore captures one structural address
+    // derived from registry order. No alternate identity path participates.
+    while (current !== undefined) {
+      const siblings = this.registry.getChildren(current.parentId);
+      const index = siblings.findIndex((entry) => entry.nodeId === current!.nodeId);
+      segments.unshift(Math.max(0, index));
+      current = current.parent;
+    }
+
+    return {
+      path: segments,
+      widgetId: widget.id ?? null,
+      typeName: widget.typeName,
+    };
+  }
+
+  private scheduleActiveScreenFocusResolution(allowAutoFocus: boolean): void {
+    this.callAfterRefresh(() => {
+      if (this.isAppBlurred) {
+        return;
+      }
+
+      const target = this.resolveFocusTarget(this.activeScreen?.lastFocusedAddress ?? null, allowAutoFocus);
+      this.applyFocusChange(target?.nodeId ?? null, { markBlurOverride: false });
+    });
+  }
+
+  private resolveFocusTarget(address: FocusAddress | null, allowAutoFocus: boolean): WidgetNode | null {
+    const chain = this.getFocusChain();
+
+    if (chain.length === 0) {
+      return null;
+    }
+
+    if (address !== null) {
+      return this.findNearestFocusCandidate(chain, address);
+    }
+
+    if (!allowAutoFocus) {
+      return null;
+    }
+
+    return this.resolveAutoFocusTarget(chain);
+  }
+
+  private resolveAutoFocusTarget(chain: WidgetNode[]): WidgetNode | null {
+    const selector = this.getEffectiveAutoFocusSelector();
+
+    if (selector === null || selector === "") {
+      return null;
+    }
+
+    if (selector === "*") {
+      return chain[0] ?? null;
+    }
+
+    const selectors = this.parseSelectors(selector);
+    return chain.find((widget) => selectors.some((candidate) => this.matchesSelector(widget, candidate))) ?? null;
+  }
+
+  private resolveExactFocusTarget(address: FocusAddress): WidgetNode | null {
+    const chain = this.getFocusChain();
+
+    for (const widget of chain) {
+      if (focusAddressesEqual(address, this.captureFocusAddress(widget))) {
+        return widget;
+      }
+    }
+
+    return null;
+  }
+
+  private getEffectiveAutoFocusSelector(): string | null {
+    const screen = this.activeScreen;
+
+    if (screen?.autoFocus === "") {
+      return "";
+    }
+
+    if (screen?.autoFocus !== null && screen?.autoFocus !== undefined) {
+      return screen.autoFocus;
+    }
+
+    return this.appAutoFocus;
+  }
+
+  private findNearestFocusCandidate(chain: WidgetNode[], address: FocusAddress): WidgetNode | null {
+    let best: WidgetNode | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const widget of chain) {
+      const distance = focusAddressDistance(address, this.captureFocusAddress(widget));
+
+      if (distance < bestDistance) {
+        best = widget;
+        bestDistance = distance;
+      }
+    }
+
+    return best;
+  }
+
+  private resolveScreenResult(screen: ScreenEntry, result: unknown): void {
+    const callback = screen.callback;
+    const waiters = screen.waiters.splice(0);
+
+    screen.callback = undefined;
+    callback?.(result);
+
+    for (const waiter of waiters) {
+      waiter(result);
+    }
+  }
+
+  private clearScreenWaiters(screen: ScreenEntry | undefined): void {
+    if (screen === undefined) {
+      return;
+    }
+
+    screen.callback = undefined;
+    screen.waiters.splice(0);
+  }
+
   private installTimer(
     node: WidgetNode,
     name: string,
@@ -1377,6 +1651,8 @@ function createImplicitEntry(): ScreenEntry {
     actions: undefined,
     autoFocus: null,
     implicit: true,
+    lastFocusedAddress: null,
+    waiters: [],
   };
 }
 
@@ -1448,6 +1724,29 @@ function composeKeyWithModifiers(
   }
 
   return modifiers.length === 0 ? baseKey : `${modifiers.join("+")}+${baseKey}`;
+}
+
+function focusAddressDistance(left: FocusAddress, right: FocusAddress): number {
+  let shared = 0;
+  const shortestLength = Math.min(left.path.length, right.path.length);
+
+  while (shared < shortestLength && left.path[shared] === right.path[shared]) {
+    shared += 1;
+  }
+
+  const siblingDistance =
+    shared < left.path.length && shared < right.path.length ? Math.abs(left.path[shared] - right.path[shared]) : 0;
+
+  return siblingDistance + (left.path.length - shared) + (right.path.length - shared);
+}
+
+function focusAddressesEqual(left: FocusAddress, right: FocusAddress): boolean {
+  return (
+    left.widgetId === right.widgetId &&
+    left.typeName === right.typeName &&
+    left.path.length === right.path.length &&
+    left.path.every((segment, index) => segment === right.path[index])
+  );
 }
 
 // Re-export select types imported solely for type context.

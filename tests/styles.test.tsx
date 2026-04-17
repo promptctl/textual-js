@@ -127,7 +127,7 @@ describe("styles and useStyles", () => {
     expect(styled.resolvedStyles.box.borderColor).toBe(normalizeColor("magenta"));
     expect(styled.resolvedStyles.box.width).toBe(12);
     expect(styled.resolvedStyles.text.color).toBe(normalizeColor("white"));
-    expect(instance.lastFrame()).toContain("styled:");
+    expect(instance.lastFrame().replace(/[│╭╮╰╯─\s]/g, "")).toContain("styled:#ffff00:4");
 
     instance.unmount();
     instance.cleanup();

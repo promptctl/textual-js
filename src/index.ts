@@ -1,5 +1,7 @@
 export { TextualApp, type TextualAppProps } from "./app/index.js";
 export {
+  AppBlur,
+  AppFocus,
   Message,
   Blur,
   Callback,
