@@ -11,6 +11,7 @@ import {
   TextualApp,
   TextualFramework,
   WidgetHost,
+  runTest,
 } from "../src/index.js";
 
 describe("widget disabled state", () => {
@@ -89,6 +90,44 @@ describe("widget disabled state", () => {
     instance.unmount();
     instance.cleanup();
   });
+
+  it("consumes pointer hits on disabled widgets without falling through", async () => {
+    const received: string[] = [];
+
+    function DisabledPointerHarness(): React.JSX.Element {
+      return (
+        <WidgetHost
+          typeName="Parent"
+          id="parent"
+          handlers={{
+            onClick: () => {
+              received.push("parent");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Child"
+            id="child"
+            disabled
+            handlers={{
+              onClick: () => {
+                received.push("child");
+              },
+            }}
+          >
+            <Text>child</Text>
+          </WidgetHost>
+        </WidgetHost>
+      );
+    }
+
+    const session = await runTest(<DisabledPointerHarness />);
+
+    expect(await session.pilot.click("#child")).toBe(true);
+    expect(received).toEqual([]);
+
+    session.unmount();
+  });
 });
 
 describe("widget loading state", () => {
@@ -137,6 +176,44 @@ describe("widget loading state", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("consumes pointer hits on loading widgets without falling through", async () => {
+    const received: string[] = [];
+
+    function LoadingPointerHarness(): React.JSX.Element {
+      return (
+        <WidgetHost
+          typeName="Parent"
+          id="parent"
+          handlers={{
+            onClick: () => {
+              received.push("parent");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Child"
+            id="child"
+            loading
+            handlers={{
+              onClick: () => {
+                received.push("child");
+              },
+            }}
+          >
+            <Text>child</Text>
+          </WidgetHost>
+        </WidgetHost>
+      );
+    }
+
+    const session = await runTest(<LoadingPointerHarness />);
+
+    expect(await session.pilot.click("#child")).toBe(true);
+    expect(received).toEqual([]);
+
+    session.unmount();
   });
 });
 

@@ -329,6 +329,7 @@ export interface TestSession {
 
 export async function runTest(component: AppInput, options: RunTestOptions = {}): Promise<TestSession> {
   const framework = new TextualFramework();
+  framework.setShowNotifications(options.transients?.notifications ?? false);
   const unsubscribeMessageHook =
     options.messageHook === undefined ? undefined : framework.subscribeToMessages(options.messageHook);
   const instance = render(
@@ -336,7 +337,6 @@ export async function runTest(component: AppInput, options: RunTestOptions = {})
       {resolveComponent(component, options.props ?? {})}
     </TextualApp>,
   );
-  framework.setShowNotifications(options.transients?.notifications ?? false);
 
   const size = options.size ?? { width: 80, height: 24 };
   framework.postResize(size.width, size.height);

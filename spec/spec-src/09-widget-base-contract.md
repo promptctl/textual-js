@@ -342,6 +342,7 @@ Button:disabled {
 ```
 
 Disabled state on a parent also suppresses input to children. The check walks ancestors — any disabled ancestor blocks the event.
+Pointer hit-testing does not skip disabled widgets. If the pointer lands on a disabled widget, that widget remains the resolved target and consumes the interaction at the disabled-state boundary; the event does not fall through to an enabled ancestor or sibling behind it.
 Visual dimming is driven by TCSS rules targeting `.-disabled`; the resolved rich-js `Style` typically applies dimming, opacity reduction, or muted colors to the widget's rendered content.
 
 ## Loading State
@@ -352,6 +353,7 @@ When `loading` is `true`:
 - The `-loading` CSS class is toggled.
 - A loading overlay may be rendered (framework-provided, not a public widget).
 - Loading state on a parent suppresses input to children.
+- Pointer hit-testing does not treat loading widgets or loading overlays as transparent. The widget under the pointer still owns the interaction and suppresses it at the loading boundary instead of allowing fallthrough to content behind it.
 - The loading overlay renders rich-js content or renderables (spinner / pulsing dots) with `Style` from TCSS and swallows all input while visible.
 
 ```css

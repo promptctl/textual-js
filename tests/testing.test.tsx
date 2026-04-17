@@ -9,6 +9,7 @@ import {
   WidgetHost,
   camelToSnake,
   runTest,
+  useTextual,
 } from "../src/index.js";
 
 function CounterApp(): React.JSX.Element {
@@ -45,6 +46,16 @@ function PilotTarget(): React.JSX.Element {
 }
 
 PilotTarget.displayName = "PilotTarget";
+
+function NotificationOnMount(props: { message: string }): null {
+  const framework = useTextual();
+
+  React.useLayoutEffect(() => {
+    framework.notify(props.message);
+  }, [framework, props.message]);
+
+  return null;
+}
 
 describe("testing harness", () => {
   it("exposes the app handle and presses multiple keys as discrete events", async () => {
@@ -175,6 +186,24 @@ describe("testing harness", () => {
 
     await expect(session.pilot.click({ offset: { x: -1, y: 0 } })).rejects.toBeInstanceOf(OutOfBounds);
     await expect(session.pilot.click({ offset: { x: session.framework.terminalSize.width, y: 0 } })).rejects.toBeInstanceOf(OutOfBounds);
+
+    session.unmount();
+  });
+
+  it("suppresses mount-time notifications by default", async () => {
+    const session = await runTest(<NotificationOnMount message="mount note" />);
+
+    expect(session.framework.notifications.length).toBe(0);
+
+    session.unmount();
+  });
+
+  it("allows mount-time notifications when transient notifications are enabled", async () => {
+    const session = await runTest(<NotificationOnMount message="mount note" />, {
+      transients: { notifications: true },
+    });
+
+    expect(session.framework.notifications.list().map((entry) => entry.message)).toEqual(["mount note"]);
 
     session.unmount();
   });

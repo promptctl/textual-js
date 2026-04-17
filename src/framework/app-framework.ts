@@ -838,8 +838,6 @@ export class TextualFramework {
     const candidates = widgets.filter(
       (widget) =>
         widget.isInteractive &&
-        !widget.isDisabledEffective &&
-        !widget.isLoadingEffective &&
         !widget.screenRegion.isEmpty &&
         widget.screenRegion.contains(screenX, screenY),
     );
@@ -915,7 +913,11 @@ export class TextualFramework {
   }
 
   notify(message: string, severity: NotificationSeverity = "information", timeout = Notification.timeout, title = ""): Notification {
-    return this.notifications.add(new Notification(message, { severity, timeout, title }));
+    const notification = new Notification(message, { severity, timeout, title });
+
+    // [LAW:single-enforcer] Notification recording is gated at this boundary so
+    // mount effects, widget helpers, and app calls all share the same transient policy.
+    return this.showNotifications ? this.notifications.add(notification) : notification;
   }
 
   dismissNotification(identity: string): void {

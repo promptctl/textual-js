@@ -42,8 +42,10 @@ interface RunTestOptions {
   size?: { width: number; height: number };   // Default: { width: 80, height: 24 }
   props?: Record<string, unknown>;              // Props to pass to AppComponent
   messageHook?: (message: Message) => void;     // Invoked for every dispatched message
-  disableNotifications?: boolean;               // Default: true
-  disableTooltips?: boolean;                    // Default: true
+  transients?: {
+    notifications?: boolean;                    // Default: false
+    tooltips?: boolean;                         // Default: false
+  };
   mockClipboard?: boolean;                      // Default: true
 }
 
@@ -66,7 +68,7 @@ When `mockClipboard` is true, cut/copy/paste use an in-memory clipboard that sto
 |-----------|-------------|
 | **Deterministic size** | Forces a fixed terminal size (default 80×24) so layout is reproducible |
 | **Headless rendering** | Uses ink-testing-library — no real terminal, no ANSI to stdout |
-| **Disabled transients** | Notifications and tooltips disabled by default so tests don't assert on timing-dependent UI |
+| **Disabled transients** | Notifications and tooltips are disabled before the first render by default so tests don't assert on timing-dependent UI or accumulate transient state from mount-time side effects |
 | **First-screen ready** | Waits for the first screen to be fully mounted (Compose + Mount dispatched) before yielding Pilot |
 | **Clean teardown** | On `unmount()`, shuts down the app and re-throws any captured exception so test frameworks see the original failure |
 | **Mocked clipboard** | Clipboard operations (cut/copy/paste) use an in-memory mock by default |
@@ -241,6 +243,14 @@ expect(messages.some(m => m instanceof Save.Requested)).toBe(true);
 ```
 
 This is the single, documented seam for observing messages during a test.
+
+## Transient UI Policy In Tests
+
+`runTest()` disables transient UI by default via `options.transients`, with both `notifications` and `tooltips` defaulting to `false`.
+
+- When `transients.tooltips` is `false`, hover may still update pointer pseudo-class state, but no tooltip overlay is scheduled or shown.
+- When `transients.notifications` is `false`, notifications raised during compose, mount, effects, actions, or workers do not accumulate in the app notification store and no toast UI is shown.
+- Transient suppression takes effect before the first render. A notification or tooltip emitted during initial mount must not leak into test state unless the corresponding transient opt-in is explicitly enabled.
 
 ## Awaitable Coordination Helpers
 
