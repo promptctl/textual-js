@@ -262,6 +262,23 @@ describe("Input restrict pattern", () => {
     expect(input.value).toBe("-3");
   });
 
+  it("accepts plus signs and underscore digit grouping for integers", () => {
+    const signed = new Input({ type: "integer" });
+
+    expect(signed.insert("+")).toBe(true);
+    expect(signed.insert("1")).toBe(true);
+    expect(signed.value).toBe("+1");
+
+    const grouped = new Input({ type: "integer" });
+
+    expect(grouped.insert("1")).toBe(true);
+    expect(grouped.insert("_")).toBe(true);
+    expect(grouped.insert("0")).toBe(true);
+    expect(grouped.insert("0")).toBe(true);
+    expect(grouped.insert("0")).toBe(true);
+    expect(grouped.value).toBe("1_000");
+  });
+
   it("supports number type with decimal points", () => {
     const input = new Input({ type: "number" });
 
@@ -273,11 +290,52 @@ describe("Input restrict pattern", () => {
     expect(input.insert(".")).toBe(false);
   });
 
+  it("accepts scientific notation and typing partials for number input", () => {
+    const exponent = new Input({ type: "number" });
+
+    expect(exponent.insert("1")).toBe(true);
+    expect(exponent.insert("e")).toBe(true);
+    expect(exponent.insert("+")).toBe(true);
+    expect(exponent.insert("3")).toBe(true);
+    expect(exponent.value).toBe("1e+3");
+
+    const partial = new Input({ type: "number" });
+
+    expect(partial.insert(".")).toBe(true);
+    expect(partial.value).toBe(".");
+
+    const trailingUnderscore = new Input({ type: "number" });
+
+    expect(trailingUnderscore.insert("1")).toBe(true);
+    expect(trailingUnderscore.insert("_")).toBe(true);
+    expect(trailingUnderscore.value).toBe("1_");
+  });
+
+  it("rejects bare e and non-finite number literals", () => {
+    const bareExponent = new Input({ type: "number" });
+    expect(bareExponent.insert("e")).toBe(false);
+
+    const infinite = new Input({ type: "number" });
+    expect(infinite.insert("inf")).toBe(false);
+
+    const nan = new Input({ type: "number" });
+    expect(nan.insert("nan")).toBe(false);
+  });
+
   it("supports custom restrict regex", () => {
     const input = new Input({ restrict: /^[a-z]*$/ });
 
     expect(input.insert("abc")).toBe(true);
     expect(input.insert("1")).toBe(false);
+    expect(input.value).toBe("abc");
+  });
+
+  it("treats custom restrict regex as a whole-value predicate even when stateful", () => {
+    const input = new Input({ restrict: /^[a-z]*$/g });
+
+    expect(input.insert("a")).toBe(true);
+    expect(input.insert("b")).toBe(true);
+    expect(input.insert("c")).toBe(true);
     expect(input.value).toBe("abc");
   });
 });

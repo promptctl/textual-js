@@ -332,6 +332,12 @@ Public methods: `insertTextAtCursor(text)`, `clear()`.
 
 Overrides `checkConsumeKey` to claim printable character keys — typing does not trigger ancestor bindings.
 
+Built-in input type semantics:
+- `type="text"` accepts all printable text; no built-in restrict pattern is applied.
+- `type="integer"` accepts an optional leading `+` or `-`, digits, and `_` as a visual separator between digits. Decimal points, exponent markers, alphabetic characters, and misplaced signs are rejected.
+- `type="number"` accepts decimal and scientific-notation input, including partial in-progress values needed while typing. Valid partials include a bare `+`, a bare `-`, a bare `.`, exponent forms in progress, and a trailing underscore after a numeric group. `inf`, `nan`, and a bare `e` are rejected.
+- Built-in and custom `restrict` rules are evaluated against the entire proposed value, not just the inserted character.
+
 ### `MaskedInput`
 
 Input with per-position character constraints.

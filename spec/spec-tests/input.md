@@ -106,7 +106,9 @@ The `Input` widget is a single-line text entry field supporting cursor movement,
 ### Built-in Types
 
 - `type="integer"` restricts input to integers: optional leading sign (`-` or `+`), digits, and underscores as visual separators. Decimal points, exponent notation, and alphabetic characters are rejected.
+- For `type="integer"`, accepted in-progress values include `"+"`, `"-"`, `"+1"`, `"-1"`, and underscore-separated digit groups such as `"1_000"`.
 - `type="number"` restricts input to numeric values including decimals and scientific notation (e.g. `"-000_123_456.78e01_234"`). A bare `+` or `-` sign, a bare `.`, and a trailing underscore (e.g. `"1_"`) are all accepted as valid partial (in-progress) entries. `inf`, `nan`, and bare `e` are rejected.
+- For `type="number"`, accepted in-progress values include exponent forms still being typed, such as `"1e"`, `"1e+"`, and `"1e-"`, in addition to completed values like `"1e3"` and `"1.5e-2"`.
 - `type="text"` applies no restriction; all printable characters are accepted.
 - An invalid type string raises `ValueError` on mount.
 
@@ -140,6 +142,7 @@ The `Input` widget is a single-line text entry field supporting cursor movement,
 - Word navigation boundaries are determined by whitespace and punctuation. Hyphens count as boundaries. In password mode, the entire value is treated as a single word for all word-based operations (movement and deletion).
 - `delete()` and `replace()` clamp out-of-range indices to the value length rather than raising.
 - `restrict` patterns are evaluated via `re.fullmatch` against the entire proposed value, not just the newly typed character.
+- Custom `restrict` patterns must behave as whole-value predicates even when the supplied regex object is stateful (for example, compiled with global/sticky flags in JavaScript terms); repeated keystrokes must not alternate between accept/reject because of matcher state.
 - `Selection` direction (forward vs reverse) does not affect the semantics of `selected_text` or `delete_selection()`.
 - An `Input` with `height: auto` still resolves to a content height of 1.
 - Mouse click positions account for a decoration offset (3 cells) and handle double-width characters by mapping either cell of a wide character to the same character index.
