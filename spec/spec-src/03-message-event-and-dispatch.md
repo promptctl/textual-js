@@ -152,9 +152,11 @@ Bubbling follows the widget registry parent chain, not the React component tree.
 
 ### Message signal broadcasting
 
-The framework maintains a single framework-wide `messageSignal` (a `Signal` as defined in spec 07) that publishes every processed message. The dispatch loop publishes to this signal in a `finally` block, so publication happens after each dispatch completes regardless of whether any handlers ran, whether the message was coalesced, or whether the message bubbled.
+**Known divergence — signal scope**: upstream Textual gives each MessagePump its own `message_signal` (per-pump), published in the finally block of that pump's dispatch loop. textual-js consolidates this into a single framework-wide `messageSignal` for the running app. This is a deliberate simplification: in the React/Ink model there is one dispatch pipeline, not per-widget pumps, so a single signal is the natural observation point.
 
-This is a framework-wide observation point intended for devtools, logging, and testing. The `messageHook` option on `runTest` is built on top of `messageSignal` — it is not a separate mechanism.
+**Known divergence — messageHook timing**: upstream invokes `message_hook` from a context variable *before* dispatch begins (it is a pre-dispatch observation point). In textual-js, `messageHook` is built on top of `messageSignal` and therefore fires *after* dispatch completes. Tooling or tests that depend on observing messages before handler execution will see different timing.
+
+The dispatch loop publishes to `messageSignal` in a `finally` block, so publication happens after each dispatch completes regardless of whether any handlers ran, whether the message was coalesced, or whether the message bubbled.
 
 ```ts
 messageSignal.subscribe((message: Message) => {

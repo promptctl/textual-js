@@ -162,7 +162,7 @@ Setting a selection with coordinates beyond the document bounds clamps them to v
 
 ### Line navigation
 
-- `home` / `ctrl+a` — smart home: first press goes to the first non-whitespace character, second press goes to column 0, third press returns to first non-whitespace.
+- `home` / `ctrl+a` — smart home (wrapping disabled only): first press goes to the first non-whitespace character, second press goes to column 0, third press returns to first non-whitespace. When soft wrapping is enabled, Home goes to the start of the current wrapped section instead (verified in original codebase).
 - `end` / `ctrl+e` — jump to end of line.
 
 ### Page navigation
@@ -315,6 +315,6 @@ When `tab_behavior` is `"indent"`, pressing `escape` shifts focus to the next fo
 - Redo stack is cleared whenever a new edit occurs after an undo.
 - Unknown languages raise `LanguageDoesNotExist`; unknown themes raise `ThemeDoesNotExist`.
 - Mouse clicks and selections clamp to document bounds.
-- Smart home toggles between first non-whitespace column and column 0.
+- Smart home toggles between first non-whitespace column and column 0. This behavior only applies when wrapping is disabled; with soft wrapping enabled, Home navigates to the start of the current wrapped section (verified in original codebase).
 - Vertical cursor movement preserves visual column alignment through double-width characters.
 - `CodeEditor` parameters are kept in sync with `TextArea.__init__` (enforced by meta-test); only `theme`, `soft_wrap`, `tab_behavior`, and `show_line_numbers` differ in defaults.

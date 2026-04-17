@@ -453,7 +453,8 @@ notify(contentValue);                                         // pre-built Conte
 - Adding a notification triggers a React re-render of the toast display area (the internal `ToastRack`, not a public widget).
 - Notifications expire based on their timeout. Expiry is managed by a framework timer (spec 07) that removes expired entries from the store. Expired entries are dropped on next store access if the timer did not run yet.
 - `clearNotifications()` removes all notifications.
-- `dismissNotification(id)` removes a single notification by ID.
+- `dismissNotification(id)` removes a single notification by ID. **Known divergence**: upstream only exposes `clear_notifications()` publicly; single-notification removal is private (`_unnotify`). textual-js promotes this to a public API for better ergonomics.
+- **Known divergence — units**: timeout values are in milliseconds (upstream uses seconds). This conforms to JS ecosystem conventions where timer APIs universally use ms.
 - Notifications added inside a `batchUpdate` batch accumulate; toast re-render happens when the batch flushes.
 
 ## Batch Updates

@@ -125,6 +125,10 @@ Worker descriptions may use markup or pre-built `Content` when displayed in rich
 
 Timers schedule repeated or one-shot actions against a widget.
 
+**Known divergence — units**: all timer durations are in milliseconds (upstream uses seconds). This conforms to JS ecosystem conventions where `setTimeout`/`setInterval` universally use ms.
+
+**Known divergence — API shape**: upstream returns `Timer` objects with `.pause()`/`.resume()` instance methods. textual-js uses a name-based API (`setTimer`/`setInterval`/`clearTimer`/`pauseTimer`/`resumeTimer`) exposed via `useTextual()`, with name-based replacement semantics (setting a timer with an existing name cancels the previous one). This is a deliberate API redesign for the hook-based React model, not a 1:1 port.
+
 ### Creating timers
 
 ```tsx
@@ -170,8 +174,8 @@ Timer cleanup on widget unmount is automatic via `useEffect` cleanup.
 
 | Method | Description |
 |--------|-------------|
-| `setTimer(name, delay, callback)` | One-shot timer |
-| `setInterval(name, interval, callback, options?)` | Repeating timer. Options: `skip` (default true), `repeat` (number of ticks, default unlimited) |
+| `setTimer(name, delay, callback)` | One-shot timer. Delay in ms. |
+| `setInterval(name, interval, callback, options?)` | Repeating timer. Interval in ms. Options: `skip` (default true), `repeat` (number of ticks, default unlimited) |
 | `clearTimer(name)` | Cancel a named timer |
 | `pauseTimer(name)` | Pause a named timer |
 | `resumeTimer(name)` | Resume a paused timer |
@@ -208,8 +212,11 @@ dataLoaded.publish({ items: [...] });
 | `callback` | Called when the signal publishes. |
 | `immediate` | If `true`, callback is invoked inline during `publish`. If `false` (default), deferred until the node finishes processing its current messages. |
 
-- Multiple callbacks per subscriber are supported and invoked in registration order.
-- `unsubscribe(node)` removes all callbacks for a given subscriber.
+- `subscribe()` returns an unsubscribe callback. This is the **primary cleanup contract** — callers return it from `useEffect` cleanup (as shown above) or call it directly when done. This matches standard JS/React resource-cleanup patterns.
+- **Behavioral invariant**: each `subscribe()` call returns a handle that removes *only that subscription*. Calling it has no effect on other subscriptions from the same node. Multiple callbacks per subscriber are supported and invoked in registration order.
+- `unsubscribe(node)` is a **secondary bulk-removal API** that removes *all* callbacks for a given subscriber at once. Use it for owner-scoped teardown (e.g., removing all subscriptions for a widget being unmounted). It is not the primary subscription cleanup mechanism.
+
+// [LAW:one-source-of-truth] The primary subscription cleanup shape is the returned unsubscribe callback. `unsubscribe(node)` exists as a bulk-removal convenience, not a co-equal alternative.
 
 ### Publish behavior
 

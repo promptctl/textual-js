@@ -22,6 +22,9 @@ Widget and app authors building search-like UIs (command palettes, filter boxes,
 4. Integration with the command palette: why the palette uses `Matcher` and what behavior users can expect.
 5. Performance: caching strategy and cache size tuning.
 
+## Known divergence — fuzzy matching engine
+Upstream Textual uses a custom Python fuzzy matcher with its own scoring heuristics. textual-js uses uFuzzy, a JS-native fuzzy search library. The scoring algorithms differ — matching behavior (which candidates match, relative ranking) will not be identical to upstream. This is a deliberate divergence: uFuzzy provides better JS ecosystem integration and performance characteristics. Tests should assert behavioral contracts (matches found, highlights applied, scores rank correctly) rather than expecting score-for-score parity with upstream.
+
 ## Key concepts
 - Score magnitude is informational, not a fixed scale; rank by comparing scores, not by thresholding an absolute number.
 - Direct substring hits are fast-pathed and get a meaningful bonus (exact vs. substring).

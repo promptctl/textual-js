@@ -58,7 +58,7 @@ interface TestHandle<T> {
 }
 ```
 
-When `mockClipboard` is true, cut/copy/paste use an in-memory clipboard that stores both plain-text and rich-js `Content` representations. Paste delivers whichever representation matches the consuming widget: plain text for `Input`/`TextArea`, rich content for widgets such as `RichLog`.
+When `mockClipboard` is true, cut/copy/paste use an in-memory clipboard that stores both plain-text and rich-js `Content` representations. Paste delivers whichever representation matches the consuming widget: plain text for `Input`/`TextArea`, rich content for widgets such as `RichLog`. **Intentional divergence**: this dual-representation clipboard is a deliberate textual-js design choice, not parity with upstream Textual (which only handles plain text clipboard). The richer clipboard enables copy/paste of styled content between framework widgets without round-tripping through plain text.
 
 ### Guarantees
 

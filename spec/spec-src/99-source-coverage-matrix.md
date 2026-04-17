@@ -151,9 +151,9 @@ The following `spec-tests/` files do not map to a specific phase in the current 
 | spec-tests File | Status | Reason |
 |----------------|--------|--------|
 | `auto_refresh.md` | Covered by `reactivity.md` (Phase 1) | MobX observer handles auto-refresh; no separate test needed |
-| `compositor.md` | **Not applicable** | No custom compositor — Ink handles rendering |
-| `driver.md` | **Not applicable** | No custom driver — Ink handles terminal I/O |
-| `xterm_parser.md` | **Not applicable** | Input parsing is Ink's responsibility |
+| `compositor.md` | **Behavioral — Ink-delegated** | Upstream Textual has a first-class Compositor subsystem. In textual-js, Ink handles compositing, but the behavioral contracts (paint order, layer stacking, visibility, clipping) remain conformance targets. Covered by `css_styles.md` (Phase 2) and layout tests (Phase 5). |
+| `driver.md` | **Behavioral — Ink-delegated** | Upstream Textual writes terminal output through a Driver subsystem. In textual-js, Ink is the driver, but the behavioral contracts (output encoding, suspend/resume, headless mode) remain conformance targets. Covered by `app.md` (Phase 1) for suspend/resume and headless testing. |
+| `xterm_parser.md` | **Behavioral — Ink-delegated** | Upstream Textual has a first-class xterm parser for input sequences. In textual-js, Ink handles input parsing, but the behavioral contracts (key event shape, mouse event shape, paste bracketing) remain conformance targets. Covered by `events.md` and `bindings_and_actions.md`. |
 | `file_monitor.md` | Covered by `workers.md` (Phase 4) | File watching is a worker pattern, not a separate subsystem |
 | `filters.md` | Covered by `dom.md` (Phase 2) | Query filter/exclude is part of DOMQuery |
 | `lazy.md` | Covered by `workers.md` + `tree.md` | Lazy loading is a worker pattern used by Tree |

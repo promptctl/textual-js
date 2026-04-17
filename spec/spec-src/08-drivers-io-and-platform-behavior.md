@@ -144,6 +144,12 @@ Ink supports two rendering modes:
 
 ## Suspend and Resume
 
+`suspend()` is an **app-level lifecycle primitive**, not a driver wrapper. The app owns the full suspend/resume orchestration — pausing timers, animations, and deferred UI work — while the driver (Ink) only provides the low-level "leave/re-enter terminal mode" capability. This is a deliberate separation: suspend coordination is enforced once at the app boundary, not split between app and driver.
+
+// [LAW:single-enforcer] Timer/animation pause and resume are owned by the app's suspend boundary. The driver's only responsibility is entering/exiting raw mode and alternate screen.
+
+// [LAW:one-source-of-truth] `suspend()` on the app context is the single public contract for suspend/resume. There is no separate driver-level suspend API exposed to widget authors.
+
 `suspend()` temporarily exits the app's terminal mode to allow external programs to use the terminal:
 
 ```tsx

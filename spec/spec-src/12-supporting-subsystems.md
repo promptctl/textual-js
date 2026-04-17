@@ -117,14 +117,15 @@ This matches spec 01's notification model. Notifications are rendered by the int
 | 3. Message | `Notify` message posted to the app event pipeline |
 | 4. Display | Toast display component (internal, not public) re-renders via `observer()` |
 | 5. Expire | Timer removes the notification from the store after `timeout` ms |
-| 6. Dismiss | `dismissNotification(id)` removes manually; `clearNotifications()` removes all |
+| 6. Dismiss | `dismissNotification(id)` removes manually; `clearNotifications()` removes all. **Known divergence**: upstream only exposes `clear_notifications()` publicly; `dismissNotification(id)` is a textual-js addition. |
 
 ### Expiry behavior
 
 - Notifications expire lazily — the collection reaps expired entries on access.
 - The remaining time is computed from `createdAt + timeout - Date.now()`.
 - Expired notifications are removed from the observable array, triggering a re-render of the toast display.
-- `timeout: 0` means the notification persists until manually dismissed.
+- `timeout: 0` means the notification persists until manually dismissed. **Known divergence**: upstream treats `time_left <= 0` as immediately expired; textual-js treats `timeout: 0` as "no auto-dismiss" for better developer ergonomics.
+- **Known divergence — units**: timeout values are in milliseconds (upstream uses seconds). This conforms to JS ecosystem conventions.
 
 ### Severity styling
 

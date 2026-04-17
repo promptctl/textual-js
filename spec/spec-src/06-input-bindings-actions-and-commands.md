@@ -339,7 +339,7 @@ interface DiscoveryHit {
 | Option | Default | Effect |
 |--------|---------|--------|
 | `runOnSelect` | `true` | When `true`, selecting a command immediately executes it and dismisses the palette. When `false`, selection only highlights the result; a separate confirmation step (pressing Enter again, or a second click) is required to execute. Useful for preview-then-confirm palettes. |
-| `noMatchesTimeout` | ~250ms | Delay before the "No matches found" entry appears after a query returns zero results (see below). |
+| `noMatchesTimeout` | ~250ms | Delay before the "No matches found" entry appears after a query returns zero results (see below). **Intentional divergence**: this timeout value is a textual-js UX choice; upstream Textual does not have this specific debounce behavior. |
 
 // [LAW:dataflow-not-control-flow] `runOnSelect` selects between two fixed dispatch paths — single-step or two-step — rather than branching in event handlers. The same "select" event fires either way; the option decides whether "execute" follows.
 

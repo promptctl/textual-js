@@ -77,7 +77,7 @@ App-level signals (MobX observables on the app store):
 - `Notification` model: unique ID, severity (information, warning, error), message text, timeout
 - `NotificationStore` (MobX store on app context): tracks active notifications
 - `notify(message, severity?, timeout?)` — available to any widget via context
-- `clearNotifications()` / `dismissNotification(id)`
+- `clearNotifications()` / `dismissNotification(id)` — **Known divergence**: `dismissNotification(id)` is a textual-js addition; upstream only exposes `clear_notifications()` publicly
 - Auto-dismiss via timer
 - Internal toast React component for display — not a public widget
 
