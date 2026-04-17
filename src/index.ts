@@ -2,6 +2,7 @@ export { TextualApp, type TextualAppProps } from "./app/index.js";
 export {
   Message,
   Blur,
+  Callback,
   Click,
   Compose,
   Focus,

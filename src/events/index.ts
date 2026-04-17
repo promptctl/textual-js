@@ -1,6 +1,7 @@
 export { Message, type MessageConstructor, type MessageInit } from "./message.js";
 export {
   Blur,
+  Callback,
   Click,
   Compose,
   Focus,

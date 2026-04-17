@@ -212,4 +212,50 @@ describe("message dispatch", () => {
     instance.unmount();
     instance.cleanup();
   });
+
+  it("stops remaining local handlers after preventDefault while still bubbling", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Parent"
+          handlers={{
+            onPing: () => {
+              received.push("parent");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Child"
+            handlers={{
+              onPing: (message) => {
+                received.push("child:first");
+                message.preventDefault();
+              },
+              on_ping: () => {
+                received.push("child:second");
+              },
+            }}
+          >
+            <Text>prevent-default</Text>
+          </WidgetHost>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const child = framework.registry.list().find((entry) => entry.typeName === "Child");
+    expect(child).toBeDefined();
+
+    framework.postMessage(child!.nodeId, new Ping());
+    await framework.whenIdle();
+
+    expect(received).toEqual(["child:first", "parent"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
 });

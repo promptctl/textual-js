@@ -115,6 +115,38 @@ describe("concurrency primitives", () => {
     instance.cleanup();
   });
 
+  it("routes callLater through the message queue and idle drain", async () => {
+    const framework = new TextualFramework();
+    const observed: string[] = [];
+    const unsubscribe = framework.subscribeToMessages((message) => {
+      observed.push(message.constructor.name);
+    });
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <Text>later</Text>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const order: string[] = [];
+    framework.callLater(() => {
+      order.push("later");
+    });
+
+    expect(framework.messageQueueSize).toBe(1);
+
+    await framework.whenIdle();
+
+    expect(order).toEqual(["later"]);
+    expect(observed).toContain("Callback");
+
+    unsubscribe();
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("allows reentrant locking and rejects over-release", async () => {
     const lock = new RLock();
 

@@ -12,6 +12,19 @@ export class Blur extends Message {}
 
 export class Idle extends Message {}
 
+export class Callback extends Message {
+  constructor(
+    private readonly callback: () => void,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+
+  invoke(): void {
+    this.callback();
+  }
+}
+
 export class ScreenResume extends Message {
   constructor(
     readonly screenName: string | null,

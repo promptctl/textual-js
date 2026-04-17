@@ -3,6 +3,7 @@ import { makeAutoObservable } from "mobx";
 
 import {
   Blur,
+  Callback,
   Click,
   Compose,
   Focus,
@@ -693,9 +694,11 @@ export class TextualFramework {
   }
 
   callLater<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    setTimeout(() => {
+    // [LAW:one-source-of-truth] Deferred later-callbacks enter through the
+    // message queue so shutdown, observability, and ordering all share one path.
+    this.emitBroadcast(new Callback(() => {
       callback(...args);
-    }, 0);
+    }));
   }
 
   callNext<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
@@ -1179,6 +1182,13 @@ export class TextualFramework {
         return;
       }
 
+      if (message instanceof Callback) {
+        // [LAW:single-enforcer] Callback execution is attached to queued
+        // message dispatch so deferred work follows the same lifecycle boundary.
+        message.invoke();
+        return;
+      }
+
       let currentNode = targetId === null ? targetNode : this.registry.get(targetId);
 
       if (currentNode === undefined) {
@@ -1197,6 +1207,12 @@ export class TextualFramework {
 
         for (const handler of matchingHandlers) {
           await handler(message);
+
+          // [LAW:single-enforcer] preventDefault semantics are enforced in the
+          // dispatcher so every handler path shares the same local short-circuit.
+          if (message.isDefaultPrevented) {
+            break;
+          }
         }
 
         if (message instanceof Key && !message.isPropagationStopped) {
