@@ -25,14 +25,109 @@ export interface InputSelection {
 
 export type InputType = "text" | "integer" | "number";
 
-const BUILTIN_RESTRICT: Record<InputType, RegExp | null> = {
-  text: null,
-  integer: /^-?\d*$/,
-  number: /^-?\d*\.?\d*$/,
+type RestrictRule = {
+  pattern: RegExp | null;
+  allows: (proposed: string) => boolean;
+};
+
+const BUILTIN_RESTRICT: Record<InputType, RestrictRule> = {
+  text: {
+    pattern: null,
+    allows: () => true,
+  },
+  integer: {
+    pattern: /^[+-]?\d(?:[\d_]*\d)?_?$|^[+-]?$/,
+    allows: isValidIntegerCandidate,
+  },
+  number: {
+    pattern: /^[+-]?(?:(?:\d(?:[\d_]*\d)?_?)(?:\.[\d_]*)?|\.[\d_]*)?(?:[eE][+-]?[\d_]*)?$/,
+    allows: isValidNumberCandidate,
+  },
 };
 
 function isValidInputType(value: string): value is InputType {
   return value in BUILTIN_RESTRICT;
+}
+
+function isValidIntegerCandidate(value: string): boolean {
+  if (value === "") {
+    return true;
+  }
+
+  if (!/^[+-]?[\d_]*$/.test(value)) {
+    return false;
+  }
+
+  const unsigned = value.replace(/^[+-]/, "");
+  return unsigned === "" || !unsigned.startsWith("_");
+}
+
+function isValidNumberCandidate(value: string): boolean {
+  if (value === "") {
+    return true;
+  }
+
+  if (/^(inf|nan)$/i.test(value)) {
+    return false;
+  }
+
+  const unsigned = value.replace(/^[+-]/, "");
+  const exponentIndex = unsigned.search(/[eE]/);
+  const hasExponent = exponentIndex >= 0;
+  const mantissa = hasExponent ? unsigned.slice(0, exponentIndex) : unsigned;
+  const exponent = hasExponent ? unsigned.slice(exponentIndex + 1) : null;
+
+  if (hasExponent && (mantissa === "" || !/\d/.test(mantissa))) {
+    return false;
+  }
+
+  return isValidMantissaCandidate(mantissa) && isValidExponentCandidate(exponent);
+}
+
+function isValidMantissaCandidate(value: string): boolean {
+  if (value === "") {
+    return true;
+  }
+
+  if (!/^[\d_.]*$/.test(value) || value.startsWith("_")) {
+    return false;
+  }
+
+  return value.split(".").length <= 2;
+}
+
+function isValidExponentCandidate(value: string | null): boolean {
+  if (value === null) {
+    return true;
+  }
+
+  if (!/^[+-]?[\d_]*$/.test(value)) {
+    return false;
+  }
+
+  const unsigned = value.replace(/^[+-]/, "");
+  return unsigned === "" || !unsigned.startsWith("_");
+}
+
+function normalizeWholeMatchPattern(pattern: string | RegExp): RegExp {
+  if (typeof pattern === "string") {
+    return new RegExp(`^(?:${pattern})$`);
+  }
+
+  const flags = pattern.flags.replace(/[gy]/g, "");
+  return new RegExp(pattern.source, flags);
+}
+
+function createCustomRestrictRule(pattern: string | RegExp): RestrictRule {
+  const normalizedPattern = normalizeWholeMatchPattern(pattern);
+
+  return {
+    pattern: normalizedPattern,
+    allows: (proposed) => {
+      normalizedPattern.lastIndex = 0;
+      return normalizedPattern.test(proposed);
+    },
+  };
 }
 
 // [LAW:single-enforcer] The Input model is the single enforcer of value
@@ -43,6 +138,7 @@ export class Input {
   private _cursorPosition: number;
   private _selection: InputSelection | null;
   private _restrict: RegExp | null;
+  private readonly _restrictRule: RestrictRule;
   private _maxLength: number | null;
   private _password: boolean;
   readonly type: InputType;
@@ -63,12 +159,11 @@ export class Input {
     this.type = typeName;
     this._password = options.password ?? false;
     this._maxLength = options.maxLength ?? null;
-    this._restrict =
+    this._restrictRule =
       options.restrict !== undefined && options.restrict !== null
-        ? typeof options.restrict === "string"
-          ? new RegExp(options.restrict)
-          : options.restrict
+        ? createCustomRestrictRule(options.restrict)
         : BUILTIN_RESTRICT[this.type];
+    this._restrict = this._restrictRule.pattern;
     this._value = "";
     this._cursorPosition = 0;
     this._selection = null;
@@ -344,11 +439,7 @@ export class Input {
   }
 
   private isAllowed(proposed: string): boolean {
-    if (this._restrict === null) {
-      return true;
-    }
-
-    return this._restrict.test(proposed);
+    return this._restrictRule.allows(proposed);
   }
 
   private findWordBoundaryLeft(position: number): number {
