@@ -2,10 +2,10 @@
 // It does not modify framework internals.
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
-import { Content, type ContentInput } from "../content/index.js";
+import { Content, renderContent, type ContentInput } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 
 export interface StaticWidgetProps {
@@ -36,7 +36,7 @@ export const StaticWidget = observer(function StaticWidget({
   return (
     <WidgetScope widget={widget.handle}>
       <Box {...styles.box}>
-        <Text {...styles.text}>{resolved.plain}</Text>
+        {renderContent(resolved, styles.text, `static:${widget.nodeId}`)}
       </Box>
     </WidgetScope>
   );

@@ -1,8 +1,9 @@
 import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
-import { Box, Text, useInput, useStdout } from "ink";
+import { Box, useInput, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
 import stringWidth from "string-width";
 
+import { renderContent } from "../content/index.js";
 import { TextualFramework, type ActiveTooltip, type KeymapInput } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
@@ -69,9 +70,7 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
       borderStyle="round"
       paddingX={1}
     >
-      {position.lines.map((line, index) => (
-        <Text key={`${tooltip.sourceNodeId}:${index}`}>{line}</Text>
-      ))}
+      {renderContent(tooltip.content, {}, `tooltip:${tooltip.sourceNodeId}`)}
     </Box>
   );
 });

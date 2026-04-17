@@ -6,4 +6,5 @@ export {
   type ContentTruncateOptions,
   type Span,
 } from "./content.js";
+export { renderContent } from "./render.js";
 export { Strip } from "./strip.js";

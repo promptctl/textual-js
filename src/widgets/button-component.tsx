@@ -2,10 +2,10 @@
 // message type (ButtonPressed) and its visual rendering.
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
-import { Content, type ContentInput } from "../content/index.js";
+import { Content, renderContent, type ContentInput } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 
@@ -77,7 +77,7 @@ export const ButtonWidget = observer(function ButtonWidget({
   return (
     <WidgetScope widget={widget.handle}>
       <Box {...styles.box}>
-        <Text {...styles.text}>{resolved.plain}</Text>
+        {renderContent(resolved, styles.text, `button:${widget.nodeId}`)}
       </Box>
     </WidgetScope>
   );
