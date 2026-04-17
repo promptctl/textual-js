@@ -1,4 +1,6 @@
-import { RichText, Segment, Style, renderMarkup } from "rich-js";
+import { Segment, Style } from "rich-js";
+
+import { Content } from "../content/index.js";
 
 export type BorderQuad = readonly [number, number, number, number];
 export type BorderRowGlyphs = readonly [string, string, string];
@@ -11,14 +13,8 @@ export interface RenderBorderLabelOptions {
 
 const combineQuadsCache = new Map<string, BorderQuad>();
 
-function normalizeBorderLabel(label: string | RichText | null | undefined): RichText {
-  const firstLine =
-    label instanceof RichText
-      ? label.split("\n")[0]?.copy() ?? new RichText("")
-      : renderMarkup((label ?? "").split(/\r\n|\n\r|\n|\r/, 1)[0] ?? "");
-
-  firstLine.end = "";
-  return firstLine;
+function normalizeBorderLabel(label: string | Content | null | undefined): Content {
+  return Content.fromText(label).firstLine;
 }
 
 export function renderBorderRow(
@@ -41,7 +37,7 @@ export function renderBorderRow(
 }
 
 export function renderBorderLabel(
-  label: string | RichText | null | undefined,
+  label: string | Content | null | undefined,
   width: number,
   options: RenderBorderLabelOptions = {},
 ): Segment[] {
@@ -53,18 +49,15 @@ export function renderBorderLabel(
   }
 
   const availableLabelWidth = Math.max(0, width - cornerWidth - 2);
-  const truncatedLabel = normalizedLabel.copy().truncate(availableLabelWidth, {
+  const truncatedLabel = normalizedLabel.truncate(availableLabelWidth, {
     overflow: "ellipsis",
   });
-  const paddedLabel = new RichText(" ", { end: "" });
-  paddedLabel.append(truncatedLabel);
-  paddedLabel.append(" ");
+  const paddedLabel = Content.assemble(" ", truncatedLabel, " ");
 
   // [LAW:dataflow-not-control-flow] Border label rendering always runs through
   // the same normalize -> truncate -> style pipeline. Empty output is data.
-  return [...Segment.applyStyle(paddedLabel.render({
-    maxWidth: paddedLabel.cellLength,
-  }), options.borderStyle)].filter((segment) => segment.text !== "\n");
+  return [...Segment.applyStyle(paddedLabel.toSegments(paddedLabel.cellLength), options.borderStyle)]
+    .filter((segment) => segment.text !== "\n");
 }
 
 export function combineBorderQuads(left: BorderQuad, right: BorderQuad): BorderQuad {

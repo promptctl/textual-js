@@ -1,7 +1,7 @@
-import { RichText, Style } from "rich-js";
+import { Style } from "rich-js";
 import { describe, expect, it } from "vitest";
 
-import { combineBorderQuads, renderBorderLabel, renderBorderRow } from "../src/index.js";
+import { Content, combineBorderQuads, renderBorderLabel, renderBorderRow } from "../src/index.js";
 
 describe("border helpers", () => {
   it("renders border rows for each corner combination", () => {
@@ -25,7 +25,7 @@ describe("border helpers", () => {
   it("omits empty labels, truncates long labels with an ellipsis, and caches quad composition", () => {
     expect(renderBorderLabel("[bold][/]", 10)).toEqual([]);
 
-    const truncated = renderBorderLabel(new RichText("hello world", { end: "" }), 7, {
+    const truncated = renderBorderLabel(new Content("hello world"), 7, {
       hasLeftCorner: true,
       hasRightCorner: true,
     });

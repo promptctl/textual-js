@@ -13,6 +13,7 @@ import { observer } from "mobx-react-lite";
 import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
+import type { Content } from "../content/index.js";
 import { TextualFramework } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { WidgetNode } from "./widget-node.js";
@@ -70,6 +71,7 @@ export interface UseWidgetOptions {
   defaultCss?: string;
   disabled?: boolean;
   loading?: boolean;
+  tooltip?: string | Content | null;
 }
 
 export interface UseWidgetResult {
@@ -116,6 +118,7 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       autoFocus: options.autoFocus ?? false,
       disabled: options.disabled ?? false,
       loading: options.loading ?? false,
+      tooltip: options.tooltip ?? null,
     }),
   );
   handlersRef.current = options.handlers;
@@ -154,6 +157,10 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
     }
   }, [options.loading]);
 
+  useEffect(() => {
+    widgetRef.current.setTooltip(options.tooltip ?? null);
+  }, [options.tooltip]);
+
   return {
     nodeId: widgetRef.current.nodeId,
     isFocused: framework.focusedNodeId === widgetRef.current.nodeId,
@@ -179,6 +186,7 @@ export interface WidgetHostProps extends PropsWithChildren {
   defaultCss?: string;
   disabled?: boolean;
   loading?: boolean;
+  tooltip?: string | Content | null;
 }
 
 function readAnsiSequenceEnd(output: string, startIndex: number): number {
@@ -274,6 +282,7 @@ export function WidgetHost({
   defaultCss,
   disabled,
   loading,
+  tooltip,
 }: WidgetHostProps): React.JSX.Element {
   const widget = useWidget({
     id,
@@ -287,6 +296,7 @@ export function WidgetHost({
     defaultCss,
     disabled,
     loading,
+    tooltip,
   });
 
   return <WidgetScope widget={widget.handle}>{children}</WidgetScope>;

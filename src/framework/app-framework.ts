@@ -1,5 +1,5 @@
 import React from "react";
-import { makeAutoObservable } from "mobx";
+import { makeAutoObservable, runInAction } from "mobx";
 
 import {
   AppBlur,
@@ -30,6 +30,7 @@ import {
   type Binding,
   type BindingDeclaration,
 } from "../bindings/index.js";
+import { Content } from "../content/index.js";
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationSeverity } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
@@ -143,6 +144,19 @@ export interface AppSignals {
   mode_change_signal: Signal<string>;
   screen_change_signal: Signal<string | null>;
   bindings_updated_signal: Signal<void>;
+}
+
+export interface PointerLocation {
+  x: number;
+  y: number;
+}
+
+export interface ActiveTooltip {
+  sourceNodeId: string;
+  content: Content;
+  x: number;
+  y: number;
+  visible: boolean;
 }
 
 export class ScreenStackError extends Error {}
@@ -262,11 +276,18 @@ export class TextualFramework {
   private appActions: WidgetActions | undefined = undefined;
   private keymap = new Map<string, string[]>();
   private appAutoFocus: string | null = null;
+  hoveredNodeId: string | null = null;
+  showNotifications = true;
+  showTooltips = true;
+  tooltipDelay = 500;
+  activeTooltip: ActiveTooltip | null = null;
   private isAppBlurred = false;
   private blurredFocusAddress: FocusAddress | null = null;
   private focusChangedWhileBlurred = false;
   private lastActionDispatchResult: ActionDispatchResult = "unhandled";
   private readonly bindingClashSignatures = new Map<string, string>();
+  private lastPointerLocation: PointerLocation | null = null;
+  private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
@@ -317,6 +338,7 @@ export class TextualFramework {
         appBindings: false,
         appActions: false,
         keymap: false,
+        tooltipTimer: false,
         lastActionDispatchResult: false,
         bindingClashSignatures: false,
         handleBindingsClash: false,
@@ -376,6 +398,25 @@ export class TextualFramework {
     }
   }
 
+  setTooltipDelay(delayMs: number | null | undefined): void {
+    this.tooltipDelay = delayMs ?? 500;
+  }
+
+  setShowTooltips(enabled: boolean | null | undefined): void {
+    this.showTooltips = enabled ?? true;
+
+    if (!this.showTooltips) {
+      this.hideTooltip();
+      return;
+    }
+
+    this.refreshTooltipFromHover();
+  }
+
+  setShowNotifications(enabled: boolean | null | undefined): void {
+    this.showNotifications = enabled ?? true;
+  }
+
   handleBindingsClash(_clashes: BindingClash[], _namespace: BindingNamespace): void {
     // Default no-op; apps may override to surface clashes.
   }
@@ -400,8 +441,12 @@ export class TextualFramework {
   shutdown(): void {
     this.queue.length = 0;
     this.focusedNodeId = null;
+    this.hoveredNodeId = null;
     this.workers.cancelAll();
     this.clearAllTimers();
+    this.clearTooltipTimer();
+    this.activeTooltip = null;
+    this.lastPointerLocation = null;
     this.isAppBlurred = false;
     this.blurredFocusAddress = null;
     this.focusChangedWhileBlurred = false;
@@ -472,6 +517,7 @@ export class TextualFramework {
   notifyWillUnmount(widget: WidgetNode): void {
     this.workers.cancelNode(widget.nodeId);
     this.clearNodeTimers(widget.nodeId);
+    this.handleWidgetWillUnmount(widget);
 
     void this.dispatchQueuedMessage({
       targetId: null,
@@ -483,6 +529,10 @@ export class TextualFramework {
   unregisterWidget(nodeId: string): void {
     if (this.focusedNodeId === nodeId) {
       this.focusedNodeId = null;
+    }
+
+    if (this.hoveredNodeId === nodeId) {
+      this.hoveredNodeId = null;
     }
 
     this.registry.deregister(nodeId);
@@ -610,6 +660,8 @@ export class TextualFramework {
     for (const rootWidget of this.registry.getChildren(null)) {
       visit(rootWidget, this.getGlobalStyleVariables());
     }
+
+    this.syncPointerStateAfterLayout();
   }
 
   get messageQueueSize(): number {
@@ -677,16 +729,64 @@ export class TextualFramework {
     this.postToFocused(new Click(x, y, chain));
   }
 
+  dispatchPointerClick(screenX: number, screenY: number, chain = 1): void {
+    const resolved = this.resolvePointerTarget(screenX, screenY);
+
+    if (resolved.targetNode !== undefined) {
+      this.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y, chain));
+      return;
+    }
+
+    this.postClick(screenX, screenY, chain);
+  }
+
   postMouseDown(x: number, y: number): void {
     this.postToFocused(new MouseDown(x, y));
+  }
+
+  dispatchPointerDown(screenX: number, screenY: number): void {
+    const resolved = this.resolvePointerTarget(screenX, screenY);
+
+    if (resolved.targetNode !== undefined) {
+      this.postMessage(resolved.targetNode.nodeId, new MouseDown(resolved.x, resolved.y));
+      return;
+    }
+
+    this.postMouseDown(screenX, screenY);
   }
 
   postMouseUp(x: number, y: number): void {
     this.postToFocused(new MouseUp(x, y));
   }
 
+  dispatchPointerUp(screenX: number, screenY: number): void {
+    const resolved = this.resolvePointerTarget(screenX, screenY);
+
+    if (resolved.targetNode !== undefined) {
+      this.postMessage(resolved.targetNode.nodeId, new MouseUp(resolved.x, resolved.y));
+      return;
+    }
+
+    this.postMouseUp(screenX, screenY);
+  }
+
   postMouseMove(x: number, y: number): void {
     this.postToFocused(new MouseMove(x, y));
+  }
+
+  dispatchPointerMove(screenX: number, screenY: number): void {
+    const pointer = { x: screenX, y: screenY };
+    const resolved = this.resolvePointerTarget(screenX, screenY);
+
+    this.lastPointerLocation = pointer;
+    this.updateHoveredNode(resolved.targetNode, pointer);
+
+    if (resolved.targetNode !== undefined) {
+      this.postMessage(resolved.targetNode.nodeId, new MouseMove(resolved.x, resolved.y));
+      return;
+    }
+
+    this.postMouseMove(screenX, screenY);
   }
 
   postResize(width: number, height: number): void {
@@ -731,6 +831,30 @@ export class TextualFramework {
     const selectors = parseSelectorList(trimmedSelector);
 
     return this.registry.list().filter((widget) => selectors.some((selector) => this.matchesSelector(widget, selector)));
+  }
+
+  hitTest(screenX: number, screenY: number): WidgetNode | undefined {
+    const widgets = this.registry.list();
+    const candidates = widgets.filter(
+      (widget) =>
+        widget.isInteractive &&
+        !widget.isDisabledEffective &&
+        !widget.isLoadingEffective &&
+        !widget.screenRegion.isEmpty &&
+        widget.screenRegion.contains(screenX, screenY),
+    );
+
+    return candidates
+      .sort((left, right) => {
+        const depthDifference = widgetDepth(left) - widgetDepth(right);
+
+        if (depthDifference !== 0) {
+          return depthDifference;
+        }
+
+        return widgets.indexOf(left) - widgets.indexOf(right);
+      })
+      .at(-1);
   }
 
   isNodeMounted(widget: WidgetNode): boolean {
@@ -844,6 +968,7 @@ export class TextualFramework {
     this.blurredFocusAddress = focused === undefined ? null : this.captureFocusAddress(focused);
     this.isAppBlurred = true;
     this.focusChangedWhileBlurred = false;
+    this.hideTooltip();
     this.emitBroadcast(new AppBlur());
     this.applyFocusChange(null, { markBlurOverride: false });
   }
@@ -889,6 +1014,174 @@ export class TextualFramework {
 
     for (const callback of callbacks) {
       callback();
+    }
+  }
+
+  handleWidgetTooltipChange(widget: WidgetNode): void {
+    if (this.hoveredNodeId !== widget.nodeId) {
+      return;
+    }
+
+    this.refreshTooltipFromHover();
+  }
+
+  private resolvePointerTarget(
+    screenX: number,
+    screenY: number,
+  ): { x: number; y: number; targetNode?: WidgetNode } {
+    const targetNode = this.hitTest(screenX, screenY);
+
+    if (targetNode === undefined) {
+      return { x: screenX, y: screenY };
+    }
+
+    return {
+      x: screenX - targetNode.screenRegion.x,
+      y: screenY - targetNode.screenRegion.y,
+      targetNode,
+    };
+  }
+
+  private updateHoveredNode(targetNode: WidgetNode | undefined, pointer: PointerLocation): void {
+    const nextHoveredNodeId = targetNode?.nodeId ?? null;
+    const hoveredChanged = this.hoveredNodeId !== nextHoveredNodeId;
+
+    this.lastPointerLocation = pointer;
+
+    if (hoveredChanged) {
+      this.hoveredNodeId = nextHoveredNodeId;
+      this.recalculateStyles();
+      this.hideTooltip();
+      this.refreshTooltipFromHover();
+      return;
+    }
+
+    if (this.activeTooltip?.sourceNodeId === nextHoveredNodeId) {
+      this.activeTooltip = {
+        ...this.activeTooltip,
+        x: pointer.x,
+        y: pointer.y,
+      };
+      return;
+    }
+
+    this.refreshTooltipFromHover();
+  }
+
+  private refreshTooltipFromHover(): void {
+    this.clearTooltipTimer();
+
+    if (!this.showTooltips) {
+      return;
+    }
+
+    if (this.hoveredNodeId === null || this.lastPointerLocation === null) {
+      return;
+    }
+
+    const hoveredWidget = this.registry.get(this.hoveredNodeId);
+    const content = hoveredWidget === undefined ? null : this.normalizeTooltipContent(hoveredWidget.tooltip);
+
+    if (hoveredWidget === undefined || content === null || content.plain.length === 0) {
+      return;
+    }
+
+    const pointer = this.lastPointerLocation;
+    this.tooltipTimer = setTimeout(() => {
+      const currentHovered = this.hoveredNodeId === null ? undefined : this.registry.get(this.hoveredNodeId);
+
+      if (currentHovered?.nodeId !== hoveredWidget.nodeId) {
+        return;
+      }
+
+      const currentContent = this.normalizeTooltipContent(currentHovered.tooltip);
+
+      if (currentContent === null || currentContent.plain.length === 0) {
+        return;
+      }
+
+      runInAction(() => {
+        this.activeTooltip = {
+          sourceNodeId: hoveredWidget.nodeId,
+          content: currentContent,
+          x: pointer.x,
+          y: pointer.y,
+          visible: true,
+        };
+        this.tooltipTimer = null;
+      });
+    }, this.tooltipDelay);
+  }
+
+  private normalizeTooltipContent(value: string | Content | null): Content | null {
+    if (value === null) {
+      return null;
+    }
+
+    const normalized = Content.fromText(value);
+    return normalized.plain.length === 0 ? null : normalized;
+  }
+
+  private hideTooltip(): void {
+    this.clearTooltipTimer();
+
+    if (this.activeTooltip !== null) {
+      this.activeTooltip = null;
+    }
+  }
+
+  private clearTooltipTimer(): void {
+    if (this.tooltipTimer !== null) {
+      clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = null;
+    }
+  }
+
+  private syncPointerStateAfterLayout(): void {
+    if (this.lastPointerLocation === null) {
+      this.hideTooltip();
+      return;
+    }
+
+    const hit = this.hitTest(this.lastPointerLocation.x, this.lastPointerLocation.y);
+    const nextHoveredNodeId = hit?.nodeId ?? null;
+
+    if (this.hoveredNodeId !== nextHoveredNodeId) {
+      this.hoveredNodeId = nextHoveredNodeId;
+      this.hideTooltip();
+      this.recalculateStyles();
+      return;
+    }
+
+    if (this.activeTooltip !== null) {
+      const source = this.registry.get(this.activeTooltip.sourceNodeId);
+
+      if (source === undefined || !source.isInteractive || hit?.nodeId !== source.nodeId) {
+        this.hideTooltip();
+      }
+    }
+  }
+
+  private handleWidgetWillUnmount(widget: WidgetNode): void {
+    if (this.hoveredNodeId === widget.nodeId) {
+      this.hoveredNodeId = null;
+      this.hideTooltip();
+    }
+
+    if (this.activeTooltip?.sourceNodeId === widget.nodeId) {
+      this.hideTooltip();
+    }
+  }
+
+  private clearPointerState(): void {
+    const hoveredChanged = this.hoveredNodeId !== null;
+
+    this.hoveredNodeId = null;
+    this.lastPointerLocation = null;
+    this.hideTooltip();
+
+    if (hoveredChanged) {
+      this.recalculateStyles();
     }
   }
 
@@ -976,6 +1269,7 @@ export class TextualFramework {
       throw new UnknownModeError(`Unknown mode "${name}"`);
     }
 
+    this.clearPointerState();
     this.suspendCurrentScreen();
 
     if (name !== DEFAULT_MODE && (this.modeStacks.get(name)?.length ?? 0) === 0) {
@@ -1033,6 +1327,7 @@ export class TextualFramework {
     const element = this.resolveScreenElement(descriptor, options.name);
     const entry = this.createScreenEntry(element, { ...options, callback });
 
+    this.clearPointerState();
     this.suspendCurrentScreen();
 
     const stack = this.modeStacks.get(this.activeMode) ?? [];
@@ -1063,6 +1358,7 @@ export class TextualFramework {
       throw new ScreenStackError(`Cannot pop the last screen`);
     }
 
+    this.clearPointerState();
     this.suspendCurrentScreen();
 
     const popped = stack.pop()!;
@@ -1096,6 +1392,7 @@ export class TextualFramework {
       return current;
     }
 
+    this.clearPointerState();
     this.suspendCurrentScreen();
 
     const entry = this.createScreenEntry(element, options);
@@ -2114,6 +2411,18 @@ function focusAddressesEqual(left: FocusAddress, right: FocusAddress): boolean {
     left.path.length === right.path.length &&
     left.path.every((segment, index) => segment === right.path[index])
   );
+}
+
+function widgetDepth(widget: WidgetNode): number {
+  let depth = 0;
+  let current = widget.parent;
+
+  while (current !== undefined) {
+    depth += 1;
+    current = current.parent;
+  }
+
+  return depth;
 }
 
 // Re-export select types imported solely for type context.

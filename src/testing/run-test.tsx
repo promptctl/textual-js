@@ -1,7 +1,6 @@
 import React from "react";
 import { render } from "ink-testing-library";
 
-import { Click, MouseDown, MouseMove, MouseUp } from "../events/events.js";
 import type { Message } from "../events/message.js";
 import { TextualApp } from "../app/textual-app.js";
 import { TextualFramework } from "../framework/app-framework.js";
@@ -15,6 +14,10 @@ export interface RunTestOptions {
   size?: { width: number; height: number };
   props?: Record<string, unknown>;
   messageHook?: (message: Message) => void;
+  transients?: {
+    tooltips?: boolean;
+    notifications?: boolean;
+  };
 }
 
 type AppInput = React.ReactElement | React.ComponentType<Record<string, unknown>>;
@@ -30,6 +33,8 @@ export interface PointerOptions {
 }
 
 interface ResolvedPointerTarget {
+  screenX: number;
+  screenY: number;
   x: number;
   y: number;
   targetNode?: WidgetNode;
@@ -165,27 +170,13 @@ export class Pilot {
     clickChain = 1,
   ): Promise<void> {
     if (kind === "down") {
-      if (resolved.targetNode !== undefined) {
-        this.framework.postMessage(resolved.targetNode.nodeId, new MouseDown(resolved.x, resolved.y));
-      } else {
-        this.framework.postMouseDown(resolved.x, resolved.y);
-      }
+      this.framework.dispatchPointerDown(resolved.screenX, resolved.screenY);
     } else if (kind === "up") {
-      if (resolved.targetNode !== undefined) {
-        this.framework.postMessage(resolved.targetNode.nodeId, new MouseUp(resolved.x, resolved.y));
-      } else {
-        this.framework.postMouseUp(resolved.x, resolved.y);
-      }
+      this.framework.dispatchPointerUp(resolved.screenX, resolved.screenY);
     } else if (kind === "move") {
-      if (resolved.targetNode !== undefined) {
-        this.framework.postMessage(resolved.targetNode.nodeId, new MouseMove(resolved.x, resolved.y));
-      } else {
-        this.framework.postMouseMove(resolved.x, resolved.y);
-      }
-    } else if (resolved.targetNode !== undefined) {
-      this.framework.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y, clickChain));
+      this.framework.dispatchPointerMove(resolved.screenX, resolved.screenY);
     } else {
-      this.framework.postClick(resolved.x, resolved.y, clickChain);
+      this.framework.dispatchPointerClick(resolved.screenX, resolved.screenY, clickChain);
     }
 
     await this.pause();
@@ -283,34 +274,18 @@ export class Pilot {
     absoluteX: number,
     absoluteY: number,
   ): ResolvedPointerTarget {
-    const targetNode = this.hitTest(absoluteX, absoluteY);
+    const targetNode = this.framework.hitTest(absoluteX, absoluteY);
     const localX = targetNode === undefined ? absoluteX : absoluteX - targetNode.screenRegion.x;
     const localY = targetNode === undefined ? absoluteY : absoluteY - targetNode.screenRegion.y;
 
     return {
+      screenX: absoluteX,
+      screenY: absoluteY,
       x: localX,
       y: localY,
       targetNode,
       hitIntendedTarget: intendedNode === undefined ? true : targetNode?.nodeId === intendedNode.nodeId,
     };
-  }
-
-  private hitTest(x: number, y: number): WidgetNode | undefined {
-    // [LAW:single-enforcer] Pointer targeting is resolved in one place so every
-    // Pilot mouse helper shares the same hit-testing and obscuration rules.
-    const candidates = this.framework.registry
-      .list()
-      .filter((widget: WidgetNode) => widget.isInteractive && !widget.screenRegion.isEmpty && widget.screenRegion.contains(x, y));
-
-    return candidates.sort((left, right) => {
-      const depthDifference = widgetDepth(left) - widgetDepth(right);
-
-      if (depthDifference !== 0) {
-        return depthDifference;
-      }
-
-      return this.framework.registry.list().indexOf(left) - this.framework.registry.list().indexOf(right);
-    }).at(-1);
   }
 }
 
@@ -341,18 +316,6 @@ function defaultPointerCoordinate(size: number): number {
   return size <= 0 ? 0 : Math.floor((size - 1) / 2);
 }
 
-function widgetDepth(widget: WidgetNode): number {
-  let depth = 0;
-  let current = widget.parent;
-
-  while (current !== undefined) {
-    depth += 1;
-    current = current.parent;
-  }
-
-  return depth;
-}
-
 export interface TestSession {
   app: TextualFramework;
   framework: TextualFramework;
@@ -369,10 +332,11 @@ export async function runTest(component: AppInput, options: RunTestOptions = {})
   const unsubscribeMessageHook =
     options.messageHook === undefined ? undefined : framework.subscribeToMessages(options.messageHook);
   const instance = render(
-    <TextualApp framework={framework}>
+    <TextualApp framework={framework} showTooltips={options.transients?.tooltips ?? false}>
       {resolveComponent(component, options.props ?? {})}
     </TextualApp>,
   );
+  framework.setShowNotifications(options.transients?.notifications ?? false);
 
   const size = options.size ?? { width: 80, height: 24 };
   framework.postResize(size.width, size.height);

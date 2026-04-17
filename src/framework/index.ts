@@ -1,9 +1,11 @@
 export {
+  type ActiveTooltip,
   ActiveModeError,
   type BindingClash,
   type BindingNamespace,
   InvalidModeError,
   type KeymapInput,
+  type PointerLocation,
   ScreenStackError,
   TextualFramework,
   UnknownModeError,

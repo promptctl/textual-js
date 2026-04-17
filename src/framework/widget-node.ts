@@ -1,6 +1,7 @@
 import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import type { Binding } from "../bindings/index.js";
+import type { Content } from "../content/index.js";
 import type { Message } from "../events/message.js";
 import { Region } from "../geometry/region.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
@@ -26,6 +27,7 @@ export interface WidgetNodeInit {
   autoFocus: boolean;
   disabled: boolean;
   loading: boolean;
+  tooltip: string | Content | null;
 }
 
 export class WidgetNode {
@@ -46,6 +48,7 @@ export class WidgetNode {
   screenRegion = Region.EMPTY;
   disabled: boolean;
   loading: boolean;
+  tooltip: string | Content | null;
 
   constructor(init: WidgetNodeInit) {
     this.framework = init.framework;
@@ -60,6 +63,7 @@ export class WidgetNode {
     this.autoFocus = init.autoFocus;
     this.disabled = init.disabled;
     this.loading = init.loading;
+    this.tooltip = init.tooltip;
 
     runInAction(() => {
       for (const className of init.classes) {
@@ -122,12 +126,25 @@ export class WidgetNode {
     this.framework.refreshStyles(true);
   }
 
+  setTooltip(value: string | Content | null): void {
+    if (this.tooltip === value) {
+      return;
+    }
+
+    this.tooltip = value;
+    this.framework.handleWidgetTooltipChange(this);
+  }
+
   get parent(): WidgetNode | undefined {
     return this.parentId === null ? undefined : this.framework.registry.get(this.parentId);
   }
 
   get isFocused(): boolean {
     return this.framework.focusedNodeId === this.nodeId;
+  }
+
+  get isHovered(): boolean {
+    return this.framework.hoveredNodeId === this.nodeId;
   }
 
   get display(): "block" | "none" {
@@ -340,6 +357,10 @@ export class WidgetNode {
 
         currentNode = currentNode.parent;
       }
+    }
+
+    if (name === "hover") {
+      return this.isHovered;
     }
 
     return this.pseudoClasses.get(name) ?? false;
