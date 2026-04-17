@@ -168,6 +168,29 @@ export class Region {
     );
   }
 
+  /**
+   * Compute the minimum scroll offset needed to bring `target` into view
+   * within this region (the viewport/window).
+   */
+  getScrollToVisible(target: Region): Offset {
+    // [LAW:dataflow-not-control-flow] Both axes always compute; the Offset
+    // carries zero on axes that are already visible.
+    const dx =
+      target.x < this.x
+        ? target.x - this.x
+        : target.right > this.right
+          ? target.right - this.right
+          : 0;
+    const dy =
+      target.y < this.y
+        ? target.y - this.y
+        : target.bottom > this.bottom
+          ? target.bottom - this.bottom
+          : 0;
+
+    return new Offset(dx, dy);
+  }
+
   withSize(size: Size): Region {
     return new Region(this.x, this.y, size.width, size.height);
   }

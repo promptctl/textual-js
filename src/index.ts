@@ -38,6 +38,15 @@ export {
 } from "./bindings/index.js";
 export { clamp, Offset, Region, Size, Spacing } from "./geometry/index.js";
 export {
+  Content,
+  Strip,
+  type ContentFromTextOptions,
+  type ContentInput,
+  type ContentPart,
+  type ContentTruncateOptions,
+  type Span,
+} from "./content/index.js";
+export {
   ActiveModeError,
   type BindingClash,
   type BindingNamespace,
@@ -145,6 +154,27 @@ export {
   type RenderBorderLabelOptions,
   type SelectorSpecificity,
 } from "./styles/index.js";
+export {
+  FunctionValidator,
+  IntegerValidator,
+  LengthValidator,
+  NumberValidator,
+  RegexValidator,
+  URLValidator,
+  ValidationResult,
+  Validator,
+  type ValidationFailure,
+} from "./validation/index.js";
+export { SuggestFromList, Suggester } from "./suggestions/index.js";
+export {
+  CommandPalette,
+  Provider,
+  type CommandHit,
+  type CommandPaletteOptions,
+  type DiscoveryHit,
+  type PaletteResult,
+  type ProviderContext,
+} from "./commands/index.js";
 export {
   OutOfBounds,
   Pilot,
