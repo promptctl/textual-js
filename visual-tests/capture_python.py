@@ -6,27 +6,20 @@ Runs each fixture app headlessly at a fixed terminal size, then saves:
   - An SVG screenshot (for visual comparison)
   - A plain-text grid (for automated text diff)
 
-Usage:
-    python capture_python.py [fixture_name]
+Must be run via uv from the visual-tests directory:
+    uv run python capture_python.py [fixture_name]
 
-    Without arguments, captures all fixtures.
-    With a fixture name, captures only that fixture.
-
-Output goes to visual-tests/snapshots/python/<fixture_name>.svg
-                                              <fixture_name>.txt
+uv resolves textual from pyproject.toml automatically.
 """
 
 import asyncio
 import importlib.util
-
-try:
-    import textual  # noqa: F401
-except ImportError:
-    print("ERROR: textual is not installed. Run: pip install textual")
-    raise SystemExit(1)
-
 import sys
 from pathlib import Path
+
+# Bare import — crashes immediately if textual is not available.
+# This is intentional. The harness must never silently skip the Python side.
+import textual  # noqa: F401
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "python"
@@ -66,17 +59,12 @@ async def capture_fixture(fixture_path: Path) -> None:
         svg_content = app.export_screenshot()
         svg_path.write_text(svg_content)
 
-        # Save plain text grid — strip ANSI and capture the visible text
-        # Use the app's console to render a text-only version
-        lines = []
-        for y in range(TERMINAL_HEIGHT):
-            row_segments = []
-            try:
-                strip = app.screen._compositor.render_line(y)
-                row_segments = [seg.text for seg in strip._segments]
-            except (IndexError, AttributeError):
-                pass
-            lines.append("".join(row_segments).rstrip())
+        # Save plain text grid — extract visible text from the compositor
+        strips = app.screen._compositor.render_strips()
+        lines = [
+            "".join(seg.text for seg in strip._segments).rstrip()
+            for strip in strips
+        ]
 
         # Remove trailing blank lines
         while lines and not lines[-1]:
@@ -101,10 +89,7 @@ async def main(fixture_filter: str | None = None) -> None:
     print(f"Capturing {len(fixtures)} Python Textual fixture(s)...\n")
 
     for fixture_path in fixtures:
-        try:
-            await capture_fixture(fixture_path)
-        except Exception as e:
-            print(f"  ERROR capturing {fixture_path.stem}: {e}")
+        await capture_fixture(fixture_path)
 
     print(f"\nDone. Snapshots in: {SNAPSHOTS_DIR.relative_to(Path(__file__).parent)}/")
 

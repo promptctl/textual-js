@@ -7,7 +7,7 @@ Compares the visual output of Python Textual and textual-js for the same widget 
 1. **Fixtures** — Each fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout.
 
 2. **Capture** — Two capture scripts render each fixture headlessly at a fixed terminal size (80x24) and save the output:
-   - Python: SVG screenshot + plain-text grid
+   - Python (via `uv`): SVG screenshot + plain-text grid
    - JS: ANSI frame + plain-text grid
 
 3. **Compare** — The comparison tool reads both plain-text grids and produces a cell-by-cell diff report with match percentages.
@@ -22,23 +22,26 @@ Compares the visual output of Python Textual and textual-js for the same widget 
 ./visual-tests/run.sh static_basic
 ```
 
+`uv` resolves Python and `textual` automatically from `visual-tests/pyproject.toml`. There is no manual `pip install` step. If `uv` or `tsx` is missing, the pipeline fails immediately with an actionable error.
+
 ## Manual Steps
 
 ```bash
-# Python only (requires: pip install textual)
-python3 visual-tests/capture_python.py
+# Python only (via uv — installs textual automatically)
+uv run --project visual-tests python visual-tests/capture_python.py
 
 # JS only
-npx tsx visual-tests/capture_js.ts
+tsx visual-tests/capture_js.ts
 
 # Compare
-npx tsx visual-tests/compare.ts
+tsx visual-tests/compare.ts
 ```
 
 ## Directory Structure
 
 ```
 visual-tests/
+  pyproject.toml         # Python deps (textual) — resolved by uv
   fixtures/              # Paired fixture files
     static_basic.py      # Python Textual version
     static_basic.tsx     # textual-js version
@@ -86,5 +89,6 @@ Differences are expected in this early stage — Python Textual uses custom bord
 
 ## Prerequisites
 
-- **Python**: 3.11+ with `textual` installed (`pip install textual`)
-- **Node**: 18+ with project dependencies installed (`npm install`)
+- **uv** — [Install](https://docs.astral.sh/uv/getting-started/installation/). Manages the Python environment and `textual` dependency automatically.
+- **tsx** — `npm install -g tsx`. Runs the TypeScript capture and compare scripts.
+- **Node 18+** with project dependencies (`npm install`).

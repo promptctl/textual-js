@@ -2,4 +2,6 @@ node_modules/
 dist/
 *.tsbuildinfo
 visual-tests/snapshots/
+visual-tests/.venv/
+visual-tests/uv.lock
 __pycache__/

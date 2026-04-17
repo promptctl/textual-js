@@ -1,0 +1,8 @@
+[project]
+name = "textual-js-visual-tests"
+version = "0.0.1"
+description = "Visual comparison harness: Python Textual vs textual-js"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=1.0.0",
+]
