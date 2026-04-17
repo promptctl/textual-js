@@ -14,7 +14,7 @@ Your first action is to run the command in Step 0.1. Begin now.
 
 ## STEP 0 — Inventory the codebase
 
-You have no context about this project. Do not assume you do. Execute the steps below in order. Do not write any code, do not read any phase file, and do not begin planning until every step is complete.
+You have no context about this project. Do not assume you do. Execute the steps below in order. Do not write any code and do not begin planning until every step is complete.
 
 Each step has the form: run a specific command, then read specific files. Use the Bash tool for the commands. Use the Read tool for the files. Read each file in full — do not pass an `offset` or `limit` parameter. Do not summarize files in your head as you go; just read them. Comprehension comes from having read everything, not from compressing each file into a sentence.
 
@@ -22,19 +22,32 @@ When you run a command, read its full output. If the output is truncated by the 
 
 If a command fails, stop and report it. Do not switch to a different tool to work around the failure. The procedure depends on these specific commands working: if `find src ...` fails because of a hook, environment, or permissions error, the correct response is to tell the user what failed and what needs fixing, not to substitute Glob and continue. A failed command and an empty result are different — check exit codes and stderr before assuming a command "returned nothing."
 
-### Step 0.1 — Read the source
+### Step 0.1 — Check for uncommitted work
+
+Run: `git status`
+
+Read the full output. If there are modified files (`M`), staged changes, or untracked files under `src/` or `tests/`, this is evidence of in-progress or completed-but-never-committed work from a prior session. Do not ignore it. Before starting any new work:
+
+1. Read each modified or untracked source/test file to understand what it contains.
+2. Run `npm run build`, `npm run lint`, and `npm test` to see whether the uncommitted work is in a passing state.
+3. If it passes: commit it with a descriptive message before proceeding. These are deliverables, not drafts — treat them as your responsibility.
+4. If it fails: investigate and fix the failures, then commit. Do not start new work on top of a broken uncommitted state.
+
+Only proceed to Step 0.2 once the working tree is clean (no uncommitted changes under `src/` or `tests/`).
+
+### Step 0.2 — Read the source
 
 Run: `find src -type f \( -name "*.ts" -o -name "*.tsx" \) | sort`
 
 The output is a list of file paths. Read every path in that list with the Read tool. If the list has 30 paths, you make 30 Read calls. Do not skip any path. Do not assume you can guess what an `index.ts` contains.
 
-### Step 0.2 — Read the tests
+### Step 0.3 — Read the tests
 
 Run: `find tests -type f \( -name "*.ts" -o -name "*.tsx" \) | sort`
 
 Read every path in the output with the Read tool. Tests are the authoritative description of what behavior is currently guaranteed. A behavior with no test is not guaranteed, regardless of what any document says.
 
-### Step 0.3 — Read the project metadata
+### Step 0.4 — Read the project metadata
 
 Use the Read tool on each of these files:
 - `README.md`
@@ -42,7 +55,7 @@ Use the Read tool on each of these files:
 - `package.json`
 - `tsconfig.json`
 
-### Step 0.4 — Read the implementation plan
+### Step 0.5 — Read the implementation plan
 
 Run: `find spec/impl -type f -name "*.md" | sort`
 
@@ -50,19 +63,19 @@ Read every path in the output with the Read tool. This includes `INDEX.md`, `IMP
 
 `INDEX.md` contains a Conformance Tracker section. Read it for context only. Do not modify it. If anything in the tracker contradicts what you find in the code or tests, the code and tests are correct.
 
-### Step 0.5 — Read the architectural specifications
+### Step 0.6 — Read the architectural specifications
 
 Run: `find spec/spec-src -type f -name "*.md" | sort`
 
 Read every path in the output with the Read tool. These define the behavior the project is targeting.
 
-### Step 0.6 — Read the test backlog
+### Step 0.7 — Read the test backlog
 
 Run: `find spec/spec-tests -type f -name "*.md" | sort`
 
 Read every path in the output with the Read tool. These are the test cases organized by feature area.
 
-### Step 0.7 — Verify the current build state
+### Step 0.8 — Verify the current build state
 
 Run each of these commands. Read the full output of each:
 - `npm run build`
@@ -71,9 +84,9 @@ Run each of these commands. Read the full output of each:
 
 If any of these fail, the codebase is in a broken state. Do not start new work on a broken codebase. Investigate the failures first.
 
-### Step 0.8 — Confirm completion
+### Step 0.9 — Confirm completion
 
-Step 0 is complete when you have made every Read tool call and every Bash command call listed in steps 0.1 through 0.7. If at any point you proceeded without completing a step, stop now and complete the missing step before continuing.
+Step 0 is complete when you have made every Read tool call and every Bash command call listed in steps 0.1 through 0.8. If at any point you proceeded without completing a step, stop now and complete the missing step before continuing.
 
 ## STEP 1 — Identify the next phase to implement
 
@@ -81,15 +94,21 @@ You now have full knowledge of the codebase from Step 0. Use it to determine whi
 
 ### Step 1.1 — Determine the active stage
 
-The authoritative execution order is in `spec/impl/IMPLEMENTATION_ORDER.md`, which defines stages 0 through 11. Each stage lists the spec-tests files it must produce passing tests for.
+The authoritative execution order is in `spec/impl/IMPLEMENTATION_ORDER.md`, which defines stages 0 through 11. Each stage lists the spec-tests files it must produce passing tests for, along with explicit behavioral requirements for any spec-tests file that is shared across stages.
 
 Walk the stages in numeric order, starting from Stage 0. For each stage:
-- Look at the spec-tests files listed for that stage.
-- For each spec-tests file, check whether a corresponding test file exists under `tests/` and passes when you ran `npm test` in step 0.8.
-- If every spec-tests file for the stage has a corresponding passing test file, the stage is complete. Move to the next stage.
-- If any spec-tests file for the stage has no corresponding passing test file, that stage is the active stage. Stop walking.
 
-The first stage with missing or failing tests is the active stage. Do not skip ahead to a later stage even if it looks easier.
+1. Look at the spec-tests files listed for that stage. Where a stage lists specific behavioral requirements (sections, bullets, or descriptions) from a shared spec-tests file, only those requirements apply to that stage — not the entire file.
+
+2. For each spec-tests file (or subset of requirements), **read the spec-tests file** and identify the individual behaviors it describes.
+
+3. For each behavior, check whether a test in `tests/` actually exercises that behavior — not just whether a file with a similar name exists. A test file with 3 tests for a spec-tests file describing 30 behaviors does not satisfy the stage.
+
+4. A stage is complete only when **every behavior** required by that stage has a corresponding passing test. File existence is necessary but not sufficient.
+
+5. If any required behavior lacks a test, that stage is the active stage. Stop walking.
+
+The first stage with missing behavioral coverage is the active stage. Do not skip ahead to a later stage even if it looks easier.
 
 ### Step 1.2 — Map the active stage to a phase file
 
@@ -98,6 +117,8 @@ The first stage with missing or failing tests is the active stage. Do not skip a
 ### Step 1.3 — Read the phase file
 
 Read the `phase-NN-*.md` file identified in step 1.2 in full. Use it as the source of scope, spec references, and exit criteria for the active stage. If the phase file describes work from later stages too, ignore that work — you are implementing only the active stage.
+
+When IMPLEMENTATION_ORDER.md and the phase file disagree on scope, IMPLEMENTATION_ORDER.md wins for which spec-tests behaviors belong to which stage. The phase file wins for architectural guidance and implementation patterns.
 
 ### Step 1.4 — Read the spec references
 
@@ -109,7 +130,7 @@ Read every `spec/spec-tests/*.md` file listed for the active stage that you have
 
 1. Write code and tests for the active stage only. Do not pull work from later stages forward.
 
-2. Tests are first-class deliverables. Every behavior you implement gets a test. Use the spec-tests files as your test case source.
+2. Tests are first-class deliverables. Every behavior you implement gets a test. Use the spec-tests files as your test case source. For each behavior described in the spec-tests file, write a test that exercises it. Do not write a test file that covers only the easy cases and declares victory.
 
 3. Keep it simple. Do not add features, abstractions, or error handling beyond what the phase file asks for. Do not refactor surrounding code. Do not add comments to code you did not write.
 
@@ -226,6 +247,7 @@ Run each of these and confirm the result before reporting completion:
 2. `npm run lint` — must pass.
 3. `npm test` — must pass. All suites, including those from prior stages.
 4. Walk through every exit criterion in the phase file that corresponds to the active stage. For each one, run the specific check the criterion describes. Do not declare a criterion satisfied unless you have run its check and seen it pass.
+5. Retroactive check: re-verify that every behavior required by the active stage's spec-tests files has a passing test. If you find a gap you missed during implementation, fill it now.
 
 ## Files you must not modify
 
@@ -241,4 +263,3 @@ The authoritative ledger of what exists in this project is: the code under `src/
 - `spec/impl/` — phase plan files (your instructions)
 - `spec/spec-src/` — behavioral specifications (numbered 00–14)
 - `spec/spec-tests/` — test case specifications (your test backlog)
-```
