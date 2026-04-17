@@ -182,7 +182,7 @@ In Python Textual, `compose()` yields child widgets. In textual-js, widget compo
 4. Initial mode is resolved (`DEFAULT_MODE` or first entry in `MODES`). The mode's base screen component is rendered.
 5. `Compose` then `Mount` messages are dispatched to each widget after React's `useEffect` fires (post-mount).
 6. TCSS stylesheet is applied to all mounted widgets — cascade resolves styles, MobX observables update, `observer()` triggers initial renders with correct styles.
-7. Reactive properties with `init: true` fire their watchers with `(undefined, currentValue)`.
+7. Reactive properties with `init: true` fire their watchers with `(currentValue, currentValue)` — the default is stored first, so both old and new equal the default (verified in original codebase).
 8. App is marked as running. `Idle` messages begin dispatching.
 
 // [LAW:dataflow-not-control-flow] The startup sequence is fixed. Every run executes: context init → CSS parse → theme init → mode resolve → screen mount → Compose → Mount → stylesheet apply → reactive init → running. Variation comes from data (CSS sources, composed widgets), not from skipping steps.

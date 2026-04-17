@@ -6,7 +6,7 @@ Textual provides a reactivity system for declaring attributes that automatically
 
 ### `reactive` and `var`
 
-Reactive attributes are declared as class-level descriptors using `reactive()` or `var()`. Both accept a default value (or a callable that returns one). The key difference is that `var` defaults to `init=True` (the watcher fires on initialization) while `reactive` defaults to `init=False` (the watcher does not fire until the value is explicitly set).
+Reactive attributes are declared as class-level descriptors using `reactive()` or `var()`. Both accept a default value (or a callable that returns one). Both `reactive` and `var` default to `init=True` (the watcher fires on initialization). `var` is a convenience alias for `reactive` with `init=True` explicitly set; since `reactive` also defaults to `init=True`, they behave identically in this regard (verified in original codebase).
 
 A callable default is invoked to produce the initial value:
 
@@ -45,7 +45,7 @@ class MyApp(App):
 
 ### Assignments Made Before the Message Pump is Ready
 
-If a reactive attribute is assigned inside `__init__` before `super().__init__()` has set up the message pump, the assignment is accepted and stored. Watchers are not invoked at that point but will fire once the widget is mounted and the framework processes pending reactions.
+If a reactive attribute is assigned inside `__init__` before `super().__init__()` has set up the message pump, the assignment fails immediately — the reactive descriptor's `_set()` raises because the widget has no `_id` yet. This is fail-fast behavior, not deferred acceptance (verified in original codebase). To set initial values silently before mount, use `set_reactive()` after `super().__init__()`.
 
 ### `mutate_reactive`
 

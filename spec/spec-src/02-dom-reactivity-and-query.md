@@ -176,7 +176,7 @@ Each reactive property is configured with flags:
 |------|---------|--------|
 | `layout` | `false` | Changing this property triggers a layout refresh (Ink re-measures) |
 | `repaint` | `true` | Changing this property triggers a re-render |
-| `init` | `true` | Fire watchers on mount with `(undefined, currentValue)` |
+| `init` | `true` | Fire watchers on mount with `(currentValue, currentValue)` — default is stored first (verified in original codebase) |
 | `alwaysUpdate` | `false` | Fire watchers even when new value === old value |
 | `bindings` | `false` | Refresh the binding chain when this property changes |
 | `toggleClass` | `null` | CSS class name to toggle based on the value's truthiness |
@@ -199,7 +199,7 @@ The reactivity pipeline is type-agnostic — validators, watchers, and computes 
 
 Default values are resolved in order:
 
-1. **Callback initializer** — if the default is a function that accepts the owning widget, it is called with the widget reference.
+1. **`Initialize` wrapper** — if the default is wrapped in an explicit `Initialize(...)` wrapper, the wrapped callable is called with the owning widget reference. Only this explicit wrapper triggers owner-aware initialization; a plain function that happens to accept a parameter is not called with the widget (verified in original codebase).
 2. **Any other callable** — called with no arguments.
 3. **Literal** — used as-is.
 
@@ -258,7 +258,7 @@ When a widget mounts:
 
 1. Default values are materialized for every declared reactive property.
 2. `compute_<name>` properties compute their initial values.
-3. For every reactive with `init: true`, watchers fire with `(undefined, currentValue)`.
+3. For every reactive with `init: true`, watchers fire with `(currentValue, currentValue)` — the default is stored first, then watchers are invoked with old and new both equal to the default (verified in original codebase).
 4. `toggleClass` fires for each reactive with a `toggleClass` flag, applying the initial class state.
 
 This happens inside a MobX action, so all the observable mutations and reactions batch into a single render cycle.

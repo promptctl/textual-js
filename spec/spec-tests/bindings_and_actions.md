@@ -78,10 +78,10 @@ Bindings propagate through the widget hierarchy: focused widget, then parent wid
 The `check_action` method on any DOM node controls whether a binding is active at runtime. It receives the action name and its parameters and returns:
 
 - `True`: the binding is enabled and shown in the footer.
-- `False`: the binding is disabled and hidden from the footer. The key press is consumed (not bubbled).
-- `None`: the binding is disabled and hidden. The key press is consumed.
+- `False`: the binding is disabled and **hidden** from the footer. The key press is consumed (not bubbled).
+- `None`: the binding is **disabled but visible** — shown grayed out in the footer. The key press is consumed.
 
-Both `False` and `None` prevent the action from executing and prevent the key from bubbling further. This enables contextual enabling/disabling of bindings without modifying the `BINDINGS` list.
+Both `False` and `None` prevent the action from executing and prevent the key from bubbling further. The difference is visibility: `False` hides the binding entirely, while `None` keeps it visible in a disabled/grayed-out state (verified in original codebase). This enables contextual enabling/disabling of bindings without modifying the `BINDINGS` list.
 
 ---
 
@@ -138,7 +138,7 @@ The `ctrl+p` hard-coded binding opens the command palette. Apps can extend the c
 - Binding tuples must have exactly 2 or 3 elements; otherwise `BindingError` is raised.
 - Action strings must be syntactically valid Python-like expressions; malformed strings raise `ActionError`.
 - `NoBinding` is raised when looking up a key that has no binding in a `BindingsMap`.
-- `check_action` returning `False` or `None` both suppress the action and consume the key press.
+- `check_action` returning `False` or `None` both suppress the action and consume the key press. `False` hides the binding; `None` keeps it visible but grayed out (verified in original codebase).
 - `SkipAction` only affects the current node's handling; the framework continues searching the hierarchy.
 - Keymap entries with unrecognized binding IDs are silently ignored.
 - `set_keymap` always emits `bindings_updated_signal`, even when called with the same keymap values.

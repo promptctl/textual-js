@@ -51,7 +51,7 @@ The `css` property on `Styles` serializes set rules to a CSS string. Properties 
 
 ### Initial Values
 
-The `initial` keyword resets a property to its default value, ignoring any inherited or previously set value from parent widget DEFAULT_CSS.
+The `initial` keyword resets a property through a property-sensitive fallback chain: user-stylesheet `initial` falls back to the highest-specificity default-stylesheet value for that property; default-stylesheet `initial` falls back to the built-in default. This is not a simple "ignore everything" reset — it respects the DEFAULT_CSS chain before reaching built-in defaults (verified in original codebase).
 
 - **Background default**: `rgba(0,0,0,0)` (fully transparent black). Setting `background: initial` on a subclass that inherited `background: red` restores the transparent default.
 - **Color with `initial`**: When a widget hierarchy defines `color` at multiple levels, `initial` resets to the value from the widget's own DEFAULT_CSS chain. If `Base` sets `color: magenta` in DEFAULT_CSS, and app CSS sets `CustomWidget2 { color: initial; }`, the resolved color is `magenta` (from the DEFAULT_CSS of the base class), not some global default. A sibling `CustomWidget3` with `color: blue` gets blue.

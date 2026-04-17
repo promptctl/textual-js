@@ -146,7 +146,7 @@ Executed when the `TextualApp` component mounts (inside a `useEffect` with empty
 4. **Resolve initial mode**: look up `DEFAULT_MODE` in `MODES`. Mount the mode's base screen component.
 5. **Dispatch lifecycle messages**: post `Compose` then `Mount` to the app and each widget in the tree. These messages fire after React's initial render (`useEffect` timing).
 6. **Apply TCSS stylesheet**: cascade resolves styles for all mounted widgets. Each widget's `ResolvedStyles` MobX observable is populated (Ink props + rich-js `Style`). `observer()` triggers re-renders with correct styles.
-7. **Initialize reactive properties**: fire `init` watchers where `init: true` (the default) with `(undefined, currentValue)`.
+7. **Initialize reactive properties**: fire `init` watchers where `init: true` (the default) with `(currentValue, currentValue)` — default is stored first, so both arguments equal the default (verified in original codebase).
 8. **Resolve auto-focus**: if `AUTO_FOCUS` is set, query the widget registry for a matching widget and set focus.
 9. **Mark running**: set `isRunning = true`. Begin dispatching `Idle` messages on a timer.
 

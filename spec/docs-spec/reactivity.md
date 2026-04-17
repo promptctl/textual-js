@@ -42,7 +42,7 @@ Widget authors and application authors who want widget state to trigger UI updat
 ## Behaviors and contracts
 - Setting a reactive to an equal value is a no-op unless `alwaysUpdate: true` (no watcher, no refresh).
 - `layout: true` implies `repaint: true` (layout changes always require a repaint).
-- `init: true` on `reactive()` and `var()` calls the watcher during mount with the initial value; the base Reactive defaults to `init: false`.
+- Both `reactive()` and `var()` default to `init: true`, calling the watcher during mount with the initial value (verified in original codebase).
 - Multiple reactive writes within one message-loop iteration coalesce into a single refresh.
 - Computed reactives throw when assigned — they are read-only.
 - Execution order on reactive set: private validator, public validator, store, then (on next iteration) private watcher, public watcher.

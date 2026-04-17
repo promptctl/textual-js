@@ -139,7 +139,7 @@ Replace `src/reactive.ts` with MobX-backed reactivity:
 - `observe()` for `watch_<name>` convention: fires after value changes with old/new
 - `computed` for `compute_<name>` convention: automatic dependency tracking
 - `observable` with `equals: () => false` for `always_update`
-- `init` dispatch: on mount, fire watchers with `(undefined, currentValue)` when `init: true` (the default)
+- `init` dispatch: on mount, fire watchers with `(currentValue, currentValue)` when `init: true` (the default) — default is stored first, so both old and new equal the default (verified in original codebase)
 - Watcher ordering: convention-based (`watch_<name>`) fires before explicit registrations
 - Refresh integration: `observer()` from mobx-react-lite handles React re-renders automatically — no manual `refresh()` needed
 

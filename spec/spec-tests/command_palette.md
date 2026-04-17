@@ -40,8 +40,8 @@ A provider may implement a `discover()` async generator method that yields `Disc
 
 ### Search and Result Display
 
-- On open, the result list (`CommandList`) is hidden until the user types a query.
-- Typing a character triggers a search across all providers. Results appear in the `CommandList`, and the first item is highlighted (index 0).
+- On open, the result list (`CommandList`) visibility depends on discovery: if providers yielded discovery hits, the list is immediately visible showing those hits (consistent with the Discovery Results on Open section above). If there are no discovery hits, the list stays hidden until the user types a query (verified in original codebase).
+- Typing a character triggers a search across all providers. Results appear in the `CommandList`, and the first item is highlighted (index 0). If a typed query produces no matches, a "No matches found" indicator is shown.
 - Pressing `down` advances the highlight to the next item.
 - Pressing `enter` on a highlighted item selects it: the palette dismisses and the hit's callable is invoked.
 
