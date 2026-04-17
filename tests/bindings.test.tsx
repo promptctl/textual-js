@@ -56,6 +56,10 @@ describe("action parsing", () => {
   it("rejects malformed action strings", () => {
     expect(() => parseAction("foo(")).toThrow(ActionError);
     expect(() => parseAction("foo(1")).toThrow(ActionError);
+    expect(() => parseAction("foo(1,)")).toThrow(ActionError);
+    expect(() => parseAction("foo(1 2)")).toThrow(ActionError);
+    expect(() => parseAction("foo([1,])")).toThrow(ActionError);
+    expect(() => parseAction("foo((1,))")).toThrow(ActionError);
     expect(() => parseAction("1bad.name")).toThrow(ActionError);
     expect(() => parseAction("bogus.name")).toThrow(ActionError);
   });
@@ -220,6 +224,47 @@ describe("binding dispatch", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("routes binding dispatch through runAction", async () => {
+    const seenActions: string[] = [];
+    const prototype = TextualFramework.prototype as TextualFramework;
+    const originalRunAction = prototype.runAction;
+    prototype.runAction = function (action, defaultTarget) {
+      seenActions.push(action);
+      return originalRunAction.call(this, action, defaultTarget);
+    };
+
+    try {
+      const framework = new TextualFramework();
+      const instance = render(
+        <TextualApp framework={framework}>
+          <WidgetHost
+            typeName="Leaf"
+            focusable
+            autoFocus
+            bindings={[{ key: "f4", action: "save" }]}
+            actions={{
+              action_save: () => undefined,
+            }}
+          >
+            <Text>leaf</Text>
+          </WidgetHost>
+        </TextualApp>,
+      );
+
+      await framework.whenIdle();
+
+      framework.postKey("f4");
+      await framework.whenIdle();
+
+      expect(seenActions).toContain("save");
+
+      instance.unmount();
+      instance.cleanup();
+    } finally {
+      prototype.runAction = originalRunAction;
+    }
   });
 
   it("consumes disabled bindings instead of bubbling past them", async () => {

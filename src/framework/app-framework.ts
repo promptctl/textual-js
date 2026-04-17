@@ -235,6 +235,7 @@ export class TextualFramework {
   private isAppBlurred = false;
   private blurredFocusAddress: FocusAddress | null = null;
   private focusChangedWhileBlurred = false;
+  private lastActionDispatchResult: ActionDispatchResult = "unhandled";
   private readonly bindingClashSignatures = new Map<string, string>();
   readonly signals: AppSignals;
   screenStackVersion = 0;
@@ -286,6 +287,7 @@ export class TextualFramework {
         appBindings: false,
         appActions: false,
         keymap: false,
+        lastActionDispatchResult: false,
         bindingClashSignatures: false,
         handleBindingsClash: false,
       } as never,
@@ -1067,7 +1069,45 @@ export class TextualFramework {
   }
 
   runAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
-    return this.dispatchAction(action, defaultTarget) === "handled";
+    const parsed = parseAction(action);
+    const target = this.resolveActionTarget(parsed.namespace, defaultTarget);
+
+    if (target === null) {
+      this.lastActionDispatchResult = "unhandled";
+      return false;
+    }
+
+    const actions = target.actions;
+    const checkAction: WidgetCheckAction | undefined =
+      typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
+    const gate = checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
+
+    if (gate === false || gate === null) {
+      this.lastActionDispatchResult = "consumed";
+      return false;
+    }
+
+    const candidate =
+      pickActionCallback(actions, `_action_${parsed.actionName}`) ??
+      pickActionCallback(actions, `action_${parsed.actionName}`);
+
+    if (candidate === undefined) {
+      this.lastActionDispatchResult = "unhandled";
+      return false;
+    }
+
+    try {
+      candidate(...parsed.params);
+      this.lastActionDispatchResult = "handled";
+      return true;
+    } catch (error) {
+      if (error instanceof SkipAction) {
+        this.lastActionDispatchResult = "unhandled";
+        return false;
+      }
+
+      throw error;
+    }
   }
 
   checkAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean | null {
@@ -1083,43 +1123,6 @@ export class TextualFramework {
       typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
 
     return checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
-  }
-
-  private dispatchAction(action: string, defaultTarget?: ActionTargetDescriptor): ActionDispatchResult {
-    const parsed = parseAction(action);
-    const target = this.resolveActionTarget(parsed.namespace, defaultTarget);
-
-    if (target === null) {
-      return "unhandled";
-    }
-
-    const actions = target.actions;
-    const checkAction: WidgetCheckAction | undefined =
-      typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
-    const gate = checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
-
-    if (gate === false || gate === null) {
-      return "consumed";
-    }
-
-    const candidate =
-      pickActionCallback(actions, `_action_${parsed.actionName}`) ??
-      pickActionCallback(actions, `action_${parsed.actionName}`);
-
-    if (candidate === undefined) {
-      return "unhandled";
-    }
-
-    try {
-      candidate(...parsed.params);
-      return "handled";
-    } catch (error) {
-      if (error instanceof SkipAction) {
-        return "unhandled";
-      }
-
-      throw error;
-    }
   }
 
   private resolveScreenElement(descriptor: ScreenDescriptor, name?: string): React.ReactElement {
@@ -1238,7 +1241,10 @@ export class TextualFramework {
   }
 
   private dispatchBindingAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
-    return this.dispatchAction(action, defaultTarget) !== "unhandled";
+    // [LAW:single-enforcer] runAction is the single action-dispatch boundary;
+    // binding handling derives consumed-vs-unhandled from its canonical result.
+    void this.runAction(action, defaultTarget);
+    return this.lastActionDispatchResult !== "unhandled";
   }
 
   // ---- Binding dispatch -------------------------------------------------
