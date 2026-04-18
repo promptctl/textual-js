@@ -105,7 +105,6 @@ describe("footer active bindings", () => {
 
   it("refreshes when focus changes and clicking a footer key runs its action repeatedly", async () => {
     const calls: string[] = [];
-    const framework = new TextualFramework();
     const session = await runTest(
       <>
         <WidgetHost
@@ -137,13 +136,13 @@ describe("footer active bindings", () => {
         </WidgetHost>
         <Footer />
       </>,
-      { appProps: { framework } },
+      { appProps: { framework: new TextualFramework() } },
     );
 
     expect(session.lastFrame()).toContain("f1 First");
     expect(session.lastFrame()).not.toContain("f2 Second");
 
-    framework.focusWidget(framework.registry.getByCssId("second")!.nodeId);
+    session.framework.focusWidget(session.framework.registry.getByCssId("second")!.nodeId);
     await session.pilot.pause();
 
     expect(session.lastFrame()).toContain("f2 Second");

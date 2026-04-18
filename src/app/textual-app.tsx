@@ -27,7 +27,7 @@ function measureTooltip(tooltip: ActiveTooltip): { width: number; height: number
   const measurement = measureVisual(tooltip.visual);
   return {
     width: measurement.width + 4,
-    height: measurement.height + 2,
+    height: measurement.height + 1,
   };
 }
 
@@ -40,8 +40,8 @@ function clampTooltipPosition(
   const maxTop = Math.max(0, framework.terminalSize.height - measurement.height);
 
   return {
-    left: Math.max(0, Math.min(maxLeft, tooltip.x + 1)),
-    top: Math.max(0, Math.min(maxTop, tooltip.y + 1)),
+    left: Math.max(0, Math.min(maxLeft, tooltip.x + 2)),
+    top: Math.max(0, Math.min(maxTop, tooltip.y + 2)),
   };
 }
 
@@ -63,10 +63,13 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
       marginLeft={position.left}
       marginTop={position.top}
       flexDirection="column"
-      borderStyle="round"
       paddingX={1}
     >
-      {renderVisual(tooltip.visual, {}, `tooltip:${tooltip.sourceNodeId}`)}
+      {renderVisual(
+        tooltip.visual,
+        { backgroundColor: "#2d2d2d" },
+        `tooltip:${tooltip.sourceNodeId}`,
+      )}
     </Box>
   );
 });
