@@ -5,7 +5,12 @@ import React from "react";
 import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
-import { renderVisual, visualize, type VisualInput } from "../content/index.js";
+import {
+  renderVisual,
+  resolveVisualRenderWidth,
+  visualize,
+  type VisualInput,
+} from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 
 export interface StaticWidgetProps {
@@ -32,11 +37,12 @@ export const StaticWidget = observer(function StaticWidget({
   });
 
   const styles = useStyles(widget.handle);
+  const renderWidth = resolveVisualRenderWidth(widget.handle.screenRegion.width, styles.box);
 
   return (
     <WidgetScope widget={widget.handle}>
       <Box {...styles.box}>
-        {renderVisual(visual, styles.text, `static:${widget.nodeId}`)}
+        {renderVisual(visual, styles.text, `static:${widget.nodeId}`, renderWidth)}
       </Box>
     </WidgetScope>
   );

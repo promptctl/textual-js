@@ -159,6 +159,16 @@ export interface ActiveTooltip {
   visible: boolean;
 }
 
+export interface ActiveBinding {
+  key: string;
+  action: string;
+  description?: string;
+  enabled: boolean;
+  priority: boolean;
+  namespace: BindingNamespace;
+  run: () => boolean;
+}
+
 export class ScreenStackError extends Error {}
 
 export class UnknownModeError extends Error {}
@@ -1325,6 +1335,23 @@ export class TextualFramework {
     return (this.modeStacks.get(mode ?? this.activeMode) ?? []).slice();
   }
 
+  getActiveBindings(): ActiveBinding[] {
+    const chain = this.buildBindingChain();
+    const activeBindings: ActiveBinding[] = [];
+    const claimedKeys = new Set<string>();
+    const widgetLayers = chain.filter((entry) => entry.namespace.kind === "widget").slice().reverse();
+    const screenLayers = chain.filter((entry) => entry.namespace.kind === "screen");
+    const appLayers = chain.filter((entry) => entry.namespace.kind === "app");
+
+    // [LAW:single-enforcer] Binding display is derived once here so widgets
+    // like Footer consume the same precedence, keymap, and checkAction rules
+    // that execution uses instead of rebuilding them independently.
+    this.collectActiveBindings(activeBindings, claimedKeys, chain, true);
+    this.collectActiveBindings(activeBindings, claimedKeys, [...widgetLayers, ...screenLayers, ...appLayers], false);
+
+    return activeBindings;
+  }
+
   pushScreen(descriptor: ScreenDescriptor, callbackOrOptions?: ((result: unknown) => void) | ScreenOptions, extraOptions?: ScreenOptions): ScreenEntry {
     const { callback, options } = normalizePushArgs(callbackOrOptions, extraOptions);
     const element = this.resolveScreenElement(descriptor, options.name);
@@ -1732,6 +1759,50 @@ export class TextualFramework {
     }
 
     return false;
+  }
+
+  private collectActiveBindings(
+    target: ActiveBinding[],
+    claimedKeys: Set<string>,
+    layers: BindingChainEntry[],
+    priority: boolean,
+  ): void {
+    for (const layer of layers) {
+      for (const binding of layer.bindings) {
+        if ((binding.priority === true) !== priority) {
+          continue;
+        }
+
+        if (binding.show === false || claimedKeys.has(binding.key)) {
+          continue;
+        }
+
+        const gate = this.checkAction(binding.action, { actions: layer.actions });
+
+        if (gate === false) {
+          continue;
+        }
+
+        claimedKeys.add(binding.key);
+        target.push(this.createActiveBinding({
+          binding,
+          namespace: layer.namespace,
+          actions: layer.actions,
+        }, gate !== null));
+      }
+    }
+  }
+
+  private createActiveBinding(seed: ActiveBindingSeed, enabled: boolean): ActiveBinding {
+    return {
+      key: seed.binding.key,
+      action: seed.binding.action,
+      description: seed.binding.description,
+      enabled,
+      priority: seed.binding.priority === true,
+      namespace: seed.namespace,
+      run: () => this.runAction(seed.binding.action, { actions: seed.actions }),
+    };
   }
 
   private buildBindingChain(): BindingChainEntry[] {
@@ -2254,6 +2325,12 @@ export class TextualFramework {
 interface BindingChainEntry {
   namespace: BindingNamespace;
   bindings: Binding[];
+  actions: WidgetActions | undefined;
+}
+
+interface ActiveBindingSeed {
+  binding: Binding;
+  namespace: BindingNamespace;
   actions: WidgetActions | undefined;
 }
 

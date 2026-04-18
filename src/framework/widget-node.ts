@@ -4,6 +4,7 @@ import type { Binding } from "../bindings/index.js";
 import type { VisualInput } from "../content/index.js";
 import type { Message } from "../events/message.js";
 import { Region } from "../geometry/region.js";
+import { Size } from "../geometry/size.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
@@ -46,6 +47,10 @@ export class WidgetNode {
   readonly inlineStyles = observable.map<string, string>();
   readonly resolvedStyles = new ResolvedStyles();
   screenRegion = Region.EMPTY;
+  scrollOffsetX = 0;
+  scrollOffsetY = 0;
+  virtualWidth = 0;
+  virtualHeight = 0;
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
@@ -184,7 +189,64 @@ export class WidgetNode {
   }
 
   updateScreenRegion(region: Region): void {
+    if (this.screenRegion.equals(region)) {
+      return;
+    }
+
     this.screenRegion = region;
+    this.scrollTo(this.scrollOffsetX, this.scrollOffsetY);
+  }
+
+  setVirtualSize(width: number | Size, height?: number): void {
+    const size = width instanceof Size ? width : new Size(width, height ?? 0);
+    this.virtualWidth = Math.max(0, Math.trunc(size.width));
+    this.virtualHeight = Math.max(0, Math.trunc(size.height));
+    this.scrollTo(this.scrollOffsetX, this.scrollOffsetY);
+  }
+
+  scrollTo(x: number, y: number): void {
+    const next = this.clampScrollOffsets(x, y);
+    this.scrollOffsetX = next.x;
+    this.scrollOffsetY = next.y;
+  }
+
+  scrollRelative(dx: number, dy: number): void {
+    this.scrollTo(this.scrollOffsetX + dx, this.scrollOffsetY + dy);
+  }
+
+  scrollEnd(): void {
+    this.scrollTo(this.maxScrollX, this.maxScrollY);
+  }
+
+  scrollPageUp(): void {
+    this.scrollRelative(0, -Math.max(1, this.screenRegion.height));
+  }
+
+  scrollPageDown(): void {
+    this.scrollRelative(0, Math.max(1, this.screenRegion.height));
+  }
+
+  scrollVisible(target: Region | WidgetNode): void {
+    const targetRegion =
+      target instanceof WidgetNode
+        ? new Region(
+            target.screenRegion.x - this.screenRegion.x + this.scrollOffsetX,
+            target.screenRegion.y - this.screenRegion.y + this.scrollOffsetY,
+            target.screenRegion.width,
+            target.screenRegion.height,
+          )
+        : target;
+    const viewport = new Region(
+      this.scrollOffsetX,
+      this.scrollOffsetY,
+      this.screenRegion.width,
+      this.screenRegion.height,
+    );
+    const delta = viewport.getScrollToVisible(targetRegion);
+
+    // [LAW:dataflow-not-control-flow] Visibility scrolling computes both axes
+    // every time and lets zero deltas encode the "already visible" case.
+    this.scrollRelative(delta.x, delta.y);
   }
 
   runWorker<TResult>(work: WorkFunction<TResult>, options: WorkerOptions = {}): Worker<TResult> {
@@ -438,5 +500,20 @@ export class WidgetNode {
     }
 
     throw new NoMatches(`No ancestors matched "${selectorText}"`);
+  }
+
+  get maxScrollX(): number {
+    return Math.max(0, this.virtualWidth - this.screenRegion.width);
+  }
+
+  get maxScrollY(): number {
+    return Math.max(0, this.virtualHeight - this.screenRegion.height);
+  }
+
+  private clampScrollOffsets(x: number, y: number): { x: number; y: number } {
+    return {
+      x: Math.max(0, Math.min(this.maxScrollX, Math.trunc(x))),
+      y: Math.max(0, Math.min(this.maxScrollY, Math.trunc(y))),
+    };
   }
 }

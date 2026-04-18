@@ -47,6 +47,7 @@ export {
   type Span,
   measureVisual,
   renderVisual,
+  resolveVisualRenderWidth,
   visualize,
   type Visual,
   type VisualInput,
@@ -54,6 +55,7 @@ export {
   type VisualizeOptions,
 } from "./content/index.js";
 export {
+  type ActiveBinding,
   ActiveModeError,
   type BindingClash,
   type BindingNamespace,
@@ -67,6 +69,7 @@ export {
   WidgetHost,
   WidgetRegistry,
   on,
+  useBindings,
   useTextual,
   useTimer,
   useWorker,
@@ -194,6 +197,8 @@ export {
 export {
   Button,
   ButtonPressed,
+  Footer,
+  FooterKey,
   Input,
   InputChanged,
   InputSubmitted,
@@ -220,6 +225,8 @@ export {
   type SparklineOptions,
   StaticWidget,
   ButtonWidget,
+  type FooterKeyProps,
+  type FooterProps,
   SwitchWidget,
   type StaticWidgetProps,
   type ButtonWidgetProps,

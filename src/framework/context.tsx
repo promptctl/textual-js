@@ -14,7 +14,7 @@ import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
 import type { VisualInput } from "../content/index.js";
-import { TextualFramework } from "./app-framework.js";
+import { TextualFramework, type ActiveBinding } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { WidgetNode } from "./widget-node.js";
 import type { ResolvedStyles } from "../styles/resolved-styles.js";
@@ -383,6 +383,26 @@ export function useStyles(widget?: WidgetNode): ResolvedStyles {
   }, [styles]);
 
   return styles;
+}
+
+export function useBindings(widget?: WidgetNode): ActiveBinding[] {
+  const framework = useTextual();
+  const bindingWidget = widget ?? useCurrentWidget();
+  const [, setVersion] = useState(0);
+
+  useLayoutEffect(() => {
+    framework.callAfterRefresh(() => {
+      setVersion((version) => version + 1);
+    });
+  }, [bindingWidget, framework]);
+
+  useEffect(() => {
+    return framework.signals.bindings_updated_signal.subscribe(bindingWidget, () => {
+      setVersion((version) => version + 1);
+    });
+  }, [bindingWidget, framework]);
+
+  return framework.getActiveBindings();
 }
 
 export function useWorker<TResult>(

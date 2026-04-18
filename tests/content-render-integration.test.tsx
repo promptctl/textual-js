@@ -1,8 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
-import { ButtonWidget, StaticWidget, WidgetScope, runTest, useWidget } from "../src/index.js";
+import { ButtonWidget, StaticWidget, WidgetScope, measureVisual, runTest, visualize, useWidget } from "../src/index.js";
 import { parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 function TooltipLeaf(props: {
@@ -35,6 +36,10 @@ function findCell(grid: ReturnType<typeof parseAnsiToStyledGrid>, text: string) 
   }
 
   return undefined;
+}
+
+function stripAnsi(output: string): string {
+  return output.replace(/\u001B\[[0-9;]*m/g, "");
 }
 
 describe("styled content integration", () => {
@@ -74,6 +79,23 @@ describe("styled content integration", () => {
     const grid = parseAnsiToStyledGrid(session.lastFrame());
 
     expect(findCell(grid, "T")?.foreground).toBe("standard:9");
+
+    session.unmount();
+  });
+
+  it("renders width-sensitive visuals against the measured widget width", async () => {
+    const panel = new Panel("Hello world");
+    const expectedLines = measureVisual(visualize(panel), 10).lines.map((line) => line.map((segment) => segment.text).join(""));
+    const session = await runTest(
+      <Box width={10}>
+        <StaticWidget content={panel} />
+      </Box>,
+    );
+    await session.pilot.pause();
+
+    const actualLines = stripAnsi(session.lastFrame() ?? "").split("\n").slice(0, expectedLines.length);
+
+    expect(actualLines).toEqual(expectedLines);
 
     session.unmount();
   });

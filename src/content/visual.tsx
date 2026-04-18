@@ -1,5 +1,5 @@
 import React from "react";
-import { Text, type TextProps } from "ink";
+import { Text, type BoxProps, type TextProps } from "ink";
 import {
   RichText,
   Segment,
@@ -136,6 +136,30 @@ function normalizeVisualWidth(visual: Visual, width?: number): number {
   return Math.max(1, measuredWidth);
 }
 
+function readHorizontalSpacing(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export function resolveVisualRenderWidth(
+  containerWidth: number | undefined,
+  boxProps: Partial<BoxProps> = {},
+): number | undefined {
+  if (containerWidth === undefined || containerWidth <= 0) {
+    return undefined;
+  }
+
+  const borderWidth = boxProps.borderStyle === undefined ? 0 : 2;
+  const horizontalSpacing =
+    readHorizontalSpacing(boxProps.paddingLeft) +
+    readHorizontalSpacing(boxProps.paddingRight) +
+    borderWidth;
+
+  // [LAW:single-enforcer] Container-to-content width translation happens at
+  // one seam so every visual-bearing widget renders rich content against the
+  // same measured inner width instead of ad hoc callsite arithmetic.
+  return Math.max(1, containerWidth - horizontalSpacing);
+}
+
 export function visualize(value: VisualInput, options: VisualizeOptions = {}): Visual {
   if (isVisual(value)) {
     return value;
@@ -176,17 +200,26 @@ export function measureVisual(visual: Visual, width?: number): VisualMeasurement
   };
 }
 
-export function renderVisualToAnsi(visual: Visual, textProps: Partial<TextProps> = {}): string {
-  const renderWidth = normalizeVisualWidth(visual);
+export function renderVisualToAnsi(
+  visual: Visual,
+  textProps: Partial<TextProps> = {},
+  width?: number,
+): string {
+  const renderWidth = normalizeVisualWidth(visual, width);
   const { baseStyle } = splitLayoutTextProps(textProps);
   const segments = [...visual.render({ maxWidth: renderWidth })];
   return [...Segment.applyStyle(segments, baseStyle)].map(renderSegmentAnsi).join("");
 }
 
-export function renderVisual(visual: Visual, textProps: Partial<TextProps> = {}, _keyPrefix = "visual"): React.JSX.Element {
+export function renderVisual(
+  visual: Visual,
+  textProps: Partial<TextProps> = {},
+  _keyPrefix = "visual",
+  width?: number,
+): React.JSX.Element {
   const { layoutTextProps } = splitLayoutTextProps(textProps);
 
   // [LAW:single-enforcer] Visual-to-Ink rendering lives at this boundary so
   // widgets, tooltips, and palette displays all share one render bridge.
-  return <Text {...layoutTextProps}>{renderVisualToAnsi(visual, textProps)}</Text>;
+  return <Text {...layoutTextProps}>{renderVisualToAnsi(visual, textProps, width)}</Text>;
 }

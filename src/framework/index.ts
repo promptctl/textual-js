@@ -1,4 +1,5 @@
 export {
+  type ActiveBinding,
   type ActiveTooltip,
   ActiveModeError,
   type BindingClash,
@@ -20,6 +21,7 @@ export {
   TextualProvider,
   WidgetScope,
   WidgetHost,
+  useBindings,
   useCurrentWidget,
   useStyles,
   useTimer,

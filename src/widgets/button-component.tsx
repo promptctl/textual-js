@@ -5,7 +5,12 @@ import React from "react";
 import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
-import { Content, renderContent, type ContentInput } from "../content/index.js";
+import {
+  Content,
+  renderContent,
+  resolveVisualRenderWidth,
+  type ContentInput,
+} from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 
@@ -21,10 +26,20 @@ export interface ButtonWidgetProps {
 const DEFAULT_CSS = `
   Button {
     border: round;
+    background: var(--surface);
+    color: var(--foreground);
+    min-width: 16;
+    height: 3;
     padding: 0 2;
+    text-align: center;
   }
+  Button.-primary { background: var(--primary); }
+  Button.-success { background: var(--success); }
+  Button.-warning { background: var(--warning); }
+  Button.-error { background: var(--error); }
   Button:focus {
     border: bold;
+    background: var(--accent);
   }
 `;
 
@@ -73,11 +88,12 @@ export const ButtonWidget = observer(function ButtonWidget({
   });
 
   const styles = useStyles(widget.handle);
+  const renderWidth = resolveVisualRenderWidth(widget.handle.screenRegion.width, styles.box);
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box}>
-        {renderContent(resolved, styles.text, `button:${widget.nodeId}`)}
+      <Box {...styles.box} alignItems="center" justifyContent="center">
+        {renderContent(resolved, styles.text, `button:${widget.nodeId}`, renderWidth)}
       </Box>
     </WidgetScope>
   );

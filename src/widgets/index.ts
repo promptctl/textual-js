@@ -11,3 +11,4 @@ export { Sparkline, renderSparkline, type SparklineOptions } from "./sparkline.j
 export { StaticWidget, type StaticWidgetProps } from "./static-component.js";
 export { ButtonWidget, type ButtonWidgetProps } from "./button-component.js";
 export { SwitchWidget, type SwitchWidgetProps } from "./switch-component.js";
+export { Footer, FooterKey, type FooterKeyProps, type FooterProps } from "./footer-component.js";

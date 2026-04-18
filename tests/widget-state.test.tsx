@@ -7,9 +7,12 @@ import {
   Click,
   Key,
   MouseDown,
+  Region,
   ScrollEvent,
+  Size,
   TextualApp,
   TextualFramework,
+  WidgetNode,
   WidgetHost,
   runTest,
 } from "../src/index.js";
@@ -251,5 +254,84 @@ describe("focus chain gating", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+});
+
+function createTestWidget(
+  framework: TextualFramework,
+  options: Partial<ConstructorParameters<typeof WidgetNode>[0]> = {},
+): WidgetNode {
+  return new WidgetNode({
+    framework,
+    nodeId: options.nodeId ?? `widget-${Math.random()}`,
+    parentId: options.parentId ?? null,
+    id: options.id,
+    classes: options.classes ?? [],
+    typeName: options.typeName ?? "ScrollShell",
+    handlersRef: options.handlersRef ?? { current: undefined },
+    actionsRef: options.actionsRef ?? { current: undefined },
+    bindingsRef: options.bindingsRef ?? { current: [] },
+    focusable: options.focusable ?? false,
+    autoFocus: options.autoFocus ?? false,
+    disabled: options.disabled ?? false,
+    loading: options.loading ?? false,
+    tooltip: options.tooltip ?? null,
+  });
+}
+
+describe("widget scroll shell", () => {
+  it("clamps scroll offsets and supports page/end helpers", () => {
+    const framework = new TextualFramework();
+    const widget = createTestWidget(framework);
+
+    widget.updateScreenRegion(new Region(0, 0, 8, 3));
+    widget.setVirtualSize(new Size(20, 10));
+
+    widget.scrollTo(100, 100);
+    expect(widget.scrollOffsetX).toBe(12);
+    expect(widget.scrollOffsetY).toBe(7);
+
+    widget.scrollPageUp();
+    expect(widget.scrollOffsetY).toBe(4);
+
+    widget.scrollPageDown();
+    expect(widget.scrollOffsetY).toBe(7);
+
+    widget.scrollTo(-10, -10);
+    expect(widget.scrollOffsetX).toBe(0);
+    expect(widget.scrollOffsetY).toBe(0);
+
+    widget.scrollEnd();
+    expect(widget.scrollOffsetX).toBe(12);
+    expect(widget.scrollOffsetY).toBe(7);
+  });
+
+  it("scrolls a target region into view with the minimum delta", () => {
+    const framework = new TextualFramework();
+    const widget = createTestWidget(framework);
+
+    widget.updateScreenRegion(new Region(0, 0, 8, 3));
+    widget.setVirtualSize(20, 10);
+    widget.scrollVisible(new Region(10, 4, 2, 1));
+
+    expect(widget.scrollOffsetX).toBe(4);
+    expect(widget.scrollOffsetY).toBe(2);
+  });
+
+  it("resolves widget-based visibility against the viewport seam", () => {
+    const framework = new TextualFramework();
+    const parent = createTestWidget(framework, { nodeId: "parent", id: "parent" });
+    const child = createTestWidget(framework, { nodeId: "child", id: "child", parentId: "parent" });
+
+    framework.registerWidget(parent);
+    framework.registerWidget(child);
+    parent.updateScreenRegion(new Region(10, 5, 8, 3));
+    parent.setVirtualSize(20, 10);
+    child.updateScreenRegion(new Region(18, 11, 2, 1));
+
+    parent.scrollVisible(child);
+
+    expect(parent.scrollOffsetX).toBe(2);
+    expect(parent.scrollOffsetY).toBe(4);
   });
 });

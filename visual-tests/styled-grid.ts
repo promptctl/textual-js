@@ -102,55 +102,12 @@ function normalizeAmbientCell(cell: StyledCell): StyledCell {
     : cell;
 }
 
-function isOccupiedCell(cell: StyledCell | undefined): boolean {
-  return (
-    cell !== undefined &&
-    (
-      cell.text !== " " ||
-      cell.foreground !== null ||
-      cell.background !== null ||
-      cell.bold ||
-      cell.dim ||
-      cell.italic ||
-      cell.underline ||
-      cell.strikethrough ||
-      cell.inverse
-    )
-  );
-}
-
 export function normalizeStyledGrid(grid: StyledGrid): StyledGrid {
-  const rows = trimStyledRows(grid.rows.map((row) => trimStyledRow(row.map(normalizeAmbientCell))));
-  let top = 0;
-  let bottom = rows.length - 1;
-  let left = Number.POSITIVE_INFINITY;
-  let right = -1;
-
-  while (top <= bottom && !rows[top]?.some(isOccupiedCell)) {
-    top += 1;
-  }
-
-  while (bottom >= top && !rows[bottom]?.some(isOccupiedCell)) {
-    bottom -= 1;
-  }
-
-  for (let rowIndex = top; rowIndex <= bottom; rowIndex += 1) {
-    const row = rows[rowIndex] ?? [];
-
-    for (let column = 0; column < row.length; column += 1) {
-      if (isOccupiedCell(row[column])) {
-        left = Math.min(left, column);
-        right = Math.max(right, column);
-      }
-    }
-  }
-
-  if (!Number.isFinite(left) || right < left) {
-    return { rows: [] };
-  }
-
   return {
-    rows: rows.slice(top, bottom + 1).map((row) => row.slice(left, right + 1)),
+    // [LAW:one-source-of-truth] The normalized grid preserves the original
+    // row/column origin so compare-step consumers can detect translation and
+    // overlay-placement regressions instead of re-anchoring content locally.
+    rows: trimStyledRows(grid.rows.map((row) => trimStyledRow(row.map(normalizeAmbientCell)))),
   };
 }
 
