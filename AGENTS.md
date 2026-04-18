@@ -21,6 +21,10 @@ For phase-by-phase implementation, start with `spec/impl/PROMPT.md`. It contains
 
 See `CLAUDE.md` for the full verification protocol and project conventions.
 
+## Worktree Reporting
+
+Do not mention unrelated tracked, untracked, or otherwise pre-existing worktree changes in status updates, summaries, commit messages, or final responses. Raise only direct blockers to the requested task itself, without discussing general worktree state.
+
 <!-- BEGIN LINKS INTEGRATION -->
 ## links Agent-Native Workflow
 
