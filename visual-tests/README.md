@@ -4,7 +4,7 @@ Compares the visual output of Python Textual and textual-js for the same widget 
 
 ## How It Works
 
-1. **Fixtures** — Each fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout.
+1. **Fixtures** — Each fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout. The active fixture set is discovered from the paired filenames on disk.
 
 2. **Capture** — Two capture scripts render each fixture headlessly at a fixed terminal size (80x24) and save the output:
    - Python (via `uv`): SVG screenshot + plain-text grid

@@ -31,8 +31,12 @@ TERMINAL_HEIGHT = 24
 
 
 def discover_fixtures() -> list[Path]:
-    manifest = json.loads((Path(__file__).parent / "fixtures.json").read_text())
-    return [FIXTURES_DIR / f"{name}.py" for name in sorted(manifest)]
+    python_names = {path.stem for path in FIXTURES_DIR.glob("*.py")}
+    js_names = {path.stem for path in FIXTURES_DIR.glob("*.tsx")}
+    # [LAW:one-source-of-truth] The fixture directory is the only source of
+    # truth for active visual fixtures; runnable fixtures are the paired names
+    # that exist on both sides of the port.
+    return [FIXTURES_DIR / f"{name}.py" for name in sorted(python_names & js_names)]
 
 
 def load_fixture(path: Path):

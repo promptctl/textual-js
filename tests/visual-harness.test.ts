@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { captureFixtures } from "../visual-tests/capture_js.ts";
 import { summarizeReports } from "../visual-tests/compare.ts";
+import { derivePairedFixtureNames } from "../visual-tests/discover-fixtures.ts";
 import { diffStyledGrids, parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 describe("visual harness gating", () => {
@@ -23,6 +24,20 @@ describe("visual harness gating", () => {
     } finally {
       stderrWrite.mockRestore();
     }
+  });
+
+  it("derives active fixtures from paired python and js files", () => {
+    expect(
+      derivePairedFixtureNames([
+        "button_markup.py",
+        "button_markup.tsx",
+        "static_basic.py",
+        "static_basic.tsx",
+        "python_only.py",
+        "js_only.tsx",
+        "README.md",
+      ]),
+    ).toEqual(["button_markup", "static_basic"]);
   });
 
   it("parses ANSI output into styled cells", () => {
@@ -70,6 +85,23 @@ describe("visual harness gating", () => {
 
     expect(matchPercentage).toBe(0);
     expect(diffs).toHaveLength(1);
+  });
+
+  it("treats translated snapshots as comparison failures", () => {
+    const { diffs, matchPercentage } = diffStyledGrids(
+      {
+        rows: [[{ text: "A", foreground: "standard:9", background: null, bold: false, dim: false, italic: false, underline: false, strikethrough: false, inverse: false, continuation: false }]],
+      },
+      {
+        rows: [[
+          { text: " ", foreground: null, background: null, bold: false, dim: false, italic: false, underline: false, strikethrough: false, inverse: false, continuation: false },
+          { text: "A", foreground: "standard:9", background: null, bold: false, dim: false, italic: false, underline: false, strikethrough: false, inverse: false, continuation: false },
+        ]],
+      },
+    );
+
+    expect(matchPercentage).toBe(0);
+    expect(diffs).toHaveLength(2);
   });
 
   it("treats missing snapshots as comparison failures", () => {

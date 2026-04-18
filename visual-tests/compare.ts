@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 
+import { discoverPairedFixtures } from "./discover-fixtures.ts";
 import { diffStyledGrids, formatStyledCell, type StyledCellDiff, type StyledGrid } from "./styled-grid.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,7 +25,7 @@ const __dirname = dirname(__filename);
 
 const PYTHON_DIR = join(__dirname, "snapshots", "python");
 const JS_DIR = join(__dirname, "snapshots", "js");
-const FIXTURE_MANIFEST_PATH = join(__dirname, "fixtures.json");
+const FIXTURES_DIR = join(__dirname, "fixtures");
 
 interface FixtureReport {
   name: string;
@@ -97,8 +98,7 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 async function discoverFixtures(): Promise<string[]> {
-  const manifest = JSON.parse(await readFile(FIXTURE_MANIFEST_PATH, "utf-8")) as string[];
-  return [...manifest].sort();
+  return discoverPairedFixtures(FIXTURES_DIR);
 }
 
 async function compareFixture(name: string): Promise<FixtureReport> {

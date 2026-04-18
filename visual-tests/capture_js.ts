@@ -13,28 +13,27 @@
  *                                          <fixture_name>.txt
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import React from "react";
 
 import { runTest } from "../src/index.js";
+import { discoverPairedFixtures } from "./discover-fixtures.ts";
 import { parseAnsiToStyledGrid, styledGridToText } from "./styled-grid.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const FIXTURES_DIR = join(__dirname, "fixtures");
-const FIXTURE_MANIFEST_PATH = join(__dirname, "fixtures.json");
 const SNAPSHOTS_DIR = join(__dirname, "snapshots", "js");
 
 const TERMINAL_WIDTH = 80;
 const TERMINAL_HEIGHT = 24;
 
 async function discoverFixtures(): Promise<string[]> {
-  const manifest = JSON.parse(await readFile(FIXTURE_MANIFEST_PATH, "utf-8")) as string[];
-  return [...manifest].sort();
+  return discoverPairedFixtures(FIXTURES_DIR);
 }
 
 async function captureFixture(name: string): Promise<void> {
