@@ -14,7 +14,7 @@
 
 import { readdir } from "node:fs/promises";
 import { writeFile, mkdir } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import React from "react";
@@ -81,7 +81,31 @@ async function captureFixture(name: string): Promise<void> {
   session.unmount();
 }
 
-async function main(): Promise<void> {
+export interface CaptureSummary {
+  failedFixtures: string[];
+}
+
+export async function captureFixtures(
+  fixtures: string[],
+  capture: (name: string) => Promise<void> = captureFixture,
+): Promise<CaptureSummary> {
+  const failedFixtures: string[] = [];
+
+  for (const name of fixtures) {
+    try {
+      await capture(name);
+    } catch (error) {
+      failedFixtures.push(name);
+      process.stderr.write(
+        `  ERROR capturing ${name}: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
+  }
+
+  return { failedFixtures };
+}
+
+export async function main(): Promise<void> {
   await mkdir(SNAPSHOTS_DIR, { recursive: true });
 
   const fixtureFilter = process.argv[2] ?? null;
@@ -99,20 +123,18 @@ async function main(): Promise<void> {
     `Capturing ${fixtures.length} textual-js fixture(s)...\n\n`,
   );
 
-  for (const name of fixtures) {
-    try {
-      await captureFixture(name);
-    } catch (error) {
-      process.stderr.write(
-        `  ERROR capturing ${name}: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-    }
-  }
+  const summary = await captureFixtures(fixtures);
 
   process.stdout.write(`\nDone. Snapshots in: snapshots/js/\n`);
+
+  if (summary.failedFixtures.length > 0) {
+    process.exit(1);
+  }
 }
 
-main().catch((error) => {
-  process.stderr.write(`Fatal: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    process.stderr.write(`Fatal: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}

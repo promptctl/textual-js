@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -234,5 +235,24 @@ describe("command palette options", () => {
   it("configures noMatchesTimeout with a default of 250ms", () => {
     const palette = createPalette([]);
     expect(palette.noMatchesTimeout).toBe(250);
+  });
+
+  it("reports open state from the active screen name", () => {
+    const framework = new TextualFramework();
+
+    expect(CommandPalette.isOpen(framework)).toBe(false);
+
+    framework.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
+    expect(CommandPalette.isOpen(framework)).toBe(true);
+
+    framework.popScreen();
+    expect(CommandPalette.isOpen(framework)).toBe(false);
+  });
+
+  it("ignores non-palette screens when checking open state", () => {
+    const framework = new TextualFramework();
+
+    framework.pushScreen(React.createElement(React.Fragment), { name: "dialog" });
+    expect(CommandPalette.isOpen(framework)).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ export interface PaletteResult {
 }
 
 export class CommandPalette {
+  static readonly SCREEN_NAME = "__command_palette__";
   readonly providers: readonly Provider[];
   readonly runOnSelect: boolean;
   readonly noMatchesTimeout: number;
@@ -112,8 +113,12 @@ export class CommandPalette {
     return this.started;
   }
 
-  static isOpen(_app: unknown): boolean {
-    return false;
+  static isOpen(app: unknown): boolean {
+    const activeScreen = (app as { activeScreen?: { name: string | null } | null }).activeScreen;
+
+    // [LAW:one-source-of-truth] Palette visibility is derived from the active
+    // screen entry name so future launchers and observers read one shared marker.
+    return activeScreen?.name === CommandPalette.SCREEN_NAME;
   }
 }
 

@@ -73,12 +73,12 @@ function renderDiffSummary(report: FixtureReport): string {
   const lines: string[] = [];
 
   if (report.status === "missing-python") {
-    lines.push(`  ${report.name}: SKIP (no Python snapshot)`);
+    lines.push(`  ${report.name}: FAIL (no Python snapshot)`);
     return lines.join("\n");
   }
 
   if (report.status === "missing-js") {
-    lines.push(`  ${report.name}: SKIP (no JS snapshot)`);
+    lines.push(`  ${report.name}: FAIL (no JS snapshot)`);
     return lines.join("\n");
   }
 
@@ -105,6 +105,20 @@ function renderDiffSummary(report: FixtureReport): string {
   }
 
   return lines.join("\n");
+}
+
+export interface ComparisonSummary {
+  matched: number;
+  diffed: number;
+  missing: number;
+}
+
+export function summarizeReports(reports: FixtureReport[]): ComparisonSummary {
+  return {
+    matched: reports.filter((report) => report.status === "match").length,
+    diffed: reports.filter((report) => report.status === "diff").length,
+    missing: reports.filter((report) => report.status === "missing-python" || report.status === "missing-js").length,
+  };
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -174,7 +188,7 @@ async function compareFixture(name: string): Promise<FixtureReport> {
   };
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const fixtureFilter = process.argv[2] ?? null;
   let fixtures = await discoverFixtures();
 
@@ -201,18 +215,18 @@ async function main(): Promise<void> {
     process.stdout.write(renderDiffSummary(report) + "\n");
   }
 
-  const matched = reports.filter((r) => r.status === "match").length;
-  const diffed = reports.filter((r) => r.status === "diff").length;
-  const skipped = reports.filter((r) => r.status === "missing-python" || r.status === "missing-js").length;
+  const summary = summarizeReports(reports);
 
-  process.stdout.write(`\nSummary: ${matched} match, ${diffed} diff, ${skipped} skipped\n`);
+  process.stdout.write(`\nSummary: ${summary.matched} match, ${summary.diffed} diff, ${summary.missing} missing\n`);
 
-  if (diffed > 0) {
+  if (summary.diffed > 0 || summary.missing > 0) {
     process.exit(1);
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`Fatal: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    process.stderr.write(`Fatal: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}
