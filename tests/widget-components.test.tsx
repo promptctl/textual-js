@@ -22,6 +22,19 @@ describe("StaticWidget", () => {
     session.unmount();
   });
 
+  it("does not add spacer rows when stacked with other statics", async () => {
+    const session = await runTest(
+      <>
+        <StaticWidget content="Hello World" />
+        <StaticWidget content="Second line of text" />
+      </>,
+    );
+
+    expect(session.lastFrame()?.trimEnd()).toBe("Hello World\nSecond line of text");
+
+    session.unmount();
+  });
+
   it("renders styled content through the Content render bridge", async () => {
     const content = Content.styled("Styled", "bold");
     const toRichText = vi.spyOn(content, "toRichText");

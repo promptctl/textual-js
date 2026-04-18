@@ -62,9 +62,18 @@ function renderSegmentNodes(segments: Segment[], keyPrefix: string): React.React
   return nodes;
 }
 
+function normalizeRenderedSegments(content: Content): Segment[] {
+  const segments = [...content.toRichText().render({ maxWidth: Math.max(1, content.cellLength) })];
+
+  if (!content.plain.endsWith("\n") && segments.at(-1)?.text === "\n") {
+    segments.pop();
+  }
+
+  return segments;
+}
+
 export function renderContent(content: Content, textProps: Partial<TextProps> = {}, keyPrefix = "content"): React.JSX.Element {
-  const richText = content.toRichText();
-  const segments = [...richText.render({ maxWidth: Math.max(1, content.cellLength) })];
+  const segments = normalizeRenderedSegments(content);
 
   // [LAW:single-enforcer] Content-to-Ink rendering lives here so widget and
   // overlay surfaces share one styled-text bridge.
