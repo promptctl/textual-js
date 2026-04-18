@@ -4,6 +4,8 @@ from rich.text import Text
 
 
 class TooltipMarkupApp(App):
+    TOOLTIP_DELAY = 0.01
+
     CSS = """
     Screen {
         background: #121212;

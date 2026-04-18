@@ -174,7 +174,7 @@ describe("testing harness", () => {
     expect(await session.pilot.mouseUp(PilotTarget)).toBe(true);
     expect(await session.pilot.hover(widget)).toBe(true);
     expect(await session.pilot.click(widget)).toBe(true);
-    expect(events).toEqual(["down", "up", "move", "down", "up", "click"]);
+    expect(events).toEqual(["down", "up", "click", "move", "down", "up", "click"]);
 
     session.unmount();
   });

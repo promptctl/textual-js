@@ -92,6 +92,18 @@ interface ScreenFactoryRecord {
   cachedElement: React.ReactElement | null;
 }
 
+interface PendingPointerClick {
+  targetId: string | null;
+  canceled: boolean;
+  downTime: number;
+}
+
+interface ClickChainState {
+  targetId: string | null;
+  chain: number;
+  time: number;
+}
+
 export type KeymapInput = ReadonlyMap<string, string> | Record<string, string>;
 
 export type ScreenDescriptor =
@@ -260,6 +272,8 @@ interface FocusAddress {
 }
 
 export class TextualFramework {
+  static readonly CLICK_CHAIN_TIME_THRESHOLD = 0.5;
+
   readonly registry = new WidgetRegistry();
   readonly workers = new WorkerManager();
   readonly notifications = new Notifications();
@@ -281,6 +295,7 @@ export class TextualFramework {
   private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
+  private readonly nextCallbacks: Array<() => void> = [];
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
@@ -297,6 +312,8 @@ export class TextualFramework {
   private lastActionDispatchResult: ActionDispatchResult = "unhandled";
   private readonly bindingClashSignatures = new Map<string, string>();
   private lastPointerLocation: PointerLocation | null = null;
+  private pendingPointerClick: PendingPointerClick | null = null;
+  private lastClickChain: ClickChainState | null = null;
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   readonly signals: AppSignals;
   screenStackVersion = 0;
@@ -337,6 +354,7 @@ export class TextualFramework {
         messageSubscribers: false,
         timers: false,
         afterRefreshCallbacks: false,
+        nextCallbacks: false,
         afterRefreshRequester: false,
         signals: false,
         workers: false,
@@ -457,6 +475,9 @@ export class TextualFramework {
     this.clearTooltipTimer();
     this.activeTooltip = null;
     this.lastPointerLocation = null;
+    this.pendingPointerClick = null;
+    this.lastClickChain = null;
+    this.nextCallbacks.length = 0;
     this.isAppBlurred = false;
     this.blurredFocusAddress = null;
     this.focusChangedWhileBlurred = false;
@@ -740,14 +761,12 @@ export class TextualFramework {
   }
 
   dispatchPointerClick(screenX: number, screenY: number, chain = 1): void {
-    const resolved = this.resolvePointerTarget(screenX, screenY);
-
-    if (resolved.targetNode !== undefined) {
-      this.postMessage(resolved.targetNode.nodeId, new Click(resolved.x, resolved.y, chain));
-      return;
+    // [LAW:single-enforcer] Pointer clicks are synthesized from the same
+    // down/up path that owns click-chain state instead of a second direct path.
+    for (let index = 0; index < Math.max(1, Math.trunc(chain)); index += 1) {
+      this.dispatchPointerDown(screenX, screenY);
+      this.dispatchPointerUp(screenX, screenY);
     }
-
-    this.postClick(screenX, screenY, chain);
   }
 
   postMouseDown(x: number, y: number): void {
@@ -756,13 +775,20 @@ export class TextualFramework {
 
   dispatchPointerDown(screenX: number, screenY: number): void {
     const resolved = this.resolvePointerTarget(screenX, screenY);
+    const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
+    const dispatched = this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseDown(x, y));
 
-    if (resolved.targetNode !== undefined) {
-      this.postMessage(resolved.targetNode.nodeId, new MouseDown(resolved.x, resolved.y));
-      return;
-    }
-
-    this.postMouseDown(screenX, screenY);
+    // [LAW:one-source-of-truth] The active press target and down timestamp live
+    // in one framework-owned record so MouseUp and MouseMove derive click state
+    // from the same canonical snapshot.
+    this.pendingPointerClick =
+      dispatched === undefined
+        ? null
+        : {
+            targetId: dispatched.nodeId,
+            canceled: false,
+            downTime: Date.now(),
+          };
   }
 
   postMouseUp(x: number, y: number): void {
@@ -771,13 +797,21 @@ export class TextualFramework {
 
   dispatchPointerUp(screenX: number, screenY: number): void {
     const resolved = this.resolvePointerTarget(screenX, screenY);
+    const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
+    const pendingClick = this.pendingPointerClick;
 
-    if (resolved.targetNode !== undefined) {
-      this.postMessage(resolved.targetNode.nodeId, new MouseUp(resolved.x, resolved.y));
-      return;
+    this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseUp(x, y));
+    this.pendingPointerClick = null;
+
+    if (
+      dispatchTarget !== undefined &&
+      pendingClick !== null &&
+      !pendingClick.canceled &&
+      pendingClick.targetId === dispatchTarget.nodeId
+    ) {
+      const clickChain = this.resolveClickChain(dispatchTarget.nodeId, pendingClick.downTime);
+      this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new Click(x, y, clickChain));
     }
-
-    this.postMouseUp(screenX, screenY);
   }
 
   postMouseMove(x: number, y: number): void {
@@ -787,16 +821,12 @@ export class TextualFramework {
   dispatchPointerMove(screenX: number, screenY: number): void {
     const pointer = { x: screenX, y: screenY };
     const resolved = this.resolvePointerTarget(screenX, screenY);
+    const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
 
     this.lastPointerLocation = pointer;
     this.updateHoveredNode(resolved.targetNode, pointer);
-
-    if (resolved.targetNode !== undefined) {
-      this.postMessage(resolved.targetNode.nodeId, new MouseMove(resolved.x, resolved.y));
-      return;
-    }
-
-    this.postMouseMove(screenX, screenY);
+    this.markPendingPointerClick(dispatchTarget);
+    this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseMove(x, y));
   }
 
   postResize(width: number, height: number): void {
@@ -816,7 +846,7 @@ export class TextualFramework {
 
       // [LAW:single-enforcer] Queue idleness is observed from this boundary so
       // tests and framework callers share one definition of "fully drained."
-      if (this.queue.length === 0 && this.drainPromise === null) {
+      if (this.queue.length === 0 && this.nextCallbacks.length === 0 && this.drainPromise === null) {
         return;
       }
     } while (true);
@@ -951,9 +981,12 @@ export class TextualFramework {
   }
 
   callNext<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    queueMicrotask(() => {
+    // [LAW:single-enforcer] callNext ordering is enforced by the dispatcher so
+    // every caller observes the same after-message boundary instead of ambient microtasks.
+    this.nextCallbacks.push(() => {
       callback(...args);
     });
+    this.scheduleDrain();
   }
 
   callAfterRefresh<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
@@ -1052,6 +1085,57 @@ export class TextualFramework {
       y: screenY - targetNode.screenRegion.y,
       targetNode,
     };
+  }
+
+  private resolvePointerDispatchTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
+    return targetNode ?? this.resolveDefaultDispatchTarget();
+  }
+
+  private postResolvedPointerMessage(
+    dispatchTarget: WidgetNode | undefined,
+    resolved: { x: number; y: number; targetNode?: WidgetNode },
+    createMessage: (x: number, y: number) => Message,
+  ): WidgetNode | undefined {
+    if (dispatchTarget === undefined) {
+      return undefined;
+    }
+
+    const coordinates = resolved.targetNode === undefined ? { x: resolved.x, y: resolved.y } : resolved;
+    this.postMessage(dispatchTarget.nodeId, createMessage(coordinates.x, coordinates.y));
+    return dispatchTarget;
+  }
+
+  private markPendingPointerClick(dispatchTarget: WidgetNode | undefined): void {
+    const pendingClick = this.pendingPointerClick;
+
+    if (
+      pendingClick !== null &&
+      !pendingClick.canceled &&
+      pendingClick.targetId !== (dispatchTarget?.nodeId ?? null)
+    ) {
+      pendingClick.canceled = true;
+    }
+  }
+
+  private resolveClickChain(targetId: string, mouseDownTime: number): number {
+    const thresholdMs = TextualFramework.CLICK_CHAIN_TIME_THRESHOLD * 1000;
+    const previousClick = this.lastClickChain;
+    const chain =
+      previousClick !== null &&
+      previousClick.targetId === targetId &&
+      mouseDownTime - previousClick.time <= thresholdMs
+        ? previousClick.chain + 1
+        : 1;
+
+    // [LAW:single-enforcer] Multi-click timing and same-target matching are
+    // derived at the pointer forwarding boundary so widgets read one canonical
+    // chain value from Click instead of re-implementing double-click logic.
+    this.lastClickChain = {
+      targetId,
+      chain,
+      time: Date.now(),
+    };
+    return chain;
   }
 
   private updateHoveredNode(targetNode: WidgetNode | undefined, pointer: PointerLocation): void {
@@ -1870,26 +1954,35 @@ export class TextualFramework {
       .finally(() => {
         this.drainPromise = null;
 
-        if (this.queue.length > 0) {
+        if (this.queue.length > 0 || this.nextCallbacks.length > 0) {
           this.scheduleDrain();
         }
       });
   }
 
   private async drainQueue(): Promise<void> {
-    // [LAW:dataflow-not-control-flow] Every queued message flows through the same
-    // dispatch pipeline; bubbling decisions live on message data, not skipped steps.
+    // [LAW:dataflow-not-control-flow] Every queued message and deferred next
+    // callback flows through one dispatcher-owned pipeline; variability lives in
+    // queued values, not in branching to alternate schedulers.
     do {
+      await this.flushCallNextCallbacks();
+      let dispatchedQueuedMessage = false;
+
       while (this.queue.length > 0) {
         const nextMessage = this.queue.shift();
 
         if (nextMessage !== undefined) {
+          dispatchedQueuedMessage = true;
           await this.dispatchQueuedMessage(nextMessage);
+          await this.flushCallNextCallbacks();
         }
       }
 
-      await this.dispatchIdlePass();
-    } while (this.queue.length > 0);
+      if (dispatchedQueuedMessage) {
+        await this.dispatchIdlePass();
+        await this.flushCallNextCallbacks();
+      }
+    } while (this.queue.length > 0 || this.nextCallbacks.length > 0);
   }
 
   private async dispatchQueuedMessage({ targetId, targetNode, message }: QueuedMessage): Promise<void> {
@@ -2079,6 +2172,13 @@ export class TextualFramework {
         targetNode: widget,
         message: this.withSender(new Idle({ bubble: false }), widget),
       });
+    }
+  }
+
+  private async flushCallNextCallbacks(): Promise<void> {
+    while (this.nextCallbacks.length > 0) {
+      const callback = this.nextCallbacks.shift();
+      callback?.();
     }
   }
 

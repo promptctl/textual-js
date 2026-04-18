@@ -2,12 +2,12 @@ import React from "react";
 import { Box } from "ink";
 
 import {
-  Content,
   WidgetScope,
-  renderContent,
+  renderVisual,
   resolveVisualRenderWidth,
   useStyles,
   useWidget,
+  visualize,
 } from "../../src/index.js";
 import { FixtureScreen, VISUAL_SCREEN_FOREGROUND } from "../fixture-screen.tsx";
 
@@ -31,7 +31,7 @@ function TooltipTarget(): React.JSX.Element {
   return (
     <WidgetScope widget={widget.handle}>
       <Box width={10} height={1} {...styles.box}>
-        {renderContent(Content.fromText("hover me"), { ...styles.text, color: VISUAL_SCREEN_FOREGROUND }, "tooltip-target", renderWidth)}
+        {renderVisual(visualize("hover me"), { ...styles.text, color: VISUAL_SCREEN_FOREGROUND }, "tooltip-target", renderWidth)}
       </Box>
     </WidgetScope>
   );

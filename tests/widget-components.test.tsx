@@ -224,8 +224,8 @@ describe("SwitchWidget", () => {
 
     const sw = session.framework.registry.getByCssId("sw");
     expect(sw).toBeDefined();
-    // Default is off — slider should show off pattern
-    expect(session.lastFrame()).toContain("●");
+    expect(session.lastFrame()).toContain("▊");
+    expect(session.lastFrame()).toContain("▎");
 
     session.unmount();
   });
@@ -233,8 +233,8 @@ describe("SwitchWidget", () => {
   it("renders with initial on state", async () => {
     const session = await runTest(<SwitchWidget id="sw" value />);
 
-    // On state slider
-    expect(session.lastFrame()).toContain("●");
+    expect(session.lastFrame()).toContain("▊");
+    expect(session.lastFrame()).toContain("▎");
 
     session.unmount();
   });

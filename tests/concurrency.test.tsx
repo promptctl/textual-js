@@ -3,7 +3,9 @@ import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 
-import { RLock, TextualApp, TextualFramework, WidgetNode, WidgetScope, useWidget } from "../src/index.js";
+import { Message, RLock, TextualApp, TextualFramework, WidgetHost, WidgetNode, WidgetScope, useWidget } from "../src/index.js";
+
+class NextTickPing extends Message {}
 
 function TimerHarness(props: { onReady: (widget: WidgetNode) => void }): React.JSX.Element {
   const widget = useWidget({
@@ -143,6 +145,43 @@ describe("concurrency primitives", () => {
     expect(observed).toContain("Callback");
 
     unsubscribe();
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("flushes callNext from the dispatcher before later queued callbacks", async () => {
+    const framework = new TextualFramework();
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Scheduler"
+          handlers={{
+            onNextTickPing: () => {
+              order.push("handler");
+              framework.callNext(() => {
+                order.push("next");
+              });
+              framework.callLater(() => {
+                order.push("later");
+              });
+            },
+          }}
+        >
+          <Text>scheduler</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.list()[0];
+    framework.postMessage(widget.nodeId, new NextTickPing());
+    await framework.whenIdle();
+
+    expect(order).toEqual(["handler", "next", "later"]);
+
     instance.unmount();
     instance.cleanup();
   });

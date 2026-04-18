@@ -4,6 +4,7 @@ import { StaticWidget, SwitchWidget } from "../../src/index.js";
 import { FixtureScreen, VISUAL_SCREEN_FOREGROUND } from "../fixture-screen.tsx";
 
 export const appProps = {
+  autoFocus: "*",
   css: `
     Static {
       color: ${VISUAL_SCREEN_FOREGROUND};

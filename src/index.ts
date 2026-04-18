@@ -46,6 +46,7 @@ export {
   type ContentTruncateOptions,
   type Span,
   measureVisual,
+  renderContent,
   renderVisual,
   resolveVisualRenderWidth,
   visualize,

@@ -127,6 +127,49 @@ function renderSegmentAnsi(segment: Segment): string {
   return segment.style === undefined ? segment.text : segment.style.render(segment.text);
 }
 
+function splitSgrParameters(params: number[]): number[][] {
+  const groups: number[][] = [];
+
+  for (let index = 0; index < params.length; index += 1) {
+    const code = params[index];
+
+    if ((code === 38 || code === 48) && index + 1 < params.length) {
+      const mode = params[index + 1];
+
+      if (mode === 5 && index + 2 < params.length) {
+        groups.push(params.slice(index, index + 3));
+        index += 2;
+        continue;
+      }
+
+      if (mode === 2 && index + 4 < params.length) {
+        groups.push(params.slice(index, index + 5));
+        index += 4;
+        continue;
+      }
+    }
+
+    groups.push([code]);
+  }
+
+  return groups;
+}
+
+function normalizeAnsiForInk(text: string): string {
+  return text.replace(/\u001B\[([0-9;]*)m/g, (_sequence, paramsText: string) => {
+    const params = (paramsText.length === 0 ? ["0"] : paramsText.split(";"))
+      .map((value) => Number.parseInt(value, 10))
+      .map((value) => (Number.isNaN(value) ? 0 : value));
+
+    // [LAW:single-enforcer] ANSI normalization happens exactly once at the
+    // visual render seam so every widget/toolip/palette display reaches Ink
+    // through the same tokenizer-safe encoding.
+    return splitSgrParameters(params)
+      .map((group) => `\u001B[${group.join(";")}m`)
+      .join("");
+  });
+}
+
 function normalizeVisualWidth(visual: Visual, width?: number): number {
   if (width !== undefined) {
     return Math.max(1, width);
@@ -208,7 +251,9 @@ export function renderVisualToAnsi(
   const renderWidth = normalizeVisualWidth(visual, width);
   const { baseStyle } = splitLayoutTextProps(textProps);
   const segments = [...visual.render({ maxWidth: renderWidth })];
-  return [...Segment.applyStyle(segments, baseStyle)].map(renderSegmentAnsi).join("");
+  return normalizeAnsiForInk(
+    [...Segment.applyStyle(segments, baseStyle)].map(renderSegmentAnsi).join(""),
+  );
 }
 
 export function renderVisual(

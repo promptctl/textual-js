@@ -3,6 +3,10 @@ import { Box } from "ink";
 import { ButtonWidget } from "../../src/index.js";
 import { FixtureScreen } from "../fixture-screen.tsx";
 
+export const appProps = {
+  autoFocus: "*",
+};
+
 export default function ButtonVariantsFixture(): React.JSX.Element {
   return (
     <FixtureScreen>

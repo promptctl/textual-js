@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { Content } from "../src/content/content.js";
 import { renderContentToAnsi } from "../src/content/render.js";
+import { parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 function buildBaseStyle(textProps: Partial<InkTextProps>): Style {
   return new Style({
@@ -27,13 +28,19 @@ function renderExpectedAnsi(content: Content, textProps: Partial<InkTextProps> =
     .join("");
 }
 
+function expectSemanticAnsiMatch(content: Content, textProps: Partial<InkTextProps> = {}): void {
+  expect(parseAnsiToStyledGrid(renderContentToAnsi(content, textProps))).toEqual(
+    parseAnsiToStyledGrid(renderExpectedAnsi(content, textProps)),
+  );
+}
+
 describe("renderContentToAnsi", () => {
   it("preserves the full rich-js named foreground color catalog", () => {
     const names = [...new Set(Object.keys(ANSI_COLOR_NAMES))].sort();
 
     for (const name of names) {
       const content = Content.styled(`fg:${name}`, name);
-      expect(renderContentToAnsi(content)).toBe(renderExpectedAnsi(content));
+      expectSemanticAnsiMatch(content);
     }
   });
 
@@ -42,7 +49,7 @@ describe("renderContentToAnsi", () => {
 
     for (const name of names) {
       const content = Content.styled(`bg:${name}`, `on ${name}`);
-      expect(renderContentToAnsi(content)).toBe(renderExpectedAnsi(content));
+      expectSemanticAnsiMatch(content);
     }
   });
 
@@ -55,7 +62,7 @@ describe("renderContentToAnsi", () => {
       ["attrs", "bold italic underline strike reverse"],
     );
 
-    expect(renderContentToAnsi(content)).toBe(renderExpectedAnsi(content));
+    expectSemanticAnsiMatch(content);
   });
 
   it("composes widget base style under content spans using rich-js semantics", () => {
@@ -72,6 +79,6 @@ describe("renderContentToAnsi", () => {
       wrap: "wrap",
     };
 
-    expect(renderContentToAnsi(content, textProps)).toBe(renderExpectedAnsi(content, textProps));
+    expectSemanticAnsiMatch(content, textProps);
   });
 });

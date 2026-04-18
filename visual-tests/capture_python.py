@@ -28,6 +28,8 @@ SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "python"
 
 TERMINAL_WIDTH = 80
 TERMINAL_HEIGHT = 24
+AMBIENT_BACKGROUNDS = {"#121212"}
+AMBIENT_FOREGROUNDS = {"#e0e0e0"}
 
 
 def discover_fixtures() -> list[Path]:
@@ -79,11 +81,37 @@ def style_to_state(style: Any) -> dict[str, Any]:
 
 
 def create_cell(text: str, style: dict[str, Any], continuation: bool = False) -> dict[str, Any]:
-    return {
+    cell = {
       "text": text,
       "continuation": continuation,
       **style,
     }
+    return normalize_ambient_cell(cell)
+
+
+def normalize_ambient_cell(cell: dict[str, Any]) -> dict[str, Any]:
+    normalized = cell.copy()
+
+    # [LAW:single-enforcer] Python snapshot capture owns ambient-screen style
+    # normalization so compare-step consumers read one canonical content grid
+    # instead of re-deriving blank-screen equivalence in multiple places.
+    if normalized["background"] in AMBIENT_BACKGROUNDS:
+        normalized["background"] = None
+
+    is_blank = normalized["text"] == " " and normalized["continuation"] is False
+
+    if is_blank and normalized["foreground"] in AMBIENT_FOREGROUNDS:
+        normalized["foreground"] = None
+
+    if is_blank and normalized["foreground"] is None and normalized["background"] is None:
+        normalized["bold"] = False
+        normalized["dim"] = False
+        normalized["italic"] = False
+        normalized["underline"] = False
+        normalized["strikethrough"] = False
+        normalized["inverse"] = False
+
+    return normalized
 
 
 def is_default_blank_cell(cell: dict[str, Any] | None) -> bool:

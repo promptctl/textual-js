@@ -1,13 +1,15 @@
 import React, { useLayoutEffect, useState } from "react";
 import { Text } from "ink";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 
 import {
+  Click,
   AppBlur,
   AppFocus,
   Message,
   normalizeColor,
+  runTest,
   TextualApp,
   TextualFramework,
   WidgetHost,
@@ -257,5 +259,99 @@ describe("TextualApp and widget registry", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("derives click chains from the framework mouse down/up path", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const received: string[] = [];
+      const session = await runTest(
+        <>
+          <WidgetHost
+            typeName="ClickTarget"
+            id="first"
+            handlers={{
+              onClick: (message) => {
+                received.push(`first:${(message as Click).chain}`);
+              },
+            }}
+          >
+            <Text>first</Text>
+          </WidgetHost>
+          <WidgetHost
+            typeName="ClickTarget"
+            id="second"
+            handlers={{
+              onClick: (message) => {
+                received.push(`second:${(message as Click).chain}`);
+              },
+            }}
+          >
+            <Text>second</Text>
+          </WidgetHost>
+        </>,
+      );
+
+      const first = session.framework.registry.getByCssId("first")!;
+      const second = session.framework.registry.getByCssId("second")!;
+
+      session.framework.dispatchPointerDown(first.screenRegion.x, first.screenRegion.y);
+      session.framework.dispatchPointerUp(first.screenRegion.x, first.screenRegion.y);
+      await session.framework.whenIdle();
+
+      session.framework.dispatchPointerDown(first.screenRegion.x, first.screenRegion.y);
+      session.framework.dispatchPointerUp(first.screenRegion.x, first.screenRegion.y);
+      await session.framework.whenIdle();
+
+      session.framework.dispatchPointerDown(second.screenRegion.x, second.screenRegion.y);
+      session.framework.dispatchPointerUp(second.screenRegion.x, second.screenRegion.y);
+      await session.framework.whenIdle();
+
+      vi.advanceTimersByTime(Math.ceil(TextualFramework.CLICK_CHAIN_TIME_THRESHOLD * 1000) + 1);
+      session.framework.dispatchPointerDown(second.screenRegion.x, second.screenRegion.y);
+      session.framework.dispatchPointerUp(second.screenRegion.x, second.screenRegion.y);
+      await session.framework.whenIdle();
+
+      expect(received).toEqual(["first:1", "first:2", "second:1", "second:1"]);
+
+      session.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels click synthesis after the pointer leaves the pressed widget", async () => {
+    const received: string[] = [];
+    const session = await runTest(
+      <>
+        <WidgetHost
+          typeName="ClickTarget"
+          id="first"
+          handlers={{
+            onClick: () => {
+              received.push("first");
+            },
+          }}
+        >
+          <Text>first</Text>
+        </WidgetHost>
+        <WidgetHost typeName="ClickTarget" id="second">
+          <Text>second</Text>
+        </WidgetHost>
+      </>,
+    );
+
+    const first = session.framework.registry.getByCssId("first")!;
+    const second = session.framework.registry.getByCssId("second")!;
+
+    session.framework.dispatchPointerDown(first.screenRegion.x, first.screenRegion.y);
+    session.framework.dispatchPointerMove(second.screenRegion.x, second.screenRegion.y);
+    session.framework.dispatchPointerUp(first.screenRegion.x, first.screenRegion.y);
+    await session.framework.whenIdle();
+
+    expect(received).toEqual([]);
+
+    session.unmount();
   });
 });

@@ -25,7 +25,6 @@ type AppInput = React.ReactElement | React.ComponentType<Record<string, unknown>
 type PointerTarget = string | WidgetNode | React.ComponentType<unknown> | undefined;
 type PointerOffset = { x: number; y: number };
 type PointerInput = PointerTarget | number | PointerOptions | undefined;
-const CLICK_CHAIN_WINDOW_MS = 500;
 
 export interface PointerOptions {
   widget?: PointerTarget;
@@ -69,8 +68,6 @@ function readTypeName(target: React.ComponentType<unknown>): string {
 }
 
 export class Pilot {
-  private lastClick: { key: string; chain: number; time: number } | null = null;
-
   constructor(private readonly framework: TextualFramework) {}
 
   toString(): string {
@@ -110,7 +107,6 @@ export class Pilot {
     for (let index = 0; index < times; index += 1) {
       await this.dispatchResolvedPointer("down", resolved);
       await this.dispatchResolvedPointer("up", resolved);
-      await this.dispatchResolvedPointer("click", resolved, this.resolveClickChain(resolved));
     }
 
     return resolved.hitIntendedTarget;
@@ -166,18 +162,15 @@ export class Pilot {
   }
 
   private async dispatchResolvedPointer(
-    kind: "down" | "up" | "move" | "click",
+    kind: "down" | "up" | "move",
     resolved: ResolvedPointerTarget,
-    clickChain = 1,
   ): Promise<void> {
     if (kind === "down") {
       this.framework.dispatchPointerDown(resolved.screenX, resolved.screenY);
     } else if (kind === "up") {
       this.framework.dispatchPointerUp(resolved.screenX, resolved.screenY);
-    } else if (kind === "move") {
-      this.framework.dispatchPointerMove(resolved.screenX, resolved.screenY);
     } else {
-      this.framework.dispatchPointerClick(resolved.screenX, resolved.screenY, clickChain);
+      this.framework.dispatchPointerMove(resolved.screenX, resolved.screenY);
     }
 
     await this.pause();
@@ -211,22 +204,6 @@ export class Pilot {
     const absoluteY = intendedNode.screenRegion.y + (offset?.y ?? defaultPointerCoordinate(intendedNode.screenRegion.height));
     this.assertBounds(absoluteX, absoluteY);
     return this.resolveHitAtPoint(intendedNode, absoluteX, absoluteY);
-  }
-
-  private resolveClickChain(resolved: ResolvedPointerTarget): number {
-    const key = resolved.targetNode?.nodeId ?? `${resolved.x}:${resolved.y}`;
-    const now = Date.now();
-    const chain =
-      this.lastClick !== null &&
-      this.lastClick.key === key &&
-      now - this.lastClick.time <= CLICK_CHAIN_WINDOW_MS
-        ? this.lastClick.chain + 1
-        : 1;
-
-    // [LAW:one-source-of-truth] Click-chain state is tracked in one place so
-    // double and triple clicks are derived uniformly across all pilot helpers.
-    this.lastClick = { key, chain, time: now };
-    return chain;
   }
 
   private resolveTargetNode(target: Exclude<PointerTarget, undefined>): WidgetNode {

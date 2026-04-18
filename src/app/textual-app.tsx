@@ -1,8 +1,9 @@
 import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
 import { Box, useInput, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
+import { Padding } from "rich-js";
 
-import { measureVisual, renderVisual } from "../content/index.js";
+import { measureVisual, renderVisual, visualize } from "../content/index.js";
 import { TextualFramework, type ActiveTooltip, type KeymapInput } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
@@ -23,12 +24,15 @@ export interface TextualAppProps extends PropsWithChildren {
   showTooltips?: boolean;
 }
 
+function buildTooltipVisual(tooltip: ActiveTooltip) {
+  // [LAW:single-enforcer] Tooltip chrome is injected at one render seam so
+  // overlay padding/background survives both terminal paint and visual capture.
+  return visualize(new Padding(tooltip.visual, [1, 2]));
+}
+
 function measureTooltip(tooltip: ActiveTooltip): { width: number; height: number } {
-  const measurement = measureVisual(tooltip.visual);
-  return {
-    width: measurement.width + 4,
-    height: measurement.height + 1,
-  };
+  const measurement = measureVisual(buildTooltipVisual(tooltip));
+  return { width: measurement.width, height: measurement.height };
 }
 
 function clampTooltipPosition(
@@ -40,8 +44,8 @@ function clampTooltipPosition(
   const maxTop = Math.max(0, framework.terminalSize.height - measurement.height);
 
   return {
-    left: Math.max(0, Math.min(maxLeft, tooltip.x + 2)),
-    top: Math.max(0, Math.min(maxTop, tooltip.y + 2)),
+    left: Math.max(0, Math.min(maxLeft, tooltip.x)),
+    top: Math.max(0, Math.min(maxTop, tooltip.y + 1)),
   };
 }
 
@@ -54,6 +58,7 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
   }
 
   const position = clampTooltipPosition(framework, tooltip);
+  const bubbleVisual = buildTooltipVisual(tooltip);
 
   // [LAW:single-enforcer] Tooltip visibility and content come from framework
   // state only; the view renders that canonical snapshot without re-deriving it.
@@ -62,14 +67,8 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
       position="absolute"
       marginLeft={position.left}
       marginTop={position.top}
-      flexDirection="column"
-      paddingX={1}
     >
-      {renderVisual(
-        tooltip.visual,
-        { backgroundColor: "#2d2d2d" },
-        `tooltip:${tooltip.sourceNodeId}`,
-      )}
+      {renderVisual(bubbleVisual, { backgroundColor: "#242f38" }, `tooltip:${tooltip.sourceNodeId}`)}
     </Box>
   );
 });

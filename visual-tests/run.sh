@@ -42,30 +42,34 @@ fi
 echo "=== Visual Comparison Pipeline ==="
 echo ""
 
+# [LAW:single-enforcer] The visual harness owns the terminal capability
+# contract so both renderers run against one explicit truecolor environment.
+export COLORTERM="truecolor"
+
 # Step 1: Capture Python Textual via uv
 # uv reads visual-tests/pyproject.toml, creates/reuses a venv, installs
 # textual, and runs the capture script. No manual environment management.
 echo "--- Step 1: Python Textual (via uv) ---"
 if [ -n "$FIXTURE" ]; then
-  uv run --project visual-tests python visual-tests/capture_python.py "$FIXTURE"
+  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py "$FIXTURE"
 else
-  uv run --project visual-tests python visual-tests/capture_python.py
+  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py
 fi
 echo ""
 
 # Step 2: Capture textual-js
 echo "--- Step 2: textual-js ---"
 if [ -n "$FIXTURE" ]; then
-  tsx visual-tests/capture_js.ts "$FIXTURE"
+  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/capture_js.ts "$FIXTURE"
 else
-  tsx visual-tests/capture_js.ts
+  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/capture_js.ts
 fi
 echo ""
 
 # Step 3: Compare
 echo "--- Step 3: Compare ---"
 if [ -n "$FIXTURE" ]; then
-  tsx visual-tests/compare.ts "$FIXTURE"
+  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/compare.ts "$FIXTURE"
 else
-  tsx visual-tests/compare.ts
+  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/compare.ts
 fi

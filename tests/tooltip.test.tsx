@@ -90,6 +90,23 @@ describe("tooltip and hover lifecycle", () => {
     session.unmount();
   });
 
+  it("renders tooltip bubble padding as styled cells in the terminal frame", async () => {
+    const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip="[#ff5555]Tip[/]" />, {
+      transients: { tooltips: true },
+    });
+    session.framework.setTooltipDelay(10);
+
+    await session.pilot.hover("#target");
+    await session.pilot.pause(20);
+
+    const frame = session.lastFrame() ?? "";
+    expect(frame).toContain("\u001B[48;2;36;47;56m       ");
+    expect(frame).toContain("\u001B[48;2;36;47;56m  ");
+    expect(frame).toContain("\u001B[38;2;255;85;85mTip");
+
+    session.unmount();
+  });
+
   it("renders rich-js renderables through the Visual seam", async () => {
     const tooltip = createTestRenderable("details");
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip={tooltip} />, {
