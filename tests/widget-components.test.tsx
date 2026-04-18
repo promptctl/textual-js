@@ -1,17 +1,29 @@
 import React from "react";
+import { Segment, type Measurable, type RenderOptions, type Renderable } from "rich-js";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   ButtonPressed,
   ButtonWidget,
-  Content,
   StaticWidget,
   SwitchChanged,
   SwitchWidget,
   WidgetHost,
   runTest,
 } from "../src/index.js";
+
+function createTestRenderable(text: string): Renderable & Measurable {
+  return {
+    render: vi.fn(function* (_options: RenderOptions) {
+      yield new Segment(text);
+    }),
+    measure: vi.fn((_options: RenderOptions) => ({
+      minimum: text.length,
+      maximum: text.length,
+    })),
+  };
+}
 
 describe("StaticWidget", () => {
   it("renders text content", async () => {
@@ -35,14 +47,13 @@ describe("StaticWidget", () => {
     session.unmount();
   });
 
-  it("renders styled content through the Content render bridge", async () => {
-    const content = Content.styled("Styled", "bold");
-    const toRichText = vi.spyOn(content, "toRichText");
-    const toSegments = vi.spyOn(content, "toSegments");
-    const session = await runTest(<StaticWidget content={content} />);
+  it("renders rich-js renderables through the Visual seam", async () => {
+    const renderable = createTestRenderable("Rendered");
+    const session = await runTest(<StaticWidget content={renderable} />);
 
-    expect(session.lastFrame()).toContain("Styled");
-    expect(toRichText.mock.calls.length + toSegments.mock.calls.length).toBeGreaterThan(0);
+    expect(session.lastFrame()).toContain("Rendered");
+    expect(renderable.measure).toHaveBeenCalled();
+    expect(renderable.render).toHaveBeenCalled();
 
     session.unmount();
   });
@@ -76,18 +87,6 @@ describe("ButtonWidget", () => {
     const session = await runTest(<ButtonWidget label="Click Me" />);
 
     expect(session.lastFrame()).toContain("Click Me");
-
-    session.unmount();
-  });
-
-  it("renders styled label content through the Content render bridge", async () => {
-    const label = Content.styled("Click Me", "bold red");
-    const toRichText = vi.spyOn(label, "toRichText");
-    const toSegments = vi.spyOn(label, "toSegments");
-    const session = await runTest(<ButtonWidget label={label} />);
-
-    expect(session.lastFrame()).toContain("Click Me");
-    expect(toRichText.mock.calls.length + toSegments.mock.calls.length).toBeGreaterThan(0);
 
     session.unmount();
   });

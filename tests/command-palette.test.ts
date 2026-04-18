@@ -1,8 +1,10 @@
 import React from "react";
+import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import {
   CommandPalette,
+  Content,
   Provider,
   TextualFramework,
   type CommandHit,
@@ -10,11 +12,11 @@ import {
 } from "../src/index.js";
 
 class TestProvider extends Provider {
-  private readonly commands: Array<{ name: string; helpText?: string }>;
+  private readonly commands: Array<{ name: string | Content | Panel; text?: string; helpText?: string }>;
   readonly startupCalls: number[] = [];
   readonly shutdownCalls: number[] = [];
 
-  constructor(commands: Array<{ name: string; helpText?: string }>) {
+  constructor(commands: Array<{ name: string | Content | Panel; text?: string; helpText?: string }>) {
     super();
     this.commands = commands;
   }
@@ -31,10 +33,11 @@ class TestProvider extends Provider {
     const lowerQuery = query.toLowerCase();
 
     return this.commands
-      .filter((command) => command.name.toLowerCase().includes(lowerQuery))
+      .filter((command) => (command.text ?? command.name.toString()).toLowerCase().includes(lowerQuery))
       .map((command) => ({
-        score: command.name.toLowerCase().startsWith(lowerQuery) ? 100 : 50,
+        score: (command.text ?? command.name.toString()).toLowerCase().startsWith(lowerQuery) ? 100 : 50,
         matchDisplay: command.name,
+        text: command.text,
         command: () => undefined,
         helpText: command.helpText,
       }));
@@ -42,12 +45,12 @@ class TestProvider extends Provider {
 }
 
 class DiscoveryProvider extends Provider {
-  private readonly discoveryItems: Array<{ name: string; helpText?: string }>;
-  private readonly searchItems: Array<{ name: string }>;
+  private readonly discoveryItems: Array<{ name: string | Content | Panel; text?: string; helpText?: string }>;
+  private readonly searchItems: Array<{ name: string | Content | Panel; text?: string }>;
 
   constructor(
-    discoveryItems: Array<{ name: string; helpText?: string }>,
-    searchItems: Array<{ name: string }> = [],
+    discoveryItems: Array<{ name: string | Content | Panel; text?: string; helpText?: string }>,
+    searchItems: Array<{ name: string | Content | Panel; text?: string }> = [],
   ) {
     super();
     this.discoveryItems = discoveryItems;
@@ -58,10 +61,11 @@ class DiscoveryProvider extends Provider {
     const lowerQuery = query.toLowerCase();
 
     return this.searchItems
-      .filter((item) => item.name.toLowerCase().includes(lowerQuery))
+      .filter((item) => (item.text ?? item.name.toString()).toLowerCase().includes(lowerQuery))
       .map((item) => ({
         score: 50,
         matchDisplay: item.name,
+        text: item.text,
         command: () => undefined,
       }));
   }
@@ -69,6 +73,7 @@ class DiscoveryProvider extends Provider {
   discover(): DiscoveryHit[] {
     return this.discoveryItems.map((item) => ({
       display: item.name,
+      text: item.text,
       command: () => undefined,
       helpText: item.helpText,
     }));
@@ -137,9 +142,9 @@ describe("command palette search", () => {
     await palette.startup();
 
     const results = await palette.search("save");
-    expect(results.map((result) => result.display)).toContain("Save File");
-    expect(results.map((result) => result.display)).toContain("Save As");
-    expect(results.every((result) => result.display.toLowerCase().includes("save"))).toBe(true);
+    expect(results.map((result) => result.display.plainText)).toContain("Save File");
+    expect(results.map((result) => result.display.plainText)).toContain("Save As");
+    expect(results.every((result) => result.text.toLowerCase().includes("save"))).toBe(true);
 
     await palette.shutdown();
   });
@@ -169,6 +174,45 @@ describe("command palette search", () => {
 
     const results = await palette.search("save");
     expect(results[0]?.helpText).toBe("Save the current file");
+    expect(results[0]?.display.plainText).toBe("Save");
+
+    await palette.shutdown();
+  });
+
+  it("supports renderable displays when providers supply plain-text search text", async () => {
+    const provider = new TestProvider([
+      { name: new Panel("Save File"), text: "Save File" },
+    ]);
+    const palette = createPalette([provider]);
+
+    await palette.startup();
+
+    const results = await palette.search("save");
+    expect(results[0]?.text).toBe("Save File");
+    expect(results[0]?.display.plainText).toBeNull();
+
+    await palette.shutdown();
+  });
+
+  it("rejects non-text displays without search text", async () => {
+    class InvalidDisplayProvider extends Provider {
+      search(): CommandHit[] {
+        return [
+          {
+            score: 100,
+            matchDisplay: new Panel("Save File"),
+            command: () => undefined,
+          },
+        ];
+      }
+    }
+
+    const provider = new InvalidDisplayProvider();
+    const palette = createPalette([provider]);
+
+    await palette.startup();
+
+    await expect(palette.search("save")).rejects.toThrow(/plain-text search text/i);
 
     await palette.shutdown();
   });
@@ -186,7 +230,7 @@ describe("command palette discovery", () => {
 
     const results = await palette.discover();
     expect(results).toHaveLength(2);
-    expect(results.map((result) => result.display)).toContain("Recent: Open file.txt");
+    expect(results.map((result) => result.display.plainText)).toContain("Recent: Open file.txt");
 
     await palette.shutdown();
   });
@@ -201,8 +245,8 @@ describe("command palette discovery", () => {
     await palette.startup();
 
     const emptyQueryResults = await palette.search("");
-    expect(emptyQueryResults.map((result) => result.display)).toContain("Discover Me");
-    expect(emptyQueryResults.map((result) => result.display)).not.toContain("Search Only");
+    expect(emptyQueryResults.map((result) => result.display.plainText)).toContain("Discover Me");
+    expect(emptyQueryResults.map((result) => result.display.plainText)).not.toContain("Search Only");
 
     await palette.shutdown();
   });

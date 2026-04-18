@@ -136,14 +136,15 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 - `widget.tooltip` is `None` by default.
 - Assigning a string sets the tooltip text.
-- Assigning styled content or another supported renderable/visual value sets the tooltip content without stripping its styling.
+- Assigning styled content or another supported renderable/visual value sets the tooltip content without stripping its styling or flattening renderables to text.
 
 ### Display Behavior
 
 - The tooltip appears after a delay (`TOOLTIP_DELAY`) when the mouse hovers over a widget that has a tooltip set. Hovering over a widget with no tooltip never shows a tooltip.
 - Moving the mouse to a different widget hides the tooltip.
 - The tooltip is dismissed when the source widget is removed, made invisible (`visible = False`), made not displayed (`display = False`), or shifted out from under the cursor (e.g., by mounting a widget before it).
-- Tooltip rendering preserves the source content's styling/renderable structure. A tooltip built from styled `Content` or markup must render with that styling intact rather than flattening to plain text.
+- Tooltip rendering preserves the source content's styling/renderable structure. A tooltip built from styled `Content`, markup, or a supported renderable must render with that structure intact rather than flattening to plain text.
+- Tooltip rendering preserves the full rich-js style model. The overlay must not translate colors through a reduced Ink / Chalk name subset before display.
 
 ## Loading State
 

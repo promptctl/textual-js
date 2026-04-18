@@ -1,13 +1,26 @@
 import React, { useLayoutEffect, useState } from "react";
+import { Segment, type Measurable, type RenderOptions, type Renderable } from "rich-js";
 import { Box, Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 
-import { Content, WidgetScope, type WidgetNode, runTest, useWidget } from "../src/index.js";
+import { WidgetScope, type VisualInput, type WidgetNode, runTest, useWidget } from "../src/index.js";
+
+function createTestRenderable(text: string): Renderable & Measurable {
+  return {
+    render: vi.fn(function* (_options: RenderOptions) {
+      yield new Segment(text);
+    }),
+    measure: vi.fn((_options: RenderOptions) => ({
+      minimum: text.length,
+      maximum: text.length,
+    })),
+  };
+}
 
 function TooltipLeaf(props: {
   id: string;
   label: string;
-  tooltip?: string | Content | null;
+  tooltip?: VisualInput | null;
   onReady?: (widget: WidgetNode) => void;
 }): React.JSX.Element {
   const widget = useWidget({
@@ -71,16 +84,14 @@ describe("tooltip and hover lifecycle", () => {
 
     await session.pilot.pause(20);
 
-    expect(session.framework.activeTooltip?.content.plain).toBe("details");
+    expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
     expect(session.lastFrame()).toContain("details");
 
     session.unmount();
   });
 
-  it("renders styled tooltip content through the Content render bridge", async () => {
-    const tooltip = Content.styled("details", "bold");
-    const toRichText = vi.spyOn(tooltip, "toRichText");
-    const toSegments = vi.spyOn(tooltip, "toSegments");
+  it("renders rich-js renderables through the Visual seam", async () => {
+    const tooltip = createTestRenderable("details");
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip={tooltip} />, {
       transients: { tooltips: true },
     });
@@ -89,8 +100,10 @@ describe("tooltip and hover lifecycle", () => {
     await session.pilot.hover("#target");
     await session.pilot.pause(20);
 
-    expect(session.framework.activeTooltip?.content).toBe(tooltip);
-    expect(toRichText.mock.calls.length + toSegments.mock.calls.length).toBeGreaterThan(0);
+    expect(session.framework.activeTooltip?.visual.plainText).toBeNull();
+    expect(session.lastFrame()).toContain("details");
+    expect(tooltip.measure).toHaveBeenCalled();
+    expect(tooltip.render).toHaveBeenCalled();
 
     session.unmount();
   });
@@ -136,13 +149,13 @@ describe("tooltip and hover lifecycle", () => {
 
     await session.pilot.hover("#first");
     await session.pilot.pause(20);
-    expect(session.framework.activeTooltip?.content.plain).toBe("first tip");
+    expect(session.framework.activeTooltip?.visual.plainText).toBe("first tip");
 
     await session.pilot.hover("#second");
     expect(session.framework.activeTooltip).toBeNull();
 
     await session.pilot.pause(20);
-    expect(session.framework.activeTooltip?.content.plain).toBe("second tip");
+    expect(session.framework.activeTooltip?.visual.plainText).toBe("second tip");
 
     session.unmount();
   });
@@ -161,7 +174,7 @@ describe("tooltip and hover lifecycle", () => {
 
     await session.pilot.hover("#target");
     await session.pilot.pause(20);
-    expect(session.framework.activeTooltip?.content.plain).toBe("details");
+    expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
 
     toggleMounted(false);
     await session.pilot.pause();
@@ -187,7 +200,7 @@ describe("tooltip and hover lifecycle", () => {
 
     await session.pilot.hover("#target");
     await session.pilot.pause(20);
-    expect(session.framework.activeTooltip?.content.plain).toBe("details");
+    expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
 
     widget.setDisplay(false);
     await session.pilot.pause();

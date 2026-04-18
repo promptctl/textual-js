@@ -30,7 +30,7 @@ import {
   type Binding,
   type BindingDeclaration,
 } from "../bindings/index.js";
-import { Content } from "../content/index.js";
+import { measureVisual, visualize, type Visual, type VisualInput } from "../content/index.js";
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationSeverity } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
@@ -153,7 +153,7 @@ export interface PointerLocation {
 
 export interface ActiveTooltip {
   sourceNodeId: string;
-  content: Content;
+  visual: Visual;
   x: number;
   y: number;
   visible: boolean;
@@ -1082,9 +1082,9 @@ export class TextualFramework {
     }
 
     const hoveredWidget = this.registry.get(this.hoveredNodeId);
-    const content = hoveredWidget === undefined ? null : this.normalizeTooltipContent(hoveredWidget.tooltip);
+    const visual = hoveredWidget === undefined ? null : this.normalizeTooltipContent(hoveredWidget.tooltip);
 
-    if (hoveredWidget === undefined || content === null || content.plain.length === 0) {
+    if (hoveredWidget === undefined || visual === null) {
       return;
     }
 
@@ -1096,16 +1096,16 @@ export class TextualFramework {
         return;
       }
 
-      const currentContent = this.normalizeTooltipContent(currentHovered.tooltip);
+      const currentVisual = this.normalizeTooltipContent(currentHovered.tooltip);
 
-      if (currentContent === null || currentContent.plain.length === 0) {
+      if (currentVisual === null) {
         return;
       }
 
       runInAction(() => {
         this.activeTooltip = {
           sourceNodeId: hoveredWidget.nodeId,
-          content: currentContent,
+          visual: currentVisual,
           x: pointer.x,
           y: pointer.y,
           visible: true,
@@ -1115,13 +1115,14 @@ export class TextualFramework {
     }, this.tooltipDelay);
   }
 
-  private normalizeTooltipContent(value: string | Content | null): Content | null {
+  private normalizeTooltipContent(value: VisualInput | null): Visual | null {
     if (value === null) {
       return null;
     }
 
-    const normalized = Content.fromText(value);
-    return normalized.plain.length === 0 ? null : normalized;
+    const visual = visualize(value);
+    const measurement = measureVisual(visual);
+    return measurement.width === 0 && measurement.height === 0 ? null : visual;
   }
 
   private hideTooltip(): void {

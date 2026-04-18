@@ -23,6 +23,8 @@ A button's `variant` parameter controls its visual style. The available variants
 - Labels support Rich markup: `Button("[italic red]Focused[/] Button")`.
 - The `label` property can be reassigned at runtime to change the displayed text: `button.label = "Disabled"`.
 - When the label contains Rich markup or is provided as styled `Content`, the rendered button preserves that styling; the render path must not flatten the label to plain text before display.
+- Label rendering preserves the full rich-js style model, including named ANSI colors, bright variants, 8-bit palette colors, truecolor values, and composed text attributes.
+- Button CSS/text styling contributes the base visual style under the label; explicit label spans override that base style using rich-js merge semantics.
 
 ### Multiline Labels
 

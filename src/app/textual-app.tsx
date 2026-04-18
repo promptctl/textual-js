@@ -1,9 +1,8 @@
 import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
 import { Box, useInput, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
-import stringWidth from "string-width";
 
-import { renderContent } from "../content/index.js";
+import { measureVisual, renderVisual } from "../content/index.js";
 import { TextualFramework, type ActiveTooltip, type KeymapInput } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
@@ -24,20 +23,18 @@ export interface TextualAppProps extends PropsWithChildren {
   showTooltips?: boolean;
 }
 
-function measureTooltip(tooltip: ActiveTooltip): { width: number; height: number; lines: string[] } {
-  const lines = tooltip.content.plain.split("\n");
-  const contentWidth = lines.reduce((maxWidth, line) => Math.max(maxWidth, stringWidth(line)), 0);
+function measureTooltip(tooltip: ActiveTooltip): { width: number; height: number } {
+  const measurement = measureVisual(tooltip.visual);
   return {
-    width: contentWidth + 4,
-    height: lines.length + 2,
-    lines,
+    width: measurement.width + 4,
+    height: measurement.height + 2,
   };
 }
 
 function clampTooltipPosition(
   framework: TextualFramework,
   tooltip: ActiveTooltip,
-): { left: number; top: number; lines: string[] } {
+): { left: number; top: number } {
   const measurement = measureTooltip(tooltip);
   const maxLeft = Math.max(0, framework.terminalSize.width - measurement.width);
   const maxTop = Math.max(0, framework.terminalSize.height - measurement.height);
@@ -45,7 +42,6 @@ function clampTooltipPosition(
   return {
     left: Math.max(0, Math.min(maxLeft, tooltip.x + 1)),
     top: Math.max(0, Math.min(maxTop, tooltip.y + 1)),
-    lines: measurement.lines,
   };
 }
 
@@ -70,7 +66,7 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
       borderStyle="round"
       paddingX={1}
     >
-      {renderContent(tooltip.content, {}, `tooltip:${tooltip.sourceNodeId}`)}
+      {renderVisual(tooltip.visual, {}, `tooltip:${tooltip.sourceNodeId}`)}
     </Box>
   );
 });

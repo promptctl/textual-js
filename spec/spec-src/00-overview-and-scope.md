@@ -167,7 +167,7 @@ In Python Textual, `compose()` yields child widgets. In textual-js, widget compo
 
 - **Reactive state**: MobX observables with `intercept()` for validation, `observe()` for watchers, `computed` for derived values. `observer()` from mobx-react-lite triggers React re-renders automatically.
 - **Styling**: TCSS parsed by css-tree, cascade resolves styles per widget, output translated to Ink `<Box>`/`<Text>` props and to a rich-js `Style` for content rendering. TCSS is an authoring and cascade layer — the output is "what props/styles should this widget have."
-- **Rich content**: rich-js is the authority for styled-content values (`Content`), markup parsing, renderables, and cell measurement. Widget render output that is not a child-widget tree is always a rich-js `Content` / `Strip` — never a raw string.
+- **Rich content**: rich-js is the authority for styled-content values (`Content`), markup parsing, renderables, and cell measurement. Text-oriented widget surfaces normalize to `Content`; visual-bearing surfaces normalize to a broader visual/renderable contract built on rich-js. Widget render output that is not a child-widget tree is never a raw string by the time it reaches the render boundary.
 - **Layout and rendering**: Ink handles layout via Yoga flexbox. React handles rendering and diffing. The framework does not implement a layout engine or compositor.
 - **Input and actions**: Ink handles terminal input via `useInput()`. The framework provides binding resolution (focused widget → ancestors → screen → app) and action dispatch (`action_<name>` method resolution).
 - **Concurrency**: workers (managed async tasks with AbortController cancellation), timers (named, pausable), signals (typed pub/sub backed by MobX observables).
@@ -225,13 +225,19 @@ Rich-text content is a first-class concept. Widgets accept and produce content t
 
 ### Markup input
 
-Where a widget accepts a "text" value — button labels, `Label` content, `Static` content, `RichLog.write(...)` arguments, border titles, toast messages, tooltips — the value may be:
+Text-oriented surfaces such as button labels, border titles, and footer/help strings normalize through the text seam:
 
 - A **plain string** — rendered with the widget's current `Style`, no markup parsing.
 - A **markup string** — parsed with rich-js's markup grammar, producing a `Content` with embedded styles. Example: `"[bold red]Error:[/] connection failed"` → content with "Error:" in bold red and "connection failed" in the ambient style.
 - A **`Content`** — used directly without parsing. Useful when callers build content programmatically.
 
-Markup parsing is lazy — content is only parsed when the widget renders it, not at prop assignment time.
+Visual-bearing surfaces such as `Static` content, tooltips, and command-palette displays normalize through a broader visual seam:
+
+- A **plain string** — promoted to styled text via markup-aware parsing.
+- A **`Content`** or **`RichText`** — used as text visuals directly.
+- A **rich-js renderable** — wrapped as a visual without flattening it to `Content`.
+
+// [LAW:one-source-of-truth] Text and visual surfaces each have one normalization boundary. Widgets do not invent per-surface unions once the seam is chosen.
 
 ### Cell-width truth
 

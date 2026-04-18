@@ -8,3 +8,12 @@ export {
 } from "./content.js";
 export { renderContent } from "./render.js";
 export { Strip } from "./strip.js";
+export {
+  measureVisual,
+  renderVisual,
+  visualize,
+  type Visual,
+  type VisualInput,
+  type VisualMeasurement,
+  type VisualizeOptions,
+} from "./visual.js";

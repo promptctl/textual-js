@@ -204,7 +204,7 @@ await pilot.waitForScheduledAnimations();
 | `queryContent(selector)` | Returns the queried widget's rendered rich-js `Content` (styles preserved) or `null` |
 | `queryExists(selector)` | Returns `true` if a widget matches the selector |
 | `queryAll(selector)` | Returns all matching widgets |
-| `lastFrame()` | Returns the raw ANSI-encoded last rendered frame (for snapshot tests) |
+| `lastFrame()` | Returns the raw ANSI-encoded last rendered frame (for snapshot tests and ANSI/style assertions) |
 | `getStyles(selector)` | Returns the widget's resolved style bundle: `{ box, text, style, components }` |
 
 ```tsx
@@ -225,6 +225,10 @@ expect(lastFrame()).toMatchSnapshot();
 ```
 
 Snapshot tests using `lastFrame()` capture the exact ANSI output, which is sensitive to rich-js `Color.toAnsi()` and the active output-filter pipeline. For stable snapshots across environments, keep terminal color depth deterministic in the test harness or install `NoColor` in the app's filter list for ASCII-only snapshots. Prefer `queryContent()` and `getStyles()` for structural assertions that should not depend on terminal escape bytes.
+
+When the behavior under test is styled terminal output, `lastFrame()` is the authoritative seam. Style-preservation assertions should inspect the ANSI frame (or a deterministic parsed derivative of it), not whether an internal render helper was invoked.
+
+Gate 4 follows the same rule: the visual comparison pipeline compares styled output, not only stripped text. Missing snapshots, character diffs, foreground/background color diffs, and text-attribute diffs all fail the gate.
 
 ## Message Observation
 

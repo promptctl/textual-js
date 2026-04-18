@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { captureFixtures } from "../visual-tests/capture_js.ts";
 import { summarizeReports } from "../visual-tests/compare.ts";
+import { diffStyledGrids, parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 describe("visual harness gating", () => {
   it("records JS fixture capture failures instead of downgrading them to success", async () => {
@@ -22,6 +23,53 @@ describe("visual harness gating", () => {
     } finally {
       stderrWrite.mockRestore();
     }
+  });
+
+  it("parses ANSI output into styled cells", () => {
+    const grid = parseAnsiToStyledGrid("\u001B[91;1mA\u001B[0m\u001B[48;5;249mB\u001B[0m");
+
+    expect(grid.rows).toEqual([
+      [
+        {
+          text: "A",
+          foreground: "standard:9",
+          background: null,
+          bold: true,
+          dim: false,
+          italic: false,
+          underline: false,
+          strikethrough: false,
+          inverse: false,
+          continuation: false,
+        },
+        {
+          text: "B",
+          foreground: null,
+          background: "eight-bit:249",
+          bold: false,
+          dim: false,
+          italic: false,
+          underline: false,
+          strikethrough: false,
+          inverse: false,
+          continuation: false,
+        },
+      ],
+    ]);
+  });
+
+  it("treats style-only snapshot differences as comparison failures", () => {
+    const { diffs, matchPercentage } = diffStyledGrids(
+      {
+        rows: [[{ text: "A", foreground: "standard:9", background: null, bold: false, dim: false, italic: false, underline: false, strikethrough: false, inverse: false, continuation: false }]],
+      },
+      {
+        rows: [[{ text: "A", foreground: "standard:4", background: null, bold: false, dim: false, italic: false, underline: false, strikethrough: false, inverse: false, continuation: false }]],
+      },
+    );
+
+    expect(matchPercentage).toBe(0);
+    expect(diffs).toHaveLength(1);
   });
 
   it("treats missing snapshots as comparison failures", () => {

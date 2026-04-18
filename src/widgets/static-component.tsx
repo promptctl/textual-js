@@ -5,13 +5,13 @@ import React from "react";
 import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
-import { Content, renderContent, type ContentInput } from "../content/index.js";
+import { renderVisual, visualize, type VisualInput } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 
 export interface StaticWidgetProps {
   id?: string;
   classes?: string | string[];
-  content?: ContentInput;
+  content?: VisualInput;
 }
 
 // No DEFAULT_CSS needed — Ink's flexbox auto-sizes by default.
@@ -23,7 +23,7 @@ export const StaticWidget = observer(function StaticWidget({
   classes,
   content,
 }: StaticWidgetProps): React.JSX.Element {
-  const resolved = React.useMemo(() => Content.fromText(content), [content]);
+  const visual = React.useMemo(() => visualize(content), [content]);
 
   const widget = useWidget({
     id,
@@ -36,7 +36,7 @@ export const StaticWidget = observer(function StaticWidget({
   return (
     <WidgetScope widget={widget.handle}>
       <Box {...styles.box}>
-        {renderContent(resolved, styles.text, `static:${widget.nodeId}`)}
+        {renderVisual(visual, styles.text, `static:${widget.nodeId}`)}
       </Box>
     </WidgetScope>
   );

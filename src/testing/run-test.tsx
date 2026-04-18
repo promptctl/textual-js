@@ -2,7 +2,7 @@ import React from "react";
 import { render } from "ink-testing-library";
 
 import type { Message } from "../events/message.js";
-import { TextualApp } from "../app/textual-app.js";
+import { TextualApp, type TextualAppProps } from "../app/textual-app.js";
 import { TextualFramework } from "../framework/app-framework.js";
 import type { WidgetNode } from "../framework/widget-node.js";
 
@@ -13,6 +13,7 @@ export class PilotTargetNotFound extends Error {}
 export interface RunTestOptions {
   size?: { width: number; height: number };
   props?: Record<string, unknown>;
+  appProps?: Partial<TextualAppProps>;
   messageHook?: (message: Message) => void;
   transients?: {
     tooltips?: boolean;
@@ -333,7 +334,11 @@ export async function runTest(component: AppInput, options: RunTestOptions = {})
   const unsubscribeMessageHook =
     options.messageHook === undefined ? undefined : framework.subscribeToMessages(options.messageHook);
   const instance = render(
-    <TextualApp framework={framework} showTooltips={options.transients?.tooltips ?? false}>
+    <TextualApp
+      {...options.appProps}
+      framework={framework}
+      showTooltips={options.transients?.tooltips ?? options.appProps?.showTooltips ?? false}
+    >
       {resolveComponent(component, options.props ?? {})}
     </TextualApp>,
   );

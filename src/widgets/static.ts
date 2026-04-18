@@ -1,25 +1,28 @@
-// [LAW:one-source-of-truth] `visual` is the canonical Content representation;
-// `content` is the plain-text projection derived from it.
+// [LAW:one-source-of-truth] `visual` is the canonical render representation;
+// `content` preserves the original source value fed into that seam.
 
-import { Content, type ContentInput } from "../content/index.js";
+import { visualize, type Visual, type VisualInput } from "../content/index.js";
 
 export class Static {
-  private _visual: Content;
+  private _content: VisualInput;
+  private _visual: Visual;
 
-  constructor(content: ContentInput = "") {
-    this._visual = Content.fromText(content);
+  constructor(content: VisualInput = "") {
+    this._content = content ?? "";
+    this._visual = visualize(this._content);
   }
 
-  get content(): string {
-    return this._visual.plain;
+  get content(): VisualInput {
+    return this._content;
   }
 
-  get visual(): Content {
+  get visual(): Visual {
     return this._visual;
   }
 
-  update(content: ContentInput): void {
-    this._visual = Content.fromText(content);
+  update(content: VisualInput): void {
+    this._content = content ?? "";
+    this._visual = visualize(this._content);
   }
 }
 

@@ -1,7 +1,7 @@
 import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import type { Binding } from "../bindings/index.js";
-import type { Content } from "../content/index.js";
+import type { VisualInput } from "../content/index.js";
 import type { Message } from "../events/message.js";
 import { Region } from "../geometry/region.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
@@ -27,7 +27,7 @@ export interface WidgetNodeInit {
   autoFocus: boolean;
   disabled: boolean;
   loading: boolean;
-  tooltip: string | Content | null;
+  tooltip: VisualInput | null;
 }
 
 export class WidgetNode {
@@ -48,7 +48,7 @@ export class WidgetNode {
   screenRegion = Region.EMPTY;
   disabled: boolean;
   loading: boolean;
-  tooltip: string | Content | null;
+  tooltip: VisualInput | null;
 
   constructor(init: WidgetNodeInit) {
     this.framework = init.framework;
@@ -126,7 +126,7 @@ export class WidgetNode {
     this.framework.refreshStyles(true);
   }
 
-  setTooltip(value: string | Content | null): void {
+  setTooltip(value: VisualInput | null): void {
     if (this.tooltip === value) {
       return;
     }

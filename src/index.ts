@@ -45,6 +45,13 @@ export {
   type ContentPart,
   type ContentTruncateOptions,
   type Span,
+  measureVisual,
+  renderVisual,
+  visualize,
+  type Visual,
+  type VisualInput,
+  type VisualMeasurement,
+  type VisualizeOptions,
 } from "./content/index.js";
 export {
   ActiveModeError,

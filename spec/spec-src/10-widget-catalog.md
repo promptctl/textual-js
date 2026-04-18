@@ -3,7 +3,7 @@
 This catalog covers the built-in widget set. Base widget behavior (lifecycle, messaging, styling, focus, disabled/loading state) is owned by spec 09. This catalog lists the per-widget surface: static properties, bindings, posted messages, reactives, public methods, and composition assumptions. TextArea's editing engine is owned by spec 11. Markdown parsing uses **marked**. Syntax highlighting uses **Shiki**.
 
 All widgets are React function components wrapped in `observer()` from mobx-react-lite. They render using Ink primitives (`<Box>`, `<Text>`) with TCSS-resolved styles via `useStyles()`.
-Displayed-text surfaces across the catalog accept `string | Content` unless noted otherwise. Plain strings render with the ambient widget style, markup strings are parsed by rich-js at render time, and pre-built `Content` is used directly.
+Text-oriented surfaces accept `string | Content` unless noted otherwise. Visual-bearing surfaces accept the broader visual/renderable contract. Plain strings render with the ambient widget style, markup strings are parsed by rich-js at render time, pre-built `Content` is used directly, and rich-js renderables stay renderables on visual-bearing surfaces.
 
 ## Shared Characteristics
 
@@ -68,9 +68,9 @@ Base content widget for displaying text and rich content.
 | Reactives | `content` |
 | Messages | — |
 
-- `update(content, layout?)` replaces the displayed content. `content` is `string | Content`. If `layout` is true, triggers a layout refresh.
+- `update(content, layout?)` replaces the displayed content. `content` is a visual-bearing value: string, `Content`, `RichText`, or a supported rich-js renderable. If `layout` is true, triggers a layout refresh.
 - Parent type for `Label`, `Link`, and most Markdown-generated blocks.
-- Renders content as `<Text>` with TCSS styles.
+- Renders content through the framework's visual seam; text-like values may normalize to `Content`, while rich-js renderables remain renderables.
 
 ### `Label`
 
@@ -82,7 +82,7 @@ Single-line text with inline-block default styling. Thin wrapper over `Static`.
 | Reactives | Inherited from `Static` |
 | Messages | — |
 
-`Label` inherits `content: string | Content` from `Static`.
+`Label` inherits the visual-bearing `content` contract from `Static`.
 
 ### `Link`
 

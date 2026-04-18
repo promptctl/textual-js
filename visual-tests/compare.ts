@@ -1,8 +1,8 @@
 /**
  * Compare Python Textual and textual-js snapshots.
  *
- * Reads the plain-text grids from both snapshot directories and produces a
- * per-fixture diff report. Each cell is compared character by character.
+ * Reads the styled cell grids from both snapshot directories and produces a
+ * per-fixture diff report. Each cell is compared character and style by character and style.
  *
  * Usage:
  *   npx tsx visual-tests/compare.ts [fixture_name]
@@ -12,61 +12,27 @@
  *   1 — at least one fixture has differences
  */
 
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
+
+import { diffStyledGrids, formatStyledCell, type StyledCellDiff, type StyledGrid } from "./styled-grid.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PYTHON_DIR = join(__dirname, "snapshots", "python");
 const JS_DIR = join(__dirname, "snapshots", "js");
-
-interface CellDiff {
-  row: number;
-  col: number;
-  python: string;
-  js: string;
-}
+const FIXTURE_MANIFEST_PATH = join(__dirname, "fixtures.json");
 
 interface FixtureReport {
   name: string;
   status: "match" | "diff" | "missing-python" | "missing-js";
-  diffs: CellDiff[];
+  diffs: StyledCellDiff[];
   pythonLines: number;
   jsLines: number;
   matchPercentage: number;
-}
-
-function diffTextGrids(pythonText: string, jsText: string): { diffs: CellDiff[]; matchPercentage: number } {
-  const pythonLines = pythonText.split("\n");
-  const jsLines = jsText.split("\n");
-  const maxRows = Math.max(pythonLines.length, jsLines.length);
-  const diffs: CellDiff[] = [];
-  let totalCells = 0;
-  let matchingCells = 0;
-
-  for (let row = 0; row < maxRows; row++) {
-    const pyLine = pythonLines[row] ?? "";
-    const jsLine = jsLines[row] ?? "";
-    const maxCols = Math.max(pyLine.length, jsLine.length);
-
-    for (let col = 0; col < maxCols; col++) {
-      const pyChar = pyLine[col] ?? " ";
-      const jsChar = jsLine[col] ?? " ";
-      totalCells++;
-
-      if (pyChar === jsChar) {
-        matchingCells++;
-      } else {
-        diffs.push({ row, col, python: pyChar, js: jsChar });
-      }
-    }
-  }
-
-  const matchPercentage = totalCells === 0 ? 100 : (matchingCells / totalCells) * 100;
-  return { diffs, matchPercentage };
 }
 
 function renderDiffSummary(report: FixtureReport): string {
@@ -95,9 +61,9 @@ function renderDiffSummary(report: FixtureReport): string {
   const shown = report.diffs.slice(0, maxShown);
 
   for (const diff of shown) {
-    const pyDisplay = diff.python === " " ? "SP" : JSON.stringify(diff.python);
-    const jsDisplay = diff.js === " " ? "SP" : JSON.stringify(diff.js);
-    lines.push(`    [${diff.row}:${diff.col}] Python=${pyDisplay} JS=${jsDisplay}`);
+    lines.push(
+      `    [${diff.row}:${diff.col}] Python=${formatStyledCell(diff.python)} JS=${formatStyledCell(diff.js)}`,
+    );
   }
 
   if (report.diffs.length > maxShown) {
@@ -131,36 +97,13 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 async function discoverFixtures(): Promise<string[]> {
-  const names = new Set<string>();
-
-  try {
-    const pyFiles = await readdir(PYTHON_DIR);
-    for (const file of pyFiles) {
-      if (file.endsWith(".txt")) {
-        names.add(file.replace(/\.txt$/, ""));
-      }
-    }
-  } catch {
-    // Directory may not exist yet
-  }
-
-  try {
-    const jsFiles = await readdir(JS_DIR);
-    for (const file of jsFiles) {
-      if (file.endsWith(".txt")) {
-        names.add(file.replace(/\.txt$/, ""));
-      }
-    }
-  } catch {
-    // Directory may not exist yet
-  }
-
-  return [...names].sort();
+  const manifest = JSON.parse(await readFile(FIXTURE_MANIFEST_PATH, "utf-8")) as string[];
+  return [...manifest].sort();
 }
 
 async function compareFixture(name: string): Promise<FixtureReport> {
-  const pyPath = join(PYTHON_DIR, `${name}.txt`);
-  const jsPath = join(JS_DIR, `${name}.txt`);
+  const pyPath = join(PYTHON_DIR, `${name}.json`);
+  const jsPath = join(JS_DIR, `${name}.json`);
 
   const pyExists = await fileExists(pyPath);
   const jsExists = await fileExists(jsPath);
@@ -173,17 +116,17 @@ async function compareFixture(name: string): Promise<FixtureReport> {
     return { name, status: "missing-js", diffs: [], pythonLines: 0, jsLines: 0, matchPercentage: 0 };
   }
 
-  const pyText = (await readFile(pyPath, "utf-8")).trimEnd();
-  const jsText = (await readFile(jsPath, "utf-8")).trimEnd();
+  const pyGrid = JSON.parse(await readFile(pyPath, "utf-8")) as StyledGrid;
+  const jsGrid = JSON.parse(await readFile(jsPath, "utf-8")) as StyledGrid;
 
-  const { diffs, matchPercentage } = diffTextGrids(pyText, jsText);
+  const { diffs, matchPercentage } = diffStyledGrids(pyGrid, jsGrid);
 
   return {
     name,
     status: diffs.length === 0 ? "match" : "diff",
     diffs,
-    pythonLines: pyText.split("\n").length,
-    jsLines: jsText.split("\n").length,
+    pythonLines: pyGrid.rows.length,
+    jsLines: jsGrid.rows.length,
     matchPercentage,
   };
 }

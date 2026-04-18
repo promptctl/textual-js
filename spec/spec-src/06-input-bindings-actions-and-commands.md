@@ -311,14 +311,16 @@ interface Provider {
 }
 
 interface Hit {
-  score: number;          // Match quality (higher = better)
-  matchDisplay: Content;  // Display text as rich-js Content
-  command: () => void;    // Callback to execute when selected
-  helpText?: string;      // Additional description
+  score: number;             // Match quality (higher = better)
+  matchDisplay: VisualInput; // Display value shown in the palette
+  text?: string;             // Plain-text search key; required for non-text displays
+  command: () => void;       // Callback to execute when selected
+  helpText?: string;         // Additional description
 }
 
 interface DiscoveryHit {
-  display: string | Content; // Display text
+  display: VisualInput;   // Display value shown in the palette
+  text?: string;          // Plain-text search/display key when display is non-textual
   command: () => void;    // Callback to execute
   helpText?: string;      // Additional description
 }
@@ -347,8 +349,8 @@ interface DiscoveryHit {
 
 - Discovery hits are visible immediately when the palette opens.
 - Results are gathered concurrently from all providers and streamed into the result list in batches.
-- Fuzzy matching uses **uFuzzy**: the query is matched against command names, and highlight ranges from uFuzzy are used to render matched characters in the result display.
-- uFuzzy returns match ranges as `[start, end]` pairs per command. The framework converts each `(name, ranges)` pair to rich-js `Content` by splitting the name into segments: characters inside a range receive the `command-palette--hit-match` component class, and characters outside use the ambient style. The resulting `Content` becomes `Hit.matchDisplay`. Providers that bypass uFuzzy may return plain `Content` or tag match ranges manually using the same component class, which resolves to a rich-js `Style` via the TCSS cascade.
+- Fuzzy matching uses **uFuzzy** against the hit's plain-text `text` value. If a hit's display value is not directly textual, the provider must supply `text`; the framework does not flatten arbitrary renderables for search.
+- uFuzzy returns match ranges as `[start, end]` pairs per command. The framework may convert those ranges into styled text for textual displays, or keep the provider's display visual intact and use `text` solely for ranking/matching.
 - Keyboard navigation: Up/Down to select, Enter to execute (or Enter to confirm when `runOnSelect` is `false`), Escape or click-away to dismiss.
 - Executing a command closes the palette and invokes the hit's callback (subject to `runOnSelect`).
 
@@ -371,14 +373,15 @@ The built-in system commands provider drives both `discover()` and `search()` fr
 
 ```tsx
 interface SystemCommand {
-  name: string | Content; // Command name for display and matching
+  name: VisualInput;      // Command display value
+  text?: string;          // Plain-text matching key when name is non-textual
   helpText: string | Content; // Description
   callback: () => void;   // What to execute
   discover: boolean;      // Whether to show in discovery (empty query) mode
 }
 ```
 
-Strings without markup syntax render as plain text; markup strings are parsed via rich-js at render time; `Content` is used directly. Discovery yields only commands with `discover: true`. Search fuzzy-matches all commands.
+Strings without markup syntax render as plain text; markup strings are parsed via rich-js at render time; `Content` is used directly; rich-js renderables remain renderables. Discovery yields only commands with `discover: true`. Search fuzzy-matches the resolved `text` value for each command.
 
 ## Built-in App-Level Actions
 

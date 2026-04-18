@@ -364,9 +364,10 @@ DataTable.-loading {
 
 ## Tooltip
 
-- `tooltip` reactive property (`string | Content | null`). When set and the mouse hovers over the widget for `TOOLTIP_DELAY` milliseconds, a tooltip message is posted.
+- `tooltip` reactive property (`VisualInput | null`). When set and the mouse hovers over the widget for `TOOLTIP_DELAY` milliseconds, a tooltip message is posted.
 - The app renders the tooltip near the mouse position.
-- Plain strings render with the ambient tooltip style; markup strings are parsed via rich-js; `Content` is used directly by the internal tooltip overlay widget.
+- Plain strings render with the ambient tooltip style; markup strings are parsed via rich-js; `Content`/`RichText` remain text visuals; rich-js renderables remain renderables inside the internal tooltip overlay widget.
+- Tooltip text composition follows the same contract as upstream Textual: the ambient widget / app visual style is the base layer, and explicit content spans override it using rich-js merge semantics.
 - Moving the mouse away dismisses the tooltip.
 
 ## Text Selection

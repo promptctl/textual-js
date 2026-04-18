@@ -7,7 +7,8 @@ from textual.widgets import Static
 class StaticBasicApp(App):
     CSS = """
     Screen {
-        background: $background;
+        background: #121212;
+        color: #e0e0e0;
     }
     """
 

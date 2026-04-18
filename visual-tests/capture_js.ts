@@ -3,7 +3,8 @@
  *
  * Runs each fixture component headlessly at a fixed terminal size, then saves:
  *   - An ANSI frame (the raw Ink output with escape codes)
- *   - A plain-text grid (ANSI stripped, for automated text diff)
+ *   - A styled cell grid (for automated style-aware diff)
+ *   - A plain-text grid (diagnostic only)
  *
  * Usage:
  *   npx tsx visual-tests/capture_js.ts [fixture_name]
@@ -12,37 +13,28 @@
  *                                          <fixture_name>.txt
  */
 
-import { readdir } from "node:fs/promises";
-import { writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import React from "react";
 
 import { runTest } from "../src/index.js";
+import { parseAnsiToStyledGrid, styledGridToText } from "./styled-grid.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const FIXTURES_DIR = join(__dirname, "fixtures");
+const FIXTURE_MANIFEST_PATH = join(__dirname, "fixtures.json");
 const SNAPSHOTS_DIR = join(__dirname, "snapshots", "js");
 
 const TERMINAL_WIDTH = 80;
 const TERMINAL_HEIGHT = 24;
 
-function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1B\[[0-9;]*[A-Za-z]/g, "")
-    .replace(/\x1B\][^\x07]*\x07/g, "")
-    .replace(/\x1B\][^\x1B]*\x1B\\/g, "");
-}
-
 async function discoverFixtures(): Promise<string[]> {
-  const entries = await readdir(FIXTURES_DIR);
-  return entries
-    .filter((name) => name.endsWith(".tsx"))
-    .map((name) => name.replace(/\.tsx$/, ""))
-    .sort();
+  const manifest = JSON.parse(await readFile(FIXTURE_MANIFEST_PATH, "utf-8")) as string[];
+  return [...manifest].sort();
 }
 
 async function captureFixture(name: string): Promise<void> {
@@ -55,27 +47,32 @@ async function captureFixture(name: string): Promise<void> {
 
   const session = await runTest(
     React.createElement(FixtureComponent),
-    { size: { width: TERMINAL_WIDTH, height: TERMINAL_HEIGHT } },
+    {
+      size: { width: TERMINAL_WIDTH, height: TERMINAL_HEIGHT },
+      appProps: (module.appProps ?? {}) as Record<string, unknown>,
+    },
   );
 
   await session.pilot.pause();
 
-  const ansiFrame = session.lastFrame() ?? "";
-  const textGrid = stripAnsi(ansiFrame);
-
-  // Remove trailing blank lines from text grid
-  const lines = textGrid.split("\n");
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
-    lines.pop();
+  if (typeof module.capture === "function") {
+    await module.capture(session);
   }
 
+  const ansiFrame = session.lastFrame() ?? "";
+  const styledGrid = parseAnsiToStyledGrid(ansiFrame);
+  const textGrid = styledGridToText(styledGrid);
+
   const ansiPath = join(SNAPSHOTS_DIR, `${name}.ansi`);
+  const jsonPath = join(SNAPSHOTS_DIR, `${name}.json`);
   const txtPath = join(SNAPSHOTS_DIR, `${name}.txt`);
 
   await writeFile(ansiPath, ansiFrame);
-  await writeFile(txtPath, lines.join("\n") + "\n");
+  await writeFile(jsonPath, `${JSON.stringify(styledGrid, null, 2)}\n`);
+  await writeFile(txtPath, `${textGrid}${textGrid.length === 0 ? "" : "\n"}`);
 
   process.stdout.write(`    -> snapshots/js/${name}.ansi\n`);
+  process.stdout.write(`    -> snapshots/js/${name}.json\n`);
   process.stdout.write(`    -> snapshots/js/${name}.txt\n`);
 
   session.unmount();

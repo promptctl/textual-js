@@ -3,6 +3,7 @@
 
 import uFuzzy from "@leeoniya/ufuzzy";
 
+import { visualize, type Visual } from "../content/index.js";
 import type { Provider, CommandHit, DiscoveryHit, ProviderContext } from "./provider.js";
 
 export interface CommandPaletteOptions {
@@ -11,10 +12,26 @@ export interface CommandPaletteOptions {
 }
 
 export interface PaletteResult {
-  display: string;
+  display: Visual;
+  text: string;
   helpText?: string;
   command: () => void;
   disabled?: boolean;
+}
+
+interface NormalizedCommandHit {
+  score: number;
+  display: Visual;
+  text: string;
+  command: () => void;
+  helpText?: string;
+}
+
+interface NormalizedDiscoveryHit {
+  display: Visual;
+  text: string;
+  command: () => void;
+  helpText?: string;
 }
 
 export class CommandPalette {
@@ -66,7 +83,7 @@ export class CommandPalette {
       const hits = provider.discover();
 
       for await (const hit of hits) {
-        results.push(discoveryHitToResult(hit));
+        results.push(discoveryHitToResult(normalizeDiscoveryHit(hit)));
       }
     }
 
@@ -78,19 +95,19 @@ export class CommandPalette {
       return this.discover();
     }
 
-    const allHits: CommandHit[] = [];
+    const allHits: NormalizedCommandHit[] = [];
 
     for (const provider of this.providers) {
       const hits = provider.search(query);
 
       for await (const hit of hits) {
-        allHits.push(hit);
+        allHits.push(normalizeCommandHit(hit));
       }
     }
 
     // [LAW:dataflow-not-control-flow] Fuzzy re-ranking always runs; empty
     // hit lists produce empty results without a conditional skip.
-    const names = allHits.map((hit) => hit.matchDisplay);
+    const names = allHits.map((hit) => hit.text);
     const [idxs, info, order] = this.fuzzy.search(names, query);
 
     if (idxs === null || order === null) {
@@ -99,7 +116,7 @@ export class CommandPalette {
         .map(commandHitToResult);
     }
 
-    const ranked: CommandHit[] = [];
+    const ranked: NormalizedCommandHit[] = [];
 
     for (const orderIndex of order) {
       const originalIndex = idxs[orderIndex];
@@ -122,17 +139,54 @@ export class CommandPalette {
   }
 }
 
-function commandHitToResult(hit: CommandHit): PaletteResult {
+function resolvePaletteText(display: Visual, text: string | undefined): string {
+  if (text !== undefined) {
+    return text;
+  }
+
+  if (display.plainText !== null) {
+    return display.plainText;
+  }
+
+  throw new TypeError("Command palette providers must supply plain-text search text for non-text displays");
+}
+
+function normalizeCommandHit(hit: CommandHit): NormalizedCommandHit {
+  const display = visualize(hit.matchDisplay);
+
   return {
-    display: hit.matchDisplay,
+    score: hit.score,
+    display,
+    text: resolvePaletteText(display, hit.text),
+    command: hit.command,
+    helpText: hit.helpText,
+  };
+}
+
+function normalizeDiscoveryHit(hit: DiscoveryHit): NormalizedDiscoveryHit {
+  const display = visualize(hit.display);
+
+  return {
+    display,
+    text: resolvePaletteText(display, hit.text),
+    command: hit.command,
+    helpText: hit.helpText,
+  };
+}
+
+function commandHitToResult(hit: NormalizedCommandHit): PaletteResult {
+  return {
+    display: hit.display,
+    text: hit.text,
     helpText: hit.helpText,
     command: hit.command,
   };
 }
 
-function discoveryHitToResult(hit: DiscoveryHit): PaletteResult {
+function discoveryHitToResult(hit: NormalizedDiscoveryHit): PaletteResult {
   return {
     display: hit.display,
+    text: hit.text,
     helpText: hit.helpText,
     command: hit.command,
   };

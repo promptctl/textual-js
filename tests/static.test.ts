@@ -1,3 +1,4 @@
+import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import { Content, Static, Placeholder, InvalidPlaceholderVariant } from "../src/index.js";
@@ -7,15 +8,14 @@ describe("Static widget", () => {
     const widget = new Static();
 
     expect(widget.content).toBe("");
-    expect(widget.visual).toBeInstanceOf(Content);
-    expect(widget.visual.plain).toBe("");
+    expect(widget.visual.plainText).toBe("");
   });
 
   it("constructs with a string and keeps content and visual in sync", () => {
     const widget = new Static("Hello");
 
     expect(widget.content).toBe("Hello");
-    expect(widget.visual.plain).toBe("Hello");
+    expect(widget.visual.plainText).toBe("Hello");
   });
 
   it("updates content and visual together", () => {
@@ -23,20 +23,27 @@ describe("Static widget", () => {
 
     widget.update("Hello");
     expect(widget.content).toBe("Hello");
-    expect(widget.visual.plain).toBe("Hello");
+    expect(widget.visual.plainText).toBe("Hello");
 
     widget.update("[bold]Styled[/]");
-    expect(widget.content).toBe("Styled");
-    expect(widget.visual.plain).toBe("Styled");
-    expect(widget.visual.spans.length).toBeGreaterThan(0);
+    expect(widget.content).toBe("[bold]Styled[/]");
+    expect(widget.visual.plainText).toBe("Styled");
   });
 
   it("accepts Content input directly", () => {
     const content = Content.styled("rich", "bold");
     const widget = new Static(content);
 
-    expect(widget.content).toBe("rich");
-    expect(widget.visual.spans).toEqual([{ start: 0, end: 4, style: "bold" }]);
+    expect(widget.content).toBe(content);
+    expect(widget.visual.plainText).toBe("rich");
+  });
+
+  it("preserves renderable content as the source value", () => {
+    const panel = new Panel("rich");
+    const widget = new Static(panel);
+
+    expect(widget.content).toBe(panel);
+    expect(widget.visual.plainText).toBeNull();
   });
 });
 

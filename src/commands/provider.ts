@@ -1,17 +1,20 @@
 // [LAW:one-type-per-behavior] All command providers share one base class.
 // The palette calls the same search/discover interface on every provider.
 
+import type { VisualInput } from "../content/index.js";
 import type { TextualFramework } from "../framework/app-framework.js";
 
 export interface CommandHit {
   score: number;
-  matchDisplay: string;
+  matchDisplay: VisualInput;
+  text?: string;
   command: () => void;
   helpText?: string;
 }
 
 export interface DiscoveryHit {
-  display: string;
+  display: VisualInput;
+  text?: string;
   command: () => void;
   helpText?: string;
 }

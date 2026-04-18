@@ -13,7 +13,7 @@ import { observer } from "mobx-react-lite";
 import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
-import type { Content } from "../content/index.js";
+import type { VisualInput } from "../content/index.js";
 import { TextualFramework } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { WidgetNode } from "./widget-node.js";
@@ -71,7 +71,7 @@ export interface UseWidgetOptions {
   defaultCss?: string;
   disabled?: boolean;
   loading?: boolean;
-  tooltip?: string | Content | null;
+  tooltip?: VisualInput | null;
 }
 
 export interface UseWidgetResult {
@@ -186,7 +186,7 @@ export interface WidgetHostProps extends PropsWithChildren {
   defaultCss?: string;
   disabled?: boolean;
   loading?: boolean;
-  tooltip?: string | Content | null;
+  tooltip?: VisualInput | null;
 }
 
 function readAnsiSequenceEnd(output: string, startIndex: number): number {
