@@ -1,6 +1,6 @@
 # Visual Comparison Harness
 
-Compares the visual output of Python Textual and textual-js by capturing real PNG screenshots of the same fixture in a dedicated Ghostty window.
+Compares the visual output of Python Textual and textual-js by capturing real PNG screenshots of the same fixture in an isolated Xvfb terminal window inside Docker.
 
 ## How It Works
 
@@ -10,7 +10,7 @@ Compares the visual output of Python Textual and textual-js by capturing real PN
    - Python (via `uv`): ANSI frame + diagnostic JSON/TXT
    - JS: ANSI frame + diagnostic JSON/TXT
 
-3. **Window capture** — The harness opens a dedicated Ghostty window, paints each ANSI frame into that single window, and captures the window to PNG with macOS `screencapture`.
+3. **Window capture** — The harness starts an Xvfb display inside Docker, opens an `xterm` window in that isolated display, displays each ANSI frame, and captures that terminal window to PNG.
 
 4. **Compare** — The comparison tool uses ImageMagick to diff the Python and JS PNGs pixel-for-pixel.
 
@@ -24,7 +24,7 @@ Compares the visual output of Python Textual and textual-js by capturing real PN
 ./visual-tests/run.sh static_basic
 ```
 
-`uv` resolves Python and `textual` automatically from `visual-tests/pyproject.toml`. There is no manual `pip install` step. If `uv`, `tsx`, `magick`, or Ghostty is missing, the pipeline fails immediately with an actionable error.
+`uv` resolves Python and `textual` automatically from `visual-tests/pyproject.toml`. There is no manual `pip install` step. If `uv`, `tsx`, `magick`, or Docker is missing, the pipeline fails immediately with an actionable error.
 
 ## Manual Steps
 
@@ -67,8 +67,9 @@ visual-tests/
       static_basic.png   # Pixel diff image when screenshots differ
   capture_python.py      # Python capture script
   capture_js.ts          # JS capture script
-  render_pngs.ts         # Ghostty window screenshot renderer
-  find-window.swift      # Resolve the real macOS window id for Ghostty capture
+  Dockerfile             # Isolated screenshot environment
+  render-ansi-xvfb.sh    # Display one ANSI frame in xterm and screenshot it
+  render_pngs.ts         # Docker/Xvfb screenshot renderer
   compare.ts             # PNG diff tool
   run.sh                 # Pipeline orchestrator
 ```
@@ -98,6 +99,6 @@ Open the `snapshots/diff/*.png` files to inspect mismatches visually.
 
 - **uv** — [Install](https://docs.astral.sh/uv/getting-started/installation/). Manages the Python environment and `textual` dependency automatically.
 - **tsx** — `npm install -g tsx`. Runs the TypeScript capture and compare scripts.
-- **Ghostty** — Required so the harness can render and capture exactly one terminal window with truecolor support.
+- **Docker** — Required so the harness can render and capture a terminal window in an isolated Xvfb display without touching the active desktop session.
 - **ImageMagick** — Provides the `magick` CLI for pixel diffs.
 - **Node 18+** with project dependencies (`npm install`).

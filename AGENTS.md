@@ -11,7 +11,7 @@ npm test                       # Gate 3: All Vitest suites pass
 bash visual-tests/run.sh       # Gate 4: Visual comparison vs Python Textual
 ```
 
-Gate 4 requires `uv` and `tsx` on PATH. If missing, the script fails immediately with an install link. Do not bypass this by skipping the gate — install the tools.
+Gate 4 requires `uv`, `tsx`, Docker, and ImageMagick's `magick` CLI on PATH. If missing, the script fails immediately with an actionable error. Do not bypass this by skipping the gate — install the tools.
 
 **New widget components require paired visual fixtures.** When adding a widget component (`src/widgets/*-component.tsx`), also create `visual-tests/fixtures/<name>.py` (Python Textual) and `visual-tests/fixtures/<name>.tsx` (textual-js) rendering the same layout.
 

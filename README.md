@@ -60,7 +60,7 @@ bash visual-tests/run.sh       # Visual comparison: Python Textual vs textual-js
 
 ### Visual comparison harness
 
-`visual-tests/run.sh` captures screenshots from both Python Textual and textual-js for paired widget fixtures, then diffs them cell by cell. Requires `uv` (manages Python + textual automatically) and `tsx` on PATH. See `visual-tests/README.md` for details.
+`visual-tests/run.sh` captures screenshots from both Python Textual and textual-js for paired widget fixtures in an isolated Docker/Xvfb terminal, then diffs the PNGs pixel-for-pixel. Requires `uv` (manages Python + textual automatically), `tsx`, Docker, and ImageMagick's `magick` CLI on PATH. See `visual-tests/README.md` for details.
 
 ```bash
 bash visual-tests/run.sh              # All fixtures

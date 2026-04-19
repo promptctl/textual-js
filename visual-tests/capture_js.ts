@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import React from "react";
+import stringWidth from "string-width";
 
 import { runTest } from "../src/index.js";
 import { discoverPairedFixtures } from "./discover-fixtures.ts";
@@ -31,6 +32,93 @@ const SNAPSHOTS_DIR = join(__dirname, "snapshots", "js");
 
 const TERMINAL_WIDTH = 80;
 const TERMINAL_HEIGHT = 24;
+
+function readEscapeSequenceEnd(output: string, startIndex: number): number {
+  const nextCharacter = output[startIndex + 1];
+
+  if (nextCharacter === "[") {
+    let index = startIndex + 2;
+
+    while (index < output.length) {
+      const character = output[index];
+
+      if (character >= "@" && character <= "~") {
+        return index + 1;
+      }
+
+      index += 1;
+    }
+  }
+
+  if (nextCharacter === "]") {
+    let index = startIndex + 2;
+
+    while (index < output.length) {
+      if (output[index] === "\u0007") {
+        return index + 1;
+      }
+
+      if (output[index] === "\u001B" && output[index + 1] === "\\") {
+        return index + 2;
+      }
+
+      index += 1;
+    }
+  }
+
+  return Math.min(output.length, startIndex + 2);
+}
+
+function measureAnsiCursor(output: string): { row: number; column: number } {
+  let row = 0;
+  let column = 0;
+  let index = 0;
+
+  while (index < output.length) {
+    const character = output[index];
+
+    if (character === "\u001B") {
+      index = readEscapeSequenceEnd(output, index);
+      continue;
+    }
+
+    if (character === "\r") {
+      column = 0;
+      index += 1;
+      continue;
+    }
+
+    if (character === "\n") {
+      row += 1;
+      column = 0;
+      index += 1;
+      continue;
+    }
+
+    const codePoint = output.codePointAt(index);
+
+    if (codePoint === undefined) {
+      break;
+    }
+
+    const glyph = String.fromCodePoint(codePoint);
+    column += stringWidth(glyph);
+    index += glyph.length;
+  }
+
+  return { row, column };
+}
+
+function padAnsiFrameToTerminalSize(output: string): string {
+  const cursor = measureAnsiCursor(output);
+  const rowsToAppend = Math.max(0, TERMINAL_HEIGHT - cursor.row - 1);
+  const columnAfterRows = rowsToAppend > 0 ? 0 : cursor.column;
+  const columnsToAppend = Math.max(0, TERMINAL_WIDTH - columnAfterRows);
+
+  // [LAW:one-source-of-truth] JS capture owns the translation from Ink output
+  // into the fixed terminal frame consumed by the screenshot renderer.
+  return `${output}${"\n".repeat(rowsToAppend)}${" ".repeat(columnsToAppend)}`;
+}
 
 async function discoverFixtures(): Promise<string[]> {
   return discoverPairedFixtures(FIXTURES_DIR);
@@ -58,7 +146,7 @@ async function captureFixture(name: string): Promise<void> {
     await module.capture(session);
   }
 
-  const ansiFrame = session.lastFrame() ?? "";
+  const ansiFrame = padAnsiFrameToTerminalSize(session.lastFrame() ?? "");
   const styledGrid = parseAnsiToStyledGrid(ansiFrame);
   const textGrid = styledGridToText(styledGrid);
 

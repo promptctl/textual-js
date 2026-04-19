@@ -3,14 +3,14 @@
 # Run the full visual comparison pipeline:
 #   1. Capture Python Textual ANSI frames (via uv)
 #   2. Capture textual-js ANSI frames
-#   3. Render real PNG screenshots in a dedicated iTerm2 window
+#   3. Render real PNG screenshots in an isolated Xvfb terminal
 #   4. Compare the PNGs
 #
 # Prerequisites:
 #   - uv (https://docs.astral.sh/uv/)
 #   - Node 18+ with project dependencies: npm install
 #   - tsx available on PATH
-#   - Ghostty installed (for single-window screenshots)
+#   - Docker available (for isolated Xvfb screenshots)
 #   - ImageMagick's magick CLI on PATH
 #
 # uv resolves Python + textual automatically from visual-tests/pyproject.toml.
@@ -48,21 +48,9 @@ if ! command -v magick &>/dev/null; then
   exit 1
 fi
 
-if ! command -v screencapture &>/dev/null; then
-  echo "FATAL: screencapture is not installed." >&2
-  echo "       This visual harness currently requires macOS window capture." >&2
-  exit 1
-fi
-
-if ! command -v osascript &>/dev/null; then
-  echo "FATAL: osascript is not installed." >&2
-  echo "       This visual harness currently requires AppleScript automation." >&2
-  exit 1
-fi
-
-if ! osascript -e 'id of application "Ghostty"' &>/dev/null; then
-  echo "FATAL: Ghostty is not installed." >&2
-  echo "       Install Ghostty so the harness can capture a single terminal window." >&2
+if ! command -v docker &>/dev/null; then
+  echo "FATAL: docker is not installed." >&2
+  echo "       Install Docker so the harness can capture screenshots in an isolated Xvfb display." >&2
   exit 1
 fi
 
