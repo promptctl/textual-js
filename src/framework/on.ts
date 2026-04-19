@@ -207,6 +207,7 @@ function parseSelectorValue(selector: string | null): ParsedSelector[] | null {
   }
 }
 
+
 function parseAttributeSelectors<TMessage extends Message>(
   messageType: MessageConstructor<TMessage>,
   options: OnOptions,

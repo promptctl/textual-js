@@ -17,13 +17,22 @@ configure({ enforceActions: "always" });
 export interface ReactiveOptions {
   init?: boolean;
   alwaysUpdate?: boolean;
+  layout?: boolean;
+  repaint?: boolean;
+  bindings?: boolean;
+  toggleClass?: string | null;
+  recompose?: boolean;
 }
 
 export interface ReactiveWatchOptions {
   init?: boolean;
 }
 
-type ReactiveDefault<T> = T | (() => T);
+export class Initialize<TOwner, TValue> {
+  constructor(readonly factory: (owner: TOwner) => TValue) {}
+}
+
+type ReactiveDefault<T> = T | (() => T) | Initialize<any, T>;
 
 export interface ReactiveDefinition<T> {
   defaultValue: ReactiveDefault<T>;
@@ -45,11 +54,27 @@ export function reactive<T>(defaultValue: ReactiveDefault<T>, options: ReactiveO
   return {
     defaultValue,
     options: {
-      init: options.init ?? false,
+      init: options.init ?? true,
       alwaysUpdate: options.alwaysUpdate ?? false,
+      layout: options.layout ?? false,
+      repaint: options.repaint ?? true,
+      bindings: options.bindings ?? false,
+      toggleClass: options.toggleClass ?? null,
+      recompose: options.recompose ?? false,
     },
   };
 }
+
+export function reactiveVar<T>(defaultValue: ReactiveDefault<T>, options: ReactiveOptions = {}): ReactiveDefinition<T> {
+  return reactive(defaultValue, {
+    ...options,
+    init: options.init ?? true,
+    layout: false,
+    repaint: false,
+  });
+}
+
+export { reactiveVar as var };
 
 export function reactiveSource<T>(host: ReactiveHost, name: string): ReactiveBindingSource<T> {
   return { host, name };
@@ -81,12 +106,20 @@ function findNamedMethod(instance: object, names: string[]): ((...args: unknown[
   return undefined;
 }
 
-function invokeWatcher<T>(watcher: (...args: unknown[]) => unknown, oldValue: T | undefined, newValue: T): void {
-  const result = watcher.length <= 1 ? watcher(newValue) : watcher(oldValue, newValue);
-
-  if (result instanceof Promise) {
-    void result;
+function invokeWatcher<T>(watcher: (...args: unknown[]) => unknown, oldValue: T | undefined, newValue: T): unknown {
+  if (watcher.length <= 0) {
+    return watcher();
   }
+
+  if (watcher.length === 1) {
+    return watcher(newValue);
+  }
+
+  return watcher(oldValue, newValue);
+}
+
+function isAsyncWatcher(watcher: (...args: unknown[]) => unknown): boolean {
+  return watcher.constructor.name === "AsyncFunction";
 }
 
 export abstract class ReactiveHost {
@@ -103,7 +136,9 @@ export abstract class ReactiveHost {
       return;
     }
 
-    for (const [name, definition] of Object.entries(definitions)) {
+    const pendingInitNotifications: Array<{ name: string; value: unknown }> = [];
+
+    for (const [name, definition] of this.collectReactiveDefinitions(definitions).entries()) {
       this.reactiveDefinitions.set(name, definition);
       const initialValue = this.applyValidators(name, this.resolveDefaultValue(definition.defaultValue));
       const box = observable.box(initialValue, {
@@ -139,12 +174,16 @@ export abstract class ReactiveHost {
       });
 
       if (definition.options.init) {
-        this.notifyWatchers(name, undefined, box.get());
+        pendingInitNotifications.push({ name, value: box.get() });
       }
     }
 
     this.initializeComputedState();
     this.initialized = true;
+
+    for (const notification of pendingInitNotifications) {
+      this.notifyWatchers(notification.name, notification.value, notification.value);
+    }
   }
 
   watch<T>(name: string, callback: ReactiveWatcher<T>, options?: ReactiveWatchOptions): () => void;
@@ -207,7 +246,7 @@ export abstract class ReactiveHost {
     this.externalWatchers.set(name, watchers);
 
     if (options.init && watchers.size > sizeBefore) {
-      invokeWatcher(callback as (...args: unknown[]) => unknown, undefined, this.readReactiveValue(name) as T);
+      this.dispatchWatcher(callback as (...args: unknown[]) => unknown, this.readReactiveValue(name) as T, this.readReactiveValue(name) as T);
     }
 
     return () => {
@@ -283,8 +322,35 @@ export abstract class ReactiveHost {
     }
   }
 
+  private collectReactiveDefinitions(definitions: ReactiveDefinitions): Map<string, ReactiveDefinition<unknown>> {
+    const merged = new Map<string, ReactiveDefinition<unknown>>();
+    const constructors: Array<{ definitions?: ReactiveDefinitions }> = [];
+    let current = this.constructor as { definitions?: ReactiveDefinitions };
+
+    // [LAW:one-source-of-truth] Reactive metadata is derived once from the
+    // constructor chain so inherited definitions and overrides share one map.
+    while (current !== ReactiveHost) {
+      constructors.unshift(current);
+      current = Object.getPrototypeOf(current) as { definitions?: ReactiveDefinitions };
+    }
+
+    for (const constructor of constructors) {
+      for (const [name, definition] of Object.entries(constructor.definitions ?? {})) {
+        merged.set(name, definition);
+      }
+    }
+
+    for (const [name, definition] of Object.entries(definitions)) {
+      if (!merged.has(name)) {
+        merged.set(name, definition);
+      }
+    }
+
+    return merged;
+  }
+
   private collectComputeMethods(): Map<string, () => unknown> {
-    const computeMethods = new Map<string, () => unknown>();
+    const computeMethods = new Map<string, { publicMethod?: () => unknown; privateMethod?: () => unknown }>();
     let prototype = Object.getPrototypeOf(this);
 
     while (prototype !== null && prototype !== ReactiveHost.prototype) {
@@ -297,31 +363,42 @@ export abstract class ReactiveHost {
         const privateMatch = propertyName.match(/^_compute_(.+)$/);
         const reactiveName = publicMatch?.[1] ?? privateMatch?.[1];
 
-        if (reactiveName === undefined || computeMethods.has(reactiveName)) {
+        if (reactiveName === undefined) {
           continue;
         }
 
-        const publicMethod = findNamedMethod(this, [`compute_${reactiveName}`]);
-        const privateMethod = findNamedMethod(this, [`_compute_${reactiveName}`]);
+        const record = computeMethods.get(reactiveName) ?? {};
 
-        if (publicMethod !== undefined && privateMethod !== undefined) {
-          throw new Error(`Too many compute methods for "${reactiveName}"`);
+        if (publicMatch !== null && record.publicMethod === undefined) {
+          record.publicMethod = findNamedMethod(this, [`compute_${reactiveName}`]) as (() => unknown) | undefined;
         }
 
-        const selectedMethod = privateMethod ?? publicMethod;
-
-        if (selectedMethod !== undefined) {
-          computeMethods.set(reactiveName, selectedMethod as () => unknown);
+        if (privateMatch !== null && record.privateMethod === undefined) {
+          record.privateMethod = findNamedMethod(this, [`_compute_${reactiveName}`]) as (() => unknown) | undefined;
         }
+
+        computeMethods.set(reactiveName, record);
       }
 
       prototype = Object.getPrototypeOf(prototype);
     }
 
-    return computeMethods;
+    return new Map(
+      Array.from(computeMethods.entries()).map(([name, record]) => {
+        if (record.publicMethod !== undefined && record.privateMethod !== undefined) {
+          throw new Error(`Too many compute methods for "${name}"`);
+        }
+
+        return [name, (record.privateMethod ?? record.publicMethod)!];
+      }),
+    );
   }
 
   private resolveDefaultValue<T>(defaultValue: ReactiveDefault<T>): T {
+    if (defaultValue instanceof Initialize) {
+      return defaultValue.factory(this) as T;
+    }
+
     return typeof defaultValue === "function" ? (defaultValue as () => T)() : defaultValue;
   }
 
@@ -341,13 +418,34 @@ export abstract class ReactiveHost {
     // watchers, so ordering stays centralized and doesn't drift across callsites.
     for (const watcher of [privateWatcher, publicWatcher]) {
       if (watcher !== undefined) {
-        invokeWatcher(watcher, oldValue, newValue);
+        this.dispatchWatcher(watcher, oldValue, newValue);
       }
     }
 
     for (const watcher of externalWatchers) {
-      invokeWatcher(watcher as (...args: unknown[]) => unknown, oldValue, newValue);
+      this.dispatchWatcher(watcher as (...args: unknown[]) => unknown, oldValue, newValue);
     }
+  }
+
+  private dispatchWatcher(
+    watcher: (...args: unknown[]) => unknown,
+    oldValue: unknown,
+    newValue: unknown,
+  ): void {
+    const invoke = (): void => {
+      const result = invokeWatcher(watcher, oldValue, newValue);
+
+      if (result instanceof Promise) {
+        void result;
+      }
+    };
+
+    if (isAsyncWatcher(watcher)) {
+      queueMicrotask(invoke);
+      return;
+    }
+
+    invoke();
   }
 
   private readReactiveValue(name: string): unknown {

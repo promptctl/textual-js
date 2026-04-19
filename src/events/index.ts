@@ -14,6 +14,7 @@ export {
   MouseDown,
   MouseMove,
   MouseUp,
+  Paste,
   Resize,
   ScreenResume,
   ScreenSuspend,

@@ -16,6 +16,7 @@ import {
   MouseDown,
   MouseMove,
   MouseUp,
+  Paste,
   Resize,
   ScreenResume,
   ScreenSuspend,
@@ -156,6 +157,11 @@ export interface BindingClash {
 
 type MessageSubscriber = (message: Message) => void;
 type AfterRefreshCallback = () => void;
+type DeferredCallback = {
+  callback: () => void;
+  prevention: PreventionSnapshot;
+};
+type PreventionSnapshot = ReadonlyMap<string | null, ReadonlySet<MessageConstructor>>;
 
 export interface AppSignals {
   theme_changed_signal: Signal<ActiveTheme>;
@@ -198,6 +204,8 @@ export class InvalidModeError extends Error {}
 export class ActiveModeError extends Error {}
 
 export class StylesheetError extends Error {}
+
+export class DuplicateKeyHandlers extends Error {}
 
 function normalizeCssSource(source: string | undefined): string | undefined {
   const normalizedSource = source?.trim();
@@ -255,6 +263,9 @@ const SPECIAL_KEY_NAMES = new Map<string, string>([
   ["/", "slash"],
   ["\\", "backslash"],
 ]);
+const REVERSE_SPECIAL_KEY_NAMES = new Map<string, string>(
+  Array.from(SPECIAL_KEY_NAMES.entries()).map(([character, name]) => [name, character]),
+);
 
 export function normalizeKeyName(key: string): { key: string; character: string | null } {
   const trimmedKey = key.trim();
@@ -274,6 +285,52 @@ export function normalizeKeyName(key: string): { key: string; character: string 
     key: trimmedKey.toLowerCase(),
     character: null,
   };
+}
+
+const KEY_NAME_ALIASES = new Map<string, string[]>([
+  ["tab", ["tab", "ctrl_i"]],
+  ["ctrl+i", ["ctrl_i", "tab"]],
+  ["enter", ["enter", "return"]],
+  ["escape", ["escape", "esc"]],
+]);
+
+const DISPLAY_KEY_NAMES = new Map<string, string>([
+  ["delete", "del"],
+]);
+
+export function keyToCharacter(key: string): string | null {
+  if (key.includes("+")) {
+    return null;
+  }
+
+  return REVERSE_SPECIAL_KEY_NAMES.get(key) ?? (key.length === 1 ? key : null);
+}
+
+export function formatKey(key: string): string {
+  return keyToCharacter(key) ?? key;
+}
+
+export function getKeyDisplay(key: string): string {
+  const lowerKey = key.toLowerCase();
+  const ctrlMatch = lowerKey.match(/^ctrl\+(.+)$/);
+
+  if (ctrlMatch !== null) {
+    const character = keyToCharacter(ctrlMatch[1] ?? "");
+    return character === null ? lowerKey : `^${character}`;
+  }
+
+  return DISPLAY_KEY_NAMES.get(lowerKey) ?? formatKey(lowerKey);
+}
+
+function keyNameAliases(key: string): string[] {
+  const normalizedKey = key.toLowerCase();
+  const aliases = KEY_NAME_ALIASES.get(normalizedKey);
+
+  if (aliases !== undefined) {
+    return aliases;
+  }
+
+  return [normalizedKey.replace(/\+/g, "_")];
 }
 
 const DEFAULT_MODE = "_default";
@@ -318,7 +375,7 @@ export class TextualFramework {
   private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
-  private readonly nextCallbacks: Array<() => void> = [];
+  private readonly nextCallbacks: DeferredCallback[] = [];
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
@@ -339,6 +396,11 @@ export class TextualFramework {
   private lastClickChain: ClickChainState | null = null;
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingError: unknown = null;
+  private readonly signalRegistry = new Set<Signal<unknown>>();
+  private activePrevention: PreventionSnapshot = new Map();
+  batchUpdateCount = 0;
+  private pendingStyleRecalc = false;
+  private pendingDrainAfterBatch = false;
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
@@ -381,6 +443,7 @@ export class TextualFramework {
         nextCallbacks: false,
         afterRefreshRequester: false,
         signals: false,
+        signalRegistry: false,
         workers: false,
         notifications: false,
         themeManager: false,
@@ -394,6 +457,7 @@ export class TextualFramework {
         lastActionDispatchResult: false,
         bindingClashSignatures: false,
         handleBindingsClash: false,
+        activePrevention: false,
       } as never,
       { autoBind: true },
     );
@@ -511,6 +575,83 @@ export class TextualFramework {
     // Default no-op; apps may override to surface clashes.
   }
 
+  preventMessages<T>(
+    targetId: string | null,
+    messageTypes: MessageConstructor[],
+    callback: () => T,
+  ): T {
+    const previous = this.activePrevention;
+    const next = clonePreventionSnapshot(previous);
+    const prevented = new Set(next.get(targetId) ?? []);
+
+    for (const messageType of messageTypes) {
+      prevented.add(messageType);
+    }
+
+    // [LAW:single-enforcer] Scoped message suppression is captured at one
+    // framework boundary so direct posts and deferred callbacks share it.
+    next.set(targetId, prevented);
+    this.activePrevention = next;
+
+    try {
+      return callback();
+    } finally {
+      this.activePrevention = previous;
+    }
+  }
+
+  batchUpdate<T>(callback: () => T): T {
+    runInAction(() => {
+      this.batchUpdateCount += 1;
+    });
+
+    try {
+      return runInAction(() => callback());
+    } finally {
+      runInAction(() => {
+        this.batchUpdateCount = Math.max(0, this.batchUpdateCount - 1);
+      });
+
+      if (this.batchUpdateCount === 0) {
+        // [LAW:single-enforcer] Batched style and queue flushes resume only
+        // from the outermost batch boundary instead of each nested caller.
+        if (this.pendingStyleRecalc) {
+          this.pendingStyleRecalc = false;
+          this.recalculateStyles();
+        }
+
+        if (this.pendingDrainAfterBatch) {
+          this.pendingDrainAfterBatch = false;
+          this.scheduleDrain();
+        }
+      }
+    }
+  }
+
+  batch_update<T>(callback: () => T): T {
+    return this.batchUpdate(callback);
+  }
+
+  private capturePreventionSnapshot(): PreventionSnapshot {
+    return clonePreventionSnapshot(this.activePrevention);
+  }
+
+  private withPrevention<T>(prevention: PreventionSnapshot, callback: () => T): T {
+    const previous = this.activePrevention;
+    this.activePrevention = prevention;
+
+    try {
+      return callback();
+    } finally {
+      this.activePrevention = previous;
+    }
+  }
+
+  private isMessagePrevented(targetId: string | null, message: Message): boolean {
+    const preventedTypes = this.activePrevention.get(targetId) ?? new Set<MessageConstructor>();
+    return Array.from(preventedTypes).some((messageType) => message instanceof messageType);
+  }
+
   startup(): void {
     if (this.isRunning) {
       return;
@@ -529,6 +670,9 @@ export class TextualFramework {
   }
 
   shutdown(): void {
+    this.batchUpdateCount = Math.max(1, this.batchUpdateCount);
+    this.pendingStyleRecalc = false;
+    this.pendingDrainAfterBatch = false;
     this.queue.length = 0;
     this.focusedNodeId = null;
     this.hoveredNodeId = null;
@@ -629,6 +773,11 @@ export class TextualFramework {
     }
 
     this.registry.deregister(nodeId);
+    // [LAW:single-enforcer] Unmount-driven signal cleanup runs here so every
+    // widget removal prunes subscriptions through the same lifecycle seam.
+    for (const signal of this.signalRegistry) {
+      signal.pruneNode(nodeId);
+    }
     this.recalculateStyles();
   }
 
@@ -734,7 +883,11 @@ export class TextualFramework {
     this.registry.touch();
 
     if (changed) {
-      this.recalculateStyles();
+      if (this.batchUpdateCount > 0) {
+        this.pendingStyleRecalc = true;
+      } else {
+        this.recalculateStyles();
+      }
     }
   }
 
@@ -762,6 +915,10 @@ export class TextualFramework {
   }
 
   postMessage(targetId: string, message: Message): void {
+    if (this.isMessagePrevented(targetId, message)) {
+      return;
+    }
+
     const replacementIndex = this.queue.findIndex(
       (queued) =>
         queued.targetId === targetId &&
@@ -970,7 +1127,13 @@ export class TextualFramework {
   }
 
   createSignal<TValue>(owner: WidgetNode): Signal<TValue> {
-    return new Signal<TValue>(() => this.isNodeMounted(owner), (node) => this.isNodeMounted(node), (callback) => this.callLater(callback));
+    const signal = new Signal<TValue>(
+      () => this.isNodeMounted(owner),
+      (node) => this.isNodeMounted(node),
+      (callback) => this.callLater(callback),
+    );
+    this.signalRegistry.add(signal as Signal<unknown>);
+    return signal;
   }
 
   runWorker<TResult>(
@@ -1053,18 +1216,27 @@ export class TextualFramework {
   }
 
   callLater<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
+    const prevention = this.capturePreventionSnapshot();
+
     // [LAW:one-source-of-truth] Deferred later-callbacks enter through the
     // message queue so shutdown, observability, and ordering all share one path.
     this.emitBroadcast(new Callback(() => {
-      callback(...args);
+      this.withPrevention(prevention, () => {
+        callback(...args);
+      });
     }));
   }
 
   callNext<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
+    const prevention = this.capturePreventionSnapshot();
+
     // [LAW:single-enforcer] callNext ordering is enforced by the dispatcher so
     // every caller observes the same after-message boundary instead of ambient microtasks.
-    this.nextCallbacks.push(() => {
-      callback(...args);
+    this.nextCallbacks.push({
+      prevention,
+      callback: () => {
+        callback(...args);
+      },
     });
     this.scheduleDrain();
   }
@@ -2025,6 +2197,11 @@ export class TextualFramework {
   }
 
   private scheduleDrain(): void {
+    if (this.batchUpdateCount > 0) {
+      this.pendingDrainAfterBatch = true;
+      return;
+    }
+
     if (this.drainPromise !== null) {
       return;
     }
@@ -2114,6 +2291,12 @@ export class TextualFramework {
           }
         }
 
+        if (message instanceof Key && !message.isPropagationStopped) {
+          if (await this.dispatchKeyHandler(handlers, message)) {
+            message.stop();
+          }
+        }
+
         if (!message.bubble || message.isPropagationStopped) {
           return;
         }
@@ -2166,6 +2349,60 @@ export class TextualFramework {
       .map((candidate) => candidate.callable);
 
     return [...matchingHandlers, ...conventionHandlers];
+  }
+
+  private async dispatchKeyHandler(handlers: WidgetHandlers | undefined, message: Key): Promise<boolean> {
+    if (handlers === undefined || message.key.length === 0) {
+      return false;
+    }
+
+    const matches = this.resolveKeyHandlers(handlers, message.key);
+
+    if (matches.length > 1) {
+      throw new DuplicateKeyHandlers(`Duplicate key handlers for "${message.key}"`);
+    }
+
+    const handler = matches[0];
+
+    if (handler === undefined) {
+      return false;
+    }
+
+    // [LAW:single-enforcer] Direct key-handler dispatch resolves aliases and
+    // conflict detection in one place so widgets don't re-implement it.
+    const result = await handler.callable(message);
+    return result !== false;
+  }
+
+  private resolveKeyHandlers(
+    handlers: WidgetHandlers,
+    key: string,
+  ): Array<{ identity: WidgetMessageHandler; callable: WidgetMessageHandler }> {
+    const matches: Array<{ identity: WidgetMessageHandler; callable: WidgetMessageHandler }> = [];
+    const seenIdentities = new Set<WidgetMessageHandler>();
+    const aliases = keyNameAliases(key);
+
+    for (const alias of aliases) {
+      for (const name of [`key_${alias}`, `_key_${alias}`]) {
+        const candidate = resolveNamedHandler(handlers, name);
+
+        if (candidate === null) {
+          continue;
+        }
+
+        if (seenIdentities.has(candidate.identity)) {
+          continue;
+        }
+
+        seenIdentities.add(candidate.identity);
+        matches.push({
+          identity: candidate.identity,
+          callable: candidate.callable,
+        });
+      }
+    }
+
+    return matches;
   }
 
   private countMatchingOnRegistrations(registrations: readonly OnHandlerRegistration[], message: Message): number {
@@ -2261,8 +2498,13 @@ export class TextualFramework {
 
   private async flushCallNextCallbacks(): Promise<void> {
     while (this.nextCallbacks.length > 0) {
-      const callback = this.nextCallbacks.shift();
-      callback?.();
+      const deferred = this.nextCallbacks.shift();
+
+      if (deferred !== undefined) {
+        this.withPrevention(deferred.prevention, () => {
+          deferred.callback();
+        });
+      }
     }
   }
 
@@ -2280,7 +2522,13 @@ export class TextualFramework {
   }
 
   private createFrameworkSignal<TValue>(): Signal<TValue> {
-    return new Signal<TValue>(() => this.isRunning, (node) => this.isNodeMounted(node), (callback) => this.callLater(callback));
+    const signal = new Signal<TValue>(
+      () => this.isRunning,
+      (node) => this.isNodeMounted(node),
+      (callback) => this.callLater(callback),
+    );
+    this.signalRegistry.add(signal as Signal<unknown>);
+    return signal;
   }
 
   private applyFocusChange(nodeId: string | null, options: { markBlurOverride: boolean }): void {
@@ -2602,6 +2850,12 @@ function normalizeKeyList(source: string): string[] {
     .split(",")
     .map((key) => normalizeKeyName(key).key)
     .filter((key) => key.length > 0);
+}
+
+function clonePreventionSnapshot(snapshot: PreventionSnapshot): Map<string | null, ReadonlySet<MessageConstructor>> {
+  return new Map(
+    Array.from(snapshot.entries()).map(([targetId, messageTypes]) => [targetId, new Set(messageTypes)]),
+  );
 }
 
 function shouldSuppressAtNode(node: WidgetNode, message: Message): boolean {

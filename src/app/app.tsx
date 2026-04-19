@@ -127,6 +127,18 @@ export class App<Result = unknown> {
     return this.framework.exit(result) as Result | undefined;
   }
 
+  get batchUpdateCount(): number {
+    return this.framework.batchUpdateCount;
+  }
+
+  batchUpdate<T>(callback: () => T): T {
+    return this.framework.batchUpdate(callback);
+  }
+
+  batch_update<T>(callback: () => T): T {
+    return this.batchUpdate(callback);
+  }
+
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {
     const app = this;
     const session = await runTestRoot(this.render(), this.framework, options);

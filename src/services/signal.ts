@@ -26,6 +26,7 @@ export class Signal<TValue> {
       this,
       {
         subscribers: false,
+        toString: false,
       } as never,
       { autoBind: true },
     );
@@ -65,6 +66,10 @@ export class Signal<TValue> {
     this.subscribers.delete(node.nodeId);
   }
 
+  pruneNode(nodeId: string): void {
+    this.subscribers.delete(nodeId);
+  }
+
   publish(value: TValue): void {
     if (!this.isOwnerMounted()) {
       return;
@@ -94,5 +99,9 @@ export class Signal<TValue> {
         }
       }
     }
+  }
+
+  toString(): string {
+    return `Signal(subscribers=${this.subscribers.size})`;
   }
 }

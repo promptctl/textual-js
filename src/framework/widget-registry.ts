@@ -3,7 +3,7 @@ import { makeAutoObservable, observable } from "mobx";
 import type { Message } from "../events/message.js";
 import type { WidgetNode } from "./widget-node.js";
 
-export type WidgetMessageHandler<TMessage extends Message = Message> = (message: TMessage) => void | Promise<void>;
+export type WidgetMessageHandler<TMessage extends Message = Message> = (message: TMessage) => unknown | Promise<unknown>;
 
 export type WidgetHandlers = Record<string, WidgetMessageHandler | undefined>;
 

@@ -96,6 +96,15 @@ export class Key extends Message {
   }
 }
 
+export class Paste extends Message {
+  constructor(
+    readonly text: string,
+    init?: MessageInit,
+  ) {
+    super(init);
+  }
+}
+
 export class MouseEvent extends Message {
   constructor(
     readonly x: number,

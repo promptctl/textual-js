@@ -5,6 +5,8 @@ export interface MessageConstructor<TMessage extends Message = Message> {
   readonly name: string;
   readonly canReplace?: boolean;
   readonly noDispatch?: boolean;
+  readonly namespace?: string;
+  readonly ALLOW_SELECTOR_MATCH?: Iterable<string>;
 }
 
 export interface MessageInit {
@@ -15,6 +17,9 @@ export interface MessageInit {
 }
 
 export class Message {
+  static readonly namespace = "";
+  static readonly ALLOW_SELECTOR_MATCH = new Set<string>();
+
   readonly messageId = nextMessageId++;
   readonly bubble: boolean;
   readonly time = Date.now();
@@ -65,10 +70,24 @@ export class Message {
 
 export function messageHandlerNames(message: Message): string[] {
   const constructorName = message.constructor.name;
+  const namespace = ((message.constructor as MessageConstructor).namespace ?? "").trim();
   const legacyName = constructorName
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[-\s]+/g, "_")
     .toLowerCase();
+  const camelNamespace = namespace
+    .split(/[_\s-]+/)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1))
+    .join("");
+  const snakeNamespace = namespace
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .toLowerCase();
 
-  return [`on${constructorName}`, `on_${legacyName}`];
+  // [LAW:one-source-of-truth] Handler name derivation comes from the message
+  // class metadata so namespaced and plain messages share one resolution path.
+  return namespace.length > 0
+    ? [`on${camelNamespace}${constructorName}`, `on_${snakeNamespace}_${legacyName}`]
+    : [`on${constructorName}`, `on_${legacyName}`];
 }

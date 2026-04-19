@@ -2,7 +2,7 @@ import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import type { Binding } from "../bindings/index.js";
 import type { VisualInput } from "../content/index.js";
-import type { Message } from "../events/message.js";
+import type { Message, MessageConstructor } from "../events/message.js";
 import { Region } from "../geometry/region.js";
 import { Size } from "../geometry/size.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
@@ -228,6 +228,13 @@ export class WidgetNode {
 
   postMessage(message: Message): void {
     this.framework.postMessage(this.nodeId, message);
+  }
+
+  prevent<T>(messageType: MessageConstructor, callback: () => T): T;
+  prevent<T>(messageTypes: MessageConstructor[], callback: () => T): T;
+  prevent<T>(messageTypes: MessageConstructor | MessageConstructor[], callback: () => T): T {
+    const types = Array.isArray(messageTypes) ? messageTypes : [messageTypes];
+    return this.framework.preventMessages(this.nodeId, types, callback);
   }
 
   updateScreenRegion(region: Region): void {
