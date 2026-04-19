@@ -1,77 +1,48 @@
-/**
- * Compare Python Textual and textual-js snapshots.
- *
- * Reads the styled cell grids from both snapshot directories and produces a
- * per-fixture diff report. Each cell is compared character and style by character and style.
- *
- * Usage:
- *   npx tsx visual-tests/compare.ts [fixture_name]
- *
- * Exit code:
- *   0 — all fixtures match (or are within tolerance)
- *   1 — at least one fixture has differences
- */
-
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 
 import { discoverPairedFixtures } from "./discover-fixtures.ts";
-import { diffStyledGrids, formatStyledCell, type StyledCellDiff, type StyledGrid } from "./styled-grid.ts";
+
+const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PYTHON_DIR = join(__dirname, "snapshots", "python");
 const JS_DIR = join(__dirname, "snapshots", "js");
+const DIFF_DIR = join(__dirname, "snapshots", "diff");
 const FIXTURES_DIR = join(__dirname, "fixtures");
 
 interface FixtureReport {
   name: string;
-  status: "match" | "diff" | "missing-python" | "missing-js";
-  diffs: StyledCellDiff[];
-  pythonLines: number;
-  jsLines: number;
-  matchPercentage: number;
+  status: "match" | "diff" | "missing-python" | "missing-js" | "size-mismatch";
+  pixelDiffCount: number;
+  pythonSize: string;
+  jsSize: string;
+  diffPath?: string;
 }
 
 function renderDiffSummary(report: FixtureReport): string {
-  const lines: string[] = [];
-
   if (report.status === "missing-python") {
-    lines.push(`  ${report.name}: FAIL (no Python snapshot)`);
-    return lines.join("\n");
+    return `  ${report.name}: FAIL (no Python PNG snapshot)`;
   }
 
   if (report.status === "missing-js") {
-    lines.push(`  ${report.name}: FAIL (no JS snapshot)`);
-    return lines.join("\n");
+    return `  ${report.name}: FAIL (no JS PNG snapshot)`;
+  }
+
+  if (report.status === "size-mismatch") {
+    return `  ${report.name}: DIFF (size mismatch: Python ${report.pythonSize}, JS ${report.jsSize})`;
   }
 
   if (report.status === "match") {
-    lines.push(`  ${report.name}: MATCH (${report.matchPercentage.toFixed(1)}%)`);
-    return lines.join("\n");
+    return `  ${report.name}: MATCH (${report.pythonSize}, 0 differing pixels)`;
   }
 
-  lines.push(`  ${report.name}: DIFF (${report.matchPercentage.toFixed(1)}% match, ${report.diffs.length} cells differ)`);
-  lines.push(`    Python: ${report.pythonLines} lines, JS: ${report.jsLines} lines`);
-
-  // Show first N diffs
-  const maxShown = 10;
-  const shown = report.diffs.slice(0, maxShown);
-
-  for (const diff of shown) {
-    lines.push(
-      `    [${diff.row}:${diff.col}] Python=${formatStyledCell(diff.python)} JS=${formatStyledCell(diff.js)}`,
-    );
-  }
-
-  if (report.diffs.length > maxShown) {
-    lines.push(`    ... and ${report.diffs.length - maxShown} more`);
-  }
-
-  return lines.join("\n");
+  return `  ${report.name}: DIFF (${report.pixelDiffCount} differing pixels, diff: snapshots/diff/${report.name}.png)`;
 }
 
 export interface ComparisonSummary {
@@ -83,7 +54,7 @@ export interface ComparisonSummary {
 export function summarizeReports(reports: FixtureReport[]): ComparisonSummary {
   return {
     matched: reports.filter((report) => report.status === "match").length,
-    diffed: reports.filter((report) => report.status === "diff").length,
+    diffed: reports.filter((report) => report.status === "diff" || report.status === "size-mismatch").length,
     missing: reports.filter((report) => report.status === "missing-python" || report.status === "missing-js").length,
   };
 }
@@ -101,42 +72,85 @@ async function discoverFixtures(): Promise<string[]> {
   return discoverPairedFixtures(FIXTURES_DIR);
 }
 
+async function readImageSize(path: string): Promise<string> {
+  const { stdout } = await execFileAsync("magick", ["identify", "-format", "%wx%h", path], {
+    cwd: __dirname,
+    env: process.env,
+  });
+  return stdout.trim();
+}
+
+async function compareImages(pythonPath: string, jsPath: string, diffPath: string): Promise<number> {
+  try {
+    const { stderr } = await execFileAsync(
+      "magick",
+      ["compare", "-metric", "AE", pythonPath, jsPath, diffPath],
+      { cwd: __dirname, env: process.env },
+    );
+    return parseFloat(stderr.trim().split(/\s+/)[0] ?? "0");
+  } catch (error) {
+    const failure = error as { code?: number; stderr?: string };
+    if (failure.code === 1) {
+      return parseFloat(((failure.stderr ?? "").trim().split(/\s+/)[0]) ?? "0");
+    }
+    throw error;
+  }
+}
+
 async function compareFixture(name: string): Promise<FixtureReport> {
-  const pyPath = join(PYTHON_DIR, `${name}.json`);
-  const jsPath = join(JS_DIR, `${name}.json`);
+  const pyPath = join(PYTHON_DIR, `${name}.png`);
+  const jsPath = join(JS_DIR, `${name}.png`);
+  const diffPath = join(DIFF_DIR, `${name}.png`);
 
   const pyExists = await fileExists(pyPath);
   const jsExists = await fileExists(jsPath);
 
   if (!pyExists) {
-    return { name, status: "missing-python", diffs: [], pythonLines: 0, jsLines: 0, matchPercentage: 0 };
+    return { name, status: "missing-python", pixelDiffCount: 0, pythonSize: "-", jsSize: "-" };
   }
 
   if (!jsExists) {
-    return { name, status: "missing-js", diffs: [], pythonLines: 0, jsLines: 0, matchPercentage: 0 };
+    return { name, status: "missing-js", pixelDiffCount: 0, pythonSize: "-", jsSize: "-" };
   }
 
-  const pyGrid = JSON.parse(await readFile(pyPath, "utf-8")) as StyledGrid;
-  const jsGrid = JSON.parse(await readFile(jsPath, "utf-8")) as StyledGrid;
+  const [pythonSize, jsSize] = await Promise.all([readImageSize(pyPath), readImageSize(jsPath)]);
 
-  const { diffs, matchPercentage } = diffStyledGrids(pyGrid, jsGrid);
+  if (pythonSize !== jsSize) {
+    return {
+      name,
+      status: "size-mismatch",
+      pixelDiffCount: 0,
+      pythonSize,
+      jsSize,
+      diffPath,
+    };
+  }
+
+  const pixelDiffCount = await compareImages(pyPath, jsPath, diffPath);
+  const status = pixelDiffCount === 0 ? "match" : "diff";
+
+  if (status === "match") {
+    await rm(diffPath, { force: true });
+  }
 
   return {
     name,
-    status: diffs.length === 0 ? "match" : "diff",
-    diffs,
-    pythonLines: pyGrid.rows.length,
-    jsLines: jsGrid.rows.length,
-    matchPercentage,
+    status,
+    pixelDiffCount,
+    pythonSize,
+    jsSize,
+    diffPath,
   };
 }
 
 export async function main(): Promise<void> {
+  await mkdir(DIFF_DIR, { recursive: true });
+
   const fixtureFilter = process.argv[2] ?? null;
   let fixtures = await discoverFixtures();
 
   if (fixtures.length === 0) {
-    process.stdout.write("No snapshots found. Run capture_python.py and capture_js.ts first.\n");
+    process.stdout.write("No fixtures found. Run the capture steps first.\n");
     process.exit(0);
   }
 
@@ -148,18 +162,17 @@ export async function main(): Promise<void> {
     }
   }
 
-  process.stdout.write(`Comparing ${fixtures.length} fixture(s)...\n\n`);
+  process.stdout.write(`Comparing ${fixtures.length} PNG fixture pair(s)...\n\n`);
 
   const reports: FixtureReport[] = [];
 
   for (const name of fixtures) {
     const report = await compareFixture(name);
     reports.push(report);
-    process.stdout.write(renderDiffSummary(report) + "\n");
+    process.stdout.write(`${renderDiffSummary(report)}\n`);
   }
 
   const summary = summarizeReports(reports);
-
   process.stdout.write(`\nSummary: ${summary.matched} match, ${summary.diffed} diff, ${summary.missing} missing\n`);
 
   if (summary.diffed > 0 || summary.missing > 0) {

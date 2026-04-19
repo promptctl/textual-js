@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Capture snapshots from Python Textual fixtures.
+Capture terminal frames from Python Textual fixtures.
 
 Runs each fixture app headlessly at a fixed terminal size, then saves:
-  - An SVG screenshot (for visual comparison)
-  - A styled cell grid (for automated style-aware diff)
+  - An ANSI frame (for window screenshot capture)
+  - A styled cell grid (diagnostic only)
   - A plain-text grid (diagnostic only)
 
 Must be run via uv from the visual-tests directory:
@@ -22,6 +22,7 @@ from typing import Any
 
 import textual  # noqa: F401
 from rich.cells import cell_len
+from rich.style import Style
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "python"
@@ -176,6 +177,46 @@ def styled_grid_to_text(styled_grid: dict[str, list[list[dict[str, Any]]]]) -> s
     )
 
 
+def strips_to_ansi(strips: list[Any]) -> str:
+    rows: list[str] = []
+
+    for strip in strips:
+        segments: list[str] = []
+
+        for segment in strip._segments:
+            style = normalize_style_for_terminal(getattr(segment, "style", None))
+            text = segment.text
+            segments.append(text if style is None else style.render(text))
+
+        rows.append("".join(segments))
+
+    return "\n".join(rows)
+
+
+def normalize_style_for_terminal(style: Any) -> Style | None:
+    if style is None:
+        return None
+
+    normalized_background = normalize_color(getattr(style, "bgcolor", None))
+
+    # [LAW:one-source-of-truth] The capture window's default terminal colors are
+    # the single ambient-screen source; Python frame export clears matching
+    # screen background fills instead of inventing a second backdrop.
+    if normalized_background in AMBIENT_BACKGROUNDS:
+        return Style(
+            color=getattr(style, "color", None),
+            bgcolor=None,
+            bold=bool(getattr(style, "bold", False)),
+            dim=bool(getattr(style, "dim", False)),
+            italic=bool(getattr(style, "italic", False)),
+            underline=bool(getattr(style, "underline", False)),
+            strike=bool(getattr(style, "strike", False)),
+            reverse=bool(getattr(style, "reverse", False)),
+        )
+
+    return style
+
+
 async def capture_fixture(fixture_path: Path) -> None:
     name = fixture_path.stem
     print(f"  Capturing: {name}")
@@ -184,26 +225,26 @@ async def capture_fixture(fixture_path: Path) -> None:
     app_class = module.app
     app = app_class()
 
-    svg_path = SNAPSHOTS_DIR / f"{name}.svg"
+    ansi_path = SNAPSHOTS_DIR / f"{name}.ansi"
     json_path = SNAPSHOTS_DIR / f"{name}.json"
     txt_path = SNAPSHOTS_DIR / f"{name}.txt"
 
-    async with app.run_test(size=(TERMINAL_WIDTH, TERMINAL_HEIGHT), tooltips=True, headless=False) as pilot:
+    async with app.run_test(size=(TERMINAL_WIDTH, TERMINAL_HEIGHT), tooltips=True, headless=True) as pilot:
         await pilot.pause()
 
         if hasattr(module, "capture"):
             await module.capture(pilot)
 
-        svg_path.write_text(app.export_screenshot())
-
         strips = app.screen._compositor.render_strips()
+        ansi_frame = strips_to_ansi(strips)
         styled_grid = strips_to_styled_grid(strips)
         text_grid = styled_grid_to_text(styled_grid)
 
+        ansi_path.write_text(ansi_frame)
         json_path.write_text(json.dumps(styled_grid, indent=2) + "\n")
         txt_path.write_text(text_grid + ("\n" if text_grid else ""))
 
-    print(f"    -> {svg_path.relative_to(Path(__file__).parent)}")
+    print(f"    -> {ansi_path.relative_to(Path(__file__).parent)}")
     print(f"    -> {json_path.relative_to(Path(__file__).parent)}")
     print(f"    -> {txt_path.relative_to(Path(__file__).parent)}")
 
