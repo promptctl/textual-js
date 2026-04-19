@@ -3,7 +3,9 @@
 
 import { visualize, type Visual, type VisualInput } from "../content/index.js";
 
-export class Static {
+// [LAW:one-source-of-truth] The public `Static` name is reserved for the
+// React widget component; this state holder stays behind the model seam.
+export class StaticModel {
   private _content: VisualInput;
   private _visual: Visual;
 

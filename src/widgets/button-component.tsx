@@ -12,10 +12,9 @@ import {
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
+import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
-export interface ButtonWidgetProps {
-  id?: string;
-  classes?: string | string[];
+export interface ButtonProps extends WidgetComponentProps {
   label?: ContentInput;
   variant?: ButtonVariant;
   disabled?: boolean;
@@ -179,23 +178,22 @@ function renderButtonRow(
 
 // [LAW:single-enforcer] ButtonPressed is posted only from this component's
 // action_press handler. No other widget posts it.
-export const ButtonWidget = observer(function ButtonWidget({
+// [LAW:one-source-of-truth] Match Textual's `Button` public widget name;
+// model helpers use explicit internal names instead of competing exports.
+export const Button = observer(function Button({
   id,
   classes,
   label,
   variant = "default",
   disabled,
   loading,
-}: ButtonWidgetProps): React.JSX.Element {
+}: ButtonProps): React.JSX.Element {
   const resolved = React.useMemo(() => Content.fromText(label), [label]);
 
   // [LAW:dataflow-not-control-flow] Variant maps to a CSS class; the cascade
   // decides the visual difference, not branching in the component.
   const variantClass = variant === "default" ? [] : [`-${variant}`];
-  const allClasses = [
-    ...(Array.isArray(classes) ? classes : classes ? [classes] : []),
-    ...variantClass,
-  ];
+  const allClasses = composeWidgetClasses(classes, variantClass);
 
   const widget = useWidget({
     id,

@@ -1,6 +1,8 @@
 import { clamp } from "../geometry/clamp.js";
 
-export class ProgressBar {
+// [LAW:one-source-of-truth] The public `ProgressBar` name is reserved for the
+// React widget component; this state holder stays behind the model seam.
+export class ProgressBarModel {
   private _total: number | null;
   private _progress: number;
 

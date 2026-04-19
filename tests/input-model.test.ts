@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Input, InputChanged, InputSubmitted } from "../src/index.js";
+import { InputModel as Input, InputChanged, InputSubmitted } from "../src/widgets/input.js";
 
 describe("Input model", () => {
   it("constructs with default empty value", () => {

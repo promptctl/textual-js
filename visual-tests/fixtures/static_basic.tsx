@@ -1,5 +1,5 @@
 import React from "react";
-import { StaticWidget } from "../../src/index.js";
+import { Static } from "../../src/index.js";
 import { FixtureScreen, VISUAL_SCREEN_FOREGROUND } from "../fixture-screen.tsx";
 
 export const appProps = {
@@ -13,9 +13,9 @@ export const appProps = {
 export default function StaticBasicFixture(): React.JSX.Element {
   return (
     <FixtureScreen>
-      <StaticWidget content="Hello World" />
-      <StaticWidget content="Second line of text" />
-      <StaticWidget content="" />
+      <Static content="Hello World" />
+      <Static content="Second line of text" />
+      <Static content="" />
     </FixtureScreen>
   );
 }

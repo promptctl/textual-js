@@ -60,7 +60,9 @@ export function renderSparkline(data: readonly number[], width: number): string 
     .join("");
 }
 
-export class Sparkline {
+// [LAW:one-source-of-truth] The public `Sparkline` name is reserved for the
+// React widget component; this render helper stays behind the model seam.
+export class SparklineModel {
   readonly data: readonly number[];
   readonly width: number;
 

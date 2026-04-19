@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { Content, ToggleButton, ToggleChanged, RadioSet, RadioSetChanged } from "../src/index.js";
+import { Content } from "../src/index.js";
+import { RadioSetModel as RadioSet, RadioSetChanged } from "../src/widgets/radio-set.js";
+import { ToggleButtonModel as ToggleButton, ToggleChanged } from "../src/widgets/toggle.js";
 
 describe("ToggleButton (Checkbox/RadioButton model)", () => {
   it("defaults to false with empty label", () => {

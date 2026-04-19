@@ -12,27 +12,28 @@ import {
   type VisualInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
-export interface StaticWidgetProps {
-  id?: string;
-  classes?: string | string[];
+export interface StaticProps extends WidgetComponentProps {
   content?: VisualInput;
 }
 
 // No DEFAULT_CSS needed — Ink's flexbox auto-sizes by default.
 
-// [LAW:one-type-per-behavior] StaticWidget is the single React component for
+// [LAW:one-type-per-behavior] Static is the single React component for
 // non-interactive text display. No separate Label component duplicates this.
-export const StaticWidget = observer(function StaticWidget({
+// [LAW:one-source-of-truth] Match Textual's `Static` public widget name;
+// model helpers use explicit internal names instead of competing exports.
+export const Static = observer(function Static({
   id,
   classes,
   content,
-}: StaticWidgetProps): React.JSX.Element {
+}: StaticProps): React.JSX.Element {
   const visual = React.useMemo(() => visualize(content), [content]);
 
   const widget = useWidget({
     id,
-    classes,
+    classes: composeWidgetClasses(classes),
     typeName: "Static",
   });
 

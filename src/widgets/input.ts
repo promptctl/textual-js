@@ -133,7 +133,9 @@ function createCustomRestrictRule(pattern: string | RegExp): RestrictRule {
 // [LAW:single-enforcer] The Input model is the single enforcer of value
 // constraints (restrict pattern, max length). All mutation paths flow through
 // applyEdit which runs both checks.
-export class Input {
+// [LAW:one-source-of-truth] The public `Input` name is reserved for the future
+// React widget component; this state holder stays behind the model seam.
+export class InputModel {
   private _value: string;
   private _cursorPosition: number;
   private _selection: InputSelection | null;

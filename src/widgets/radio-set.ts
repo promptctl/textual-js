@@ -1,10 +1,10 @@
 import { Message, type MessageInit } from "../events/message.js";
-import { ToggleButton } from "./toggle.js";
+import { ToggleButtonModel } from "./toggle.js";
 
 export class RadioSetChanged extends Message {
   constructor(
     readonly index: number,
-    readonly pressed: ToggleButton,
+    readonly pressed: ToggleButtonModel,
     init?: MessageInit,
   ) {
     super(init);
@@ -13,13 +13,15 @@ export class RadioSetChanged extends Message {
 
 // [LAW:single-enforcer] RadioSet is the single enforcer of mutual exclusion
 // among its child toggle buttons. No child manages its own exclusion.
-export class RadioSet {
-  private readonly buttons: ToggleButton[];
+// [LAW:one-source-of-truth] The public `RadioSet` name is reserved for the
+// React widget component; this group state holder stays behind the model seam.
+export class RadioSetModel {
+  private readonly buttons: ToggleButtonModel[];
   private _pressedIndex: number;
 
-  constructor(buttons: Array<ToggleButton | string>) {
+  constructor(buttons: Array<ToggleButtonModel | string>) {
     this.buttons = buttons.map((entry) =>
-      typeof entry === "string" ? new ToggleButton(entry, false) : entry,
+      typeof entry === "string" ? new ToggleButtonModel(entry, false) : entry,
     );
 
     // [LAW:one-source-of-truth] When multiple buttons arrive with value=true,
@@ -39,7 +41,7 @@ export class RadioSet {
     return this._pressedIndex;
   }
 
-  get pressedButton(): ToggleButton | null {
+  get pressedButton(): ToggleButtonModel | null {
     return this._pressedIndex === -1 ? null : this.buttons[this._pressedIndex];
   }
 
@@ -47,7 +49,7 @@ export class RadioSet {
     return this.buttons.length;
   }
 
-  getButton(index: number): ToggleButton {
+  getButton(index: number): ToggleButtonModel {
     return this.buttons[index];
   }
 

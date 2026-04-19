@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Rule, InvalidRuleOrientation, InvalidLineStyle } from "../src/index.js";
+import { RuleModel as Rule, InvalidRuleOrientation, InvalidLineStyle } from "../src/widgets/rule.js";
 
 describe("Rule widget", () => {
   it("constructs with default orientation and line style", () => {

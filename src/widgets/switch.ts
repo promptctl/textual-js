@@ -9,7 +9,9 @@ export class SwitchChanged extends Message {
   }
 }
 
-export class Switch {
+// [LAW:one-source-of-truth] The public `Switch` name is reserved for the
+// React widget component; this state holder stays behind the model seam.
+export class SwitchModel {
   private _value: boolean;
 
   constructor(value = false) {

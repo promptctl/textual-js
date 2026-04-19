@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { Offset, Selection } from "../src/index.js";
+import { Offset } from "../src/index.js";
+import { SelectionModel as Selection } from "../src/widgets/selection.js";
 
 describe("Selection model", () => {
   it("extracts text from a single line", () => {

@@ -1,6 +1,8 @@
 import { Offset } from "../geometry/offset.js";
 
-export class Selection {
+// [LAW:one-source-of-truth] The public widget catalog should not expose this
+// text-range helper as a widget named `Selection`.
+export class SelectionModel {
   readonly start: Offset | null;
   readonly end: Offset | null;
 

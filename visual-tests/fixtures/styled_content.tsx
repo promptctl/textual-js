@@ -1,6 +1,6 @@
 import React from "react";
 
-import { Content, StaticWidget } from "../../src/index.js";
+import { Content, Static } from "../../src/index.js";
 import { FixtureScreen, VISUAL_SCREEN_FOREGROUND } from "../fixture-screen.tsx";
 
 export const appProps = {
@@ -23,8 +23,8 @@ export default function StyledContentFixture(): React.JSX.Element {
 
   return (
     <FixtureScreen>
-      <StaticWidget content={richLine} />
-      <StaticWidget content={attrsLine} />
+      <Static content={richLine} />
+      <Static content={attrsLine} />
     </FixtureScreen>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ProgressBar } from "../src/index.js";
+import { ProgressBarModel as ProgressBar } from "../src/widgets/progress-bar.js";
 
 describe("ProgressBar model", () => {
   it("constructs as indeterminate by default", () => {

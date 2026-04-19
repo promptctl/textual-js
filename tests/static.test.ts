@@ -1,7 +1,8 @@
 import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
-import { Content, Static, Placeholder, InvalidPlaceholderVariant } from "../src/index.js";
+import { Content } from "../src/index.js";
+import { StaticModel as Static, Placeholder, InvalidPlaceholderVariant } from "../src/widgets/static.js";
 
 describe("Static widget", () => {
   it("constructs with empty content by default", () => {

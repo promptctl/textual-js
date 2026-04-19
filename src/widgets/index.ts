@@ -1,14 +1,9 @@
-export { Static, Placeholder, InvalidPlaceholderVariant } from "./static.js";
-export { Rule, InvalidRuleOrientation, InvalidLineStyle, type RuleOrientation } from "./rule.js";
-export { Button, ButtonPressed, type ButtonVariant } from "./button.js";
-export { Switch, SwitchChanged } from "./switch.js";
-export { ToggleButton, ToggleChanged } from "./toggle.js";
-export { RadioSet, RadioSetChanged } from "./radio-set.js";
-export { ProgressBar } from "./progress-bar.js";
-export { Selection } from "./selection.js";
-export { Input, InputChanged, InputSubmitted, type InputSelection, type InputType } from "./input.js";
-export { Sparkline, renderSparkline, type SparklineOptions } from "./sparkline.js";
-export { StaticWidget, type StaticWidgetProps } from "./static-component.js";
-export { ButtonWidget, type ButtonWidgetProps } from "./button-component.js";
-export { SwitchWidget, type SwitchWidgetProps } from "./switch-component.js";
+// [LAW:one-source-of-truth] Public widget catalog exports use Textual widget
+// names for React components. State models stay in their implementation
+// modules with `Model` names and are not re-exported here.
+export { Button, type ButtonProps } from "./button-component.js";
+export { ButtonPressed, type ButtonVariant } from "./button.js";
+export { Static, type StaticProps } from "./static-component.js";
+export { Switch, type SwitchProps } from "./switch-component.js";
+export { SwitchChanged } from "./switch.js";
 export { Footer, FooterKey, type FooterKeyProps, type FooterProps } from "./footer-component.js";

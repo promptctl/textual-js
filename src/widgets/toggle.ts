@@ -13,7 +13,9 @@ export class ToggleChanged extends Message {
   }
 }
 
-export class ToggleButton {
+// [LAW:one-source-of-truth] The public Checkbox/RadioButton widget names are
+// reserved for React components; this shared state holder stays internal.
+export class ToggleButtonModel {
   private _value: boolean;
   private _label: Content;
 

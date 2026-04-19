@@ -1,17 +1,17 @@
 import React from "react";
 import { Segment, type Measurable, type RenderOptions, type Renderable } from "rich-js";
-import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 
+import * as textual from "../src/index.js";
 import {
   ButtonPressed,
-  ButtonWidget,
-  StaticWidget,
+  Button,
+  Static,
   SwitchChanged,
-  SwitchWidget,
-  WidgetHost,
+  Switch,
   runTest,
 } from "../src/index.js";
+import { composeWidgetClasses } from "../src/widgets/component-pattern.js";
 
 function createTestRenderable(text: string): Renderable & Measurable {
   return {
@@ -25,9 +25,30 @@ function createTestRenderable(text: string): Renderable & Measurable {
   };
 }
 
-describe("StaticWidget", () => {
+describe("widget public API", () => {
+  it("exports Textual widget names without Widget-suffixed aliases", () => {
+    expect(textual.Button).toBe(Button);
+    expect(textual.Static).toBe(Static);
+    expect(textual.Switch).toBe(Switch);
+    expect("ButtonWidget" in textual).toBe(false);
+    expect("StaticWidget" in textual).toBe(false);
+    expect("SwitchWidget" in textual).toBe(false);
+  });
+});
+
+describe("widget component pattern", () => {
+  it("normalizes authored and derived CSS classes in one shared helper", () => {
+    expect(composeWidgetClasses("alpha", ["beta", "gamma"], null, undefined, "")).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+  });
+});
+
+describe("Static", () => {
   it("renders text content", async () => {
-    const session = await runTest(<StaticWidget content="Hello World" />);
+    const session = await runTest(<Static content="Hello World" />);
 
     expect(session.lastFrame()).toContain("Hello World");
 
@@ -37,8 +58,8 @@ describe("StaticWidget", () => {
   it("does not add spacer rows when stacked with other statics", async () => {
     const session = await runTest(
       <>
-        <StaticWidget content="Hello World" />
-        <StaticWidget content="Second line of text" />
+        <Static content="Hello World" />
+        <Static content="Second line of text" />
       </>,
     );
 
@@ -49,7 +70,7 @@ describe("StaticWidget", () => {
 
   it("renders rich-js renderables through the Visual seam", async () => {
     const renderable = createTestRenderable("Rendered");
-    const session = await runTest(<StaticWidget content={renderable} />);
+    const session = await runTest(<Static content={renderable} />);
 
     expect(session.lastFrame()).toContain("Rendered");
     expect(renderable.measure).toHaveBeenCalled();
@@ -59,7 +80,7 @@ describe("StaticWidget", () => {
   });
 
   it("registers with the framework as typeName Static", async () => {
-    const session = await runTest(<StaticWidget id="greeting" content="Hi" />);
+    const session = await runTest(<Static id="greeting" content="Hi" />);
 
     const widget = session.framework.registry.getByCssId("greeting");
     expect(widget).toBeDefined();
@@ -70,7 +91,7 @@ describe("StaticWidget", () => {
 
   it("applies user CSS through the cascade", async () => {
     const session = await runTest(
-      <StaticWidget id="styled" content="styled" />,
+      <Static id="styled" content="styled" />,
       { props: { css: "Static { color: red; }" } as never },
     );
 
@@ -82,9 +103,9 @@ describe("StaticWidget", () => {
   });
 });
 
-describe("ButtonWidget", () => {
+describe("Button", () => {
   it("renders the label text", async () => {
-    const session = await runTest(<ButtonWidget label="Click Me" />);
+    const session = await runTest(<Button label="Click Me" />);
 
     expect(session.lastFrame()).toContain("Click Me");
 
@@ -94,7 +115,7 @@ describe("ButtonWidget", () => {
   it("posts ButtonPressed on enter key", async () => {
     const messages: string[] = [];
     const session = await runTest(
-      <ButtonWidget id="btn" label="Press" />,
+      <Button id="btn" label="Press" />,
       {
         messageHook: (message) => {
           if (message instanceof ButtonPressed) {
@@ -121,7 +142,7 @@ describe("ButtonWidget", () => {
   it("posts ButtonPressed on space key", async () => {
     const messages: string[] = [];
     const session = await runTest(
-      <ButtonWidget id="btn" label="Press" />,
+      <Button id="btn" label="Press" />,
       {
         messageHook: (message) => {
           if (message instanceof ButtonPressed) {
@@ -145,7 +166,7 @@ describe("ButtonWidget", () => {
   it("does not post ButtonPressed when disabled", async () => {
     const messages: string[] = [];
     const session = await runTest(
-      <ButtonWidget id="btn" label="Disabled" disabled />,
+      <Button id="btn" label="Disabled" disabled />,
       {
         messageHook: (message) => {
           if (message instanceof ButtonPressed) {
@@ -169,7 +190,7 @@ describe("ButtonWidget", () => {
   it("does not post ButtonPressed when loading", async () => {
     const messages: string[] = [];
     const session = await runTest(
-      <ButtonWidget id="btn" label="Loading" loading />,
+      <Button id="btn" label="Loading" loading />,
       {
         messageHook: (message) => {
           if (message instanceof ButtonPressed) {
@@ -191,7 +212,7 @@ describe("ButtonWidget", () => {
   });
 
   it("registers with variant CSS class", async () => {
-    const session = await runTest(<ButtonWidget id="btn" label="OK" variant="primary" />);
+    const session = await runTest(<Button id="btn" label="OK" variant="primary" />);
 
     const btn = session.framework.registry.getByCssId("btn");
     expect(btn).toBeDefined();
@@ -203,8 +224,8 @@ describe("ButtonWidget", () => {
   it("is focusable and appears in the focus chain", async () => {
     const session = await runTest(
       <>
-        <ButtonWidget id="a" label="A" />
-        <ButtonWidget id="b" label="B" />
+        <Button id="a" label="A" />
+        <Button id="b" label="B" />
       </>,
     );
 
@@ -218,9 +239,9 @@ describe("ButtonWidget", () => {
   });
 });
 
-describe("SwitchWidget", () => {
+describe("Switch", () => {
   it("renders with initial off state", async () => {
-    const session = await runTest(<SwitchWidget id="sw" />);
+    const session = await runTest(<Switch id="sw" />);
 
     const sw = session.framework.registry.getByCssId("sw");
     expect(sw).toBeDefined();
@@ -231,7 +252,7 @@ describe("SwitchWidget", () => {
   });
 
   it("renders with initial on state", async () => {
-    const session = await runTest(<SwitchWidget id="sw" value />);
+    const session = await runTest(<Switch id="sw" value />);
 
     expect(session.lastFrame()).toContain("▊");
     expect(session.lastFrame()).toContain("▎");
@@ -242,7 +263,7 @@ describe("SwitchWidget", () => {
   it("posts SwitchChanged on enter key toggle", async () => {
     const values: boolean[] = [];
     const session = await runTest(
-      <SwitchWidget id="sw" />,
+      <Switch id="sw" />,
       {
         messageHook: (message) => {
           if (message instanceof SwitchChanged) {
@@ -271,7 +292,7 @@ describe("SwitchWidget", () => {
   it("posts SwitchChanged on space key toggle", async () => {
     const values: boolean[] = [];
     const session = await runTest(
-      <SwitchWidget id="sw" />,
+      <Switch id="sw" />,
       {
         messageHook: (message) => {
           if (message instanceof SwitchChanged) {
@@ -295,7 +316,7 @@ describe("SwitchWidget", () => {
   it("does not toggle when disabled", async () => {
     const values: boolean[] = [];
     const session = await runTest(
-      <SwitchWidget id="sw" disabled />,
+      <Switch id="sw" disabled />,
       {
         messageHook: (message) => {
           if (message instanceof SwitchChanged) {
@@ -319,8 +340,8 @@ describe("SwitchWidget", () => {
   it("is focusable and appears in the focus chain", async () => {
     const session = await runTest(
       <>
-        <SwitchWidget id="sw1" />
-        <SwitchWidget id="sw2" />
+        <Switch id="sw1" />
+        <Switch id="sw2" />
       </>,
     );
 
@@ -338,9 +359,9 @@ describe("steel-thread: full framework path", () => {
   it("renders all three widgets together in a single app", async () => {
     const session = await runTest(
       <>
-        <StaticWidget content="Status: Ready" />
-        <ButtonWidget id="action" label="Go" variant="primary" />
-        <SwitchWidget id="toggle" />
+        <Static content="Status: Ready" />
+        <Button id="action" label="Go" variant="primary" />
+        <Switch id="toggle" />
       </>,
     );
 
@@ -357,8 +378,8 @@ describe("steel-thread: full framework path", () => {
     const events: string[] = [];
     const session = await runTest(
       <>
-        <ButtonWidget id="btn" label="Press" />
-        <SwitchWidget id="sw" />
+        <Button id="btn" label="Press" />
+        <Switch id="sw" />
       </>,
       {
         messageHook: (message) => {

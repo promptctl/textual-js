@@ -1,6 +1,6 @@
 import React from "react";
 import { Box } from "ink";
-import { StaticWidget, SwitchWidget } from "../../src/index.js";
+import { Static, Switch } from "../../src/index.js";
 import { FixtureScreen, VISUAL_SCREEN_FOREGROUND } from "../fixture-screen.tsx";
 
 export const appProps = {
@@ -15,10 +15,10 @@ export const appProps = {
 export default function SwitchStatesFixture(): React.JSX.Element {
   return (
     <FixtureScreen>
-      <StaticWidget content="Switch states:" />
+      <Static content="Switch states:" />
       <Box>
-        <SwitchWidget value={false} />
-        <SwitchWidget value />
+        <Switch value={false} />
+        <Switch value />
       </Box>
     </FixtureScreen>
   );

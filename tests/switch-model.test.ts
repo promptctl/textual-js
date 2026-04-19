@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Switch, SwitchChanged } from "../src/index.js";
+import { SwitchModel as Switch, SwitchChanged } from "../src/widgets/switch.js";
 
 describe("Switch model", () => {
   it("defaults to false", () => {

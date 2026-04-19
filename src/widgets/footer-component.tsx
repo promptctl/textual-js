@@ -7,6 +7,7 @@ import { observer } from "mobx-react-lite";
 
 import { WidgetScope, useBindings, useStyles, useWidget } from "../framework/context.js";
 import type { ActiveBinding } from "../framework/app-framework.js";
+import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
 const DEFAULT_CSS = `
   FooterKey {
@@ -14,9 +15,7 @@ const DEFAULT_CSS = `
   }
 `;
 
-export interface FooterProps {
-  id?: string;
-  classes?: string | string[];
+export interface FooterProps extends WidgetComponentProps {
   compact?: boolean;
 }
 
@@ -92,7 +91,7 @@ export const Footer = observer(function Footer({
 }: FooterProps): React.JSX.Element {
   const widget = useWidget({
     id,
-    classes,
+    classes: composeWidgetClasses(classes),
     typeName: "Footer",
     defaultCss: DEFAULT_CSS,
   });

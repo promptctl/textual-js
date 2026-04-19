@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
-import { ButtonWidget, StaticWidget, WidgetScope, measureVisual, runTest, visualize, useWidget } from "../src/index.js";
+import { Button, Static, WidgetScope, measureVisual, runTest, visualize, useWidget } from "../src/index.js";
 import { parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 function TooltipLeaf(props: {
@@ -43,8 +43,8 @@ function stripAnsi(output: string): string {
 }
 
 describe("styled content integration", () => {
-  it("preserves styled spans in StaticWidget terminal output", async () => {
-    const session = await runTest(<StaticWidget content={"A [bright_red]B[/]"} />, {
+  it("preserves styled spans in Static terminal output", async () => {
+    const session = await runTest(<Static content={"A [bright_red]B[/]"} />, {
       props: { css: "Static { color: blue; }" } as never,
     });
     await session.pilot.pause();
@@ -57,8 +57,8 @@ describe("styled content integration", () => {
     session.unmount();
   });
 
-  it("preserves rich-js palette colors in ButtonWidget labels", async () => {
-    const session = await runTest(<ButtonWidget label={"[grey70]G[/]"} />);
+  it("preserves rich-js palette colors in Button labels", async () => {
+    const session = await runTest(<Button label={"[grey70]G[/]"} />);
 
     const grid = parseAnsiToStyledGrid(session.lastFrame());
 
@@ -88,7 +88,7 @@ describe("styled content integration", () => {
     const expectedLines = measureVisual(visualize(panel), 10).lines.map((line) => line.map((segment) => segment.text).join(""));
     const session = await runTest(
       <Box width={10}>
-        <StaticWidget content={panel} />
+        <Static content={panel} />
       </Box>,
     );
     await session.pilot.pause();

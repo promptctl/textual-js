@@ -8,11 +8,10 @@ import { runInAction } from "mobx";
 
 import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetResult } from "../framework/context.js";
-import { Switch, SwitchChanged } from "./switch.js";
+import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
+import { SwitchModel, SwitchChanged } from "./switch.js";
 
-export interface SwitchWidgetProps {
-  id?: string;
-  classes?: string | string[];
+export interface SwitchProps extends WidgetComponentProps {
   value?: boolean;
   disabled?: boolean;
 }
@@ -65,13 +64,15 @@ function renderSwitchRow(
   );
 }
 
-export const SwitchWidget = observer(function SwitchWidget({
+// [LAW:one-source-of-truth] Match Textual's `Switch` public widget name;
+// model helpers use explicit internal names instead of competing exports.
+export const Switch = observer(function Switch({
   id,
   classes,
   value = false,
   disabled,
-}: SwitchWidgetProps): React.JSX.Element {
-  const [model] = React.useState(() => new Switch(value));
+}: SwitchProps): React.JSX.Element {
+  const [model] = React.useState(() => new SwitchModel(value));
   const widgetRef = React.useRef<UseWidgetResult>(null) as React.MutableRefObject<UseWidgetResult | null>;
 
   // [LAW:one-source-of-truth] Prop drives model; model is the canonical state.
@@ -88,10 +89,7 @@ export const SwitchWidget = observer(function SwitchWidget({
 
   const widget = useWidget({
     id,
-    classes: [
-      ...(Array.isArray(classes) ? classes : classes ? [classes] : []),
-      ...(model.value ? ["-on"] : []),
-    ],
+    classes: composeWidgetClasses(classes, model.value ? ["-on"] : []),
     typeName: "Switch",
     focusable: true,
     disabled,

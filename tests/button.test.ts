@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { Button, ButtonPressed, Content } from "../src/index.js";
+import { Content } from "../src/index.js";
+import { ButtonModel as Button, ButtonPressed } from "../src/widgets/button.js";
 
 describe("Button model", () => {
   it("constructs with default variant and empty label", () => {

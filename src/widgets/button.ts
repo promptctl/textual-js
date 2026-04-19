@@ -11,7 +11,9 @@ export class ButtonPressed extends Message {
   }
 }
 
-export class Button {
+// [LAW:one-source-of-truth] The public `Button` name is reserved for the
+// React widget component; this state holder stays behind the model seam.
+export class ButtonModel {
   private _label: Content;
   readonly variant: ButtonVariant;
 

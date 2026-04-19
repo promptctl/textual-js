@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Sparkline, renderSparkline } from "../src/index.js";
+import { SparklineModel as Sparkline, renderSparkline } from "../src/widgets/sparkline.js";
 
 describe("Sparkline renderable", () => {
   it("renders data as block characters", () => {

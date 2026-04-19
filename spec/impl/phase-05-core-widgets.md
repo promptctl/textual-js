@@ -22,33 +22,13 @@ Deliver the widget catalog that most applications need — basic controls, conta
 
 ### Widget Implementation Pattern
 
-Every widget follows the same pattern established in Phase 1:
+Use the canonical template in `src/widgets/README.md`.
 
-```tsx
-const MyWidget = observer(({ id, classes, children, ...props }) => {
-  const { register, postMessage } = useTextual();
-  const styles = useStyles();
+// [LAW:one-source-of-truth] The widget implementation pattern has one authoritative template. Phase docs link to it instead of copying a second skeleton.
 
-  useEffect(() => register({ id, classes, typeName: 'MyWidget' }), []);
+Every built-in widget component registers with `useWidget`, reads TCSS through `useStyles(widget.handle)`, wraps output in `WidgetScope`, owns its message types, wires bindings/actions through `useWidget`, and ships paired visual fixtures. Do not use older `useTextual()` / manual `register()` examples for built-in widgets.
 
-  return (
-    <Box {...styles.box}>
-      {/* widget content using Ink primitives */}
-    </Box>
-  );
-});
-
-MyWidget.displayName = 'MyWidget';
-MyWidget.canFocus = true;
-MyWidget.DEFAULT_CSS = `
-  MyWidget { /* default TCSS styles */ }
-`;
-MyWidget.BINDINGS = [
-  { key: 'enter', action: 'activate', description: 'Activate' },
-];
-```
-
-Ink handles all rendering and layout via Yoga flexbox. Widgets compose Ink's `<Box>`, `<Text>`, and other primitives. TCSS resolved styles are spread onto Ink components.
+Ink handles all rendering and layout via Yoga flexbox. Widgets compose Ink's `<Box>`, `<Text>`, and rich-js rendering helpers. TCSS resolved styles are spread onto Ink components or used to render rich-js content.
 
 ## Current State (before this phase)
 

@@ -22,7 +22,9 @@ function validateLineStyle(value: string): string {
   return value;
 }
 
-export class Rule {
+// [LAW:one-source-of-truth] The public `Rule` name is reserved for the React
+// widget component; this state holder stays behind the model seam.
+export class RuleModel {
   private _orientation: RuleOrientation;
   private _lineStyle: string;
 
