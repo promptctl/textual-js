@@ -39,6 +39,9 @@ describe("notifications and themes", () => {
     expect(one.identity).not.toBe(two.identity);
     expect(one.title).toBe("");
     expect(one.severity).toBe("information");
+
+    const identities = new Set(Array.from({ length: 1000 }, () => new Notification("same").identity));
+    expect(identities.size).toBe(1000);
   });
 
   it("prunes expired notifications on access and supports clear/delete", () => {
@@ -62,6 +65,33 @@ describe("notifications and themes", () => {
 
       notifications.clear();
       expect(notifications.length).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves insertion order for membership and iteration edge cases", () => {
+    vi.useFakeTimers();
+
+    try {
+      const notifications = new Notifications();
+      const first = notifications.add(new Notification("first", { timeout: 0 }));
+      const second = notifications.add(new Notification("second", { timeout: 50 }));
+      const third = notifications.add(new Notification("third", { timeout: 0 }));
+
+      expect(notifications.has(first)).toBe(true);
+      expect(notifications.has(second)).toBe(true);
+      expect(Array.from(notifications).map((entry) => entry.message)).toEqual(["first", "second", "third"]);
+
+      vi.advanceTimersByTime(75);
+
+      expect(notifications.has(second)).toBe(false);
+      expect(Array.from(notifications).map((entry) => entry.message)).toEqual(["first", "third"]);
+
+      notifications.delete(second);
+      notifications.delete(new Notification("missing", { timeout: 0 }));
+
+      expect(Array.from(notifications).map((entry) => entry.identity)).toEqual([first.identity, third.identity]);
     } finally {
       vi.useRealTimers();
     }
@@ -121,5 +151,42 @@ describe("notifications and themes", () => {
     unsubscribe();
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("renders toast notifications from the app collection and prunes expired toasts", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const framework = new TextualFramework();
+
+      const instance = render(
+        <TextualApp framework={framework}>
+          <Text>body</Text>
+        </TextualApp>,
+      );
+
+      await framework.whenIdle();
+
+      framework.notify("toast-one", "information", 100);
+      await Promise.resolve();
+
+      expect(instance.lastFrame()).toContain("toast-one");
+
+      vi.advanceTimersByTime(150);
+      await framework.whenIdle();
+      instance.rerender(
+        <TextualApp framework={framework}>
+          <Text>body</Text>
+        </TextualApp>,
+      );
+
+      expect(framework.notifications.length).toBe(0);
+      expect(instance.lastFrame()).not.toContain("toast-one");
+
+      instance.unmount();
+      instance.cleanup();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

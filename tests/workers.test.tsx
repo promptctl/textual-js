@@ -8,10 +8,14 @@ import {
   WidgetScope,
   TextualApp,
   TextualFramework,
+  DeadlockError,
+  WorkerDeclarationError,
+  WorkerError,
   WorkerCancelled,
   WorkerFailed,
   WorkerStateChanged,
   getCurrentWorker,
+  work,
   useWidget,
 } from "../src/index.js";
 
@@ -160,5 +164,118 @@ describe("workers", () => {
     instance.cleanup();
 
     await expect(worker.wait()).rejects.toBeInstanceOf(WorkerCancelled);
+  });
+
+  it("supports run_worker aliases, pending start, callable inputs, and manager surfaces", async () => {
+    const framework = new TextualFramework();
+    const pendingWorker = framework.run_worker(async () => "pending", { start: false, name: "pending" });
+
+    expect(pendingWorker.state).toBe("pending");
+    expect(framework.workers.has(pendingWorker)).toBe(true);
+    await expect(pendingWorker.wait()).rejects.toBeInstanceOf(WorkerError);
+
+    framework.workers.start_all();
+    await expect(pendingWorker.wait()).resolves.toBe("pending");
+
+    const promiseWorker = framework.run_worker(Promise.resolve("promise"), { name: "promise" });
+    const syncThreadWorker = framework.run_worker(() => "sync", { thread: true, name: "sync" });
+
+    await expect(promiseWorker.wait()).resolves.toBe("promise");
+    await expect(syncThreadWorker.wait()).resolves.toBe("sync");
+    await framework.workers.wait_for_complete();
+
+    expect(framework.workers.length).toBe(0);
+    expect(Array.from(framework.workers.reversed())).toEqual([]);
+    expect(framework.workers.toString()).toContain("0 workers");
+  });
+
+  it("implements work decorator launch, thread sync methods, declaration errors, and exclusivity", async () => {
+    class DecoratedWorkerHost {
+      constructor(readonly framework: TextualFramework) {}
+
+      runWorker(callable: never, options = {}) {
+        return this.framework.run_worker(callable, options);
+      }
+
+      async asyncTask(value: string): Promise<string> {
+        return `async:${value}`;
+      }
+
+      syncTask(value: string): string {
+        return `sync:${value}`;
+      }
+
+      async exclusiveTask(value: string): Promise<string> {
+        const worker = getCurrentWorker();
+
+        return new Promise((resolve, reject) => {
+          worker.controller.signal.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+          setTimeout(() => {
+            resolve(value);
+          }, 20);
+        });
+      }
+    }
+
+    const asyncDescriptor = Object.getOwnPropertyDescriptor(DecoratedWorkerHost.prototype, "asyncTask")!;
+    work(DecoratedWorkerHost.prototype, "asyncTask", asyncDescriptor);
+    Object.defineProperty(DecoratedWorkerHost.prototype, "asyncTask", asyncDescriptor);
+
+    const syncDescriptor = Object.getOwnPropertyDescriptor(DecoratedWorkerHost.prototype, "syncTask")!;
+    work({ thread: true })(DecoratedWorkerHost.prototype, "syncTask", syncDescriptor);
+    Object.defineProperty(DecoratedWorkerHost.prototype, "syncTask", syncDescriptor);
+
+    const exclusiveDescriptor = Object.getOwnPropertyDescriptor(DecoratedWorkerHost.prototype, "exclusiveTask")!;
+    work({ exclusive: true })(DecoratedWorkerHost.prototype, "exclusiveTask", exclusiveDescriptor);
+    Object.defineProperty(DecoratedWorkerHost.prototype, "exclusiveTask", exclusiveDescriptor);
+
+    class InvalidHost {
+      sync(): string {
+        return "invalid";
+      }
+    }
+
+    const invalidDescriptor = Object.getOwnPropertyDescriptor(InvalidHost.prototype, "sync")!;
+    expect(() => {
+      work(InvalidHost.prototype, "sync", invalidDescriptor);
+    }).toThrow(WorkerDeclarationError);
+
+    const framework = new TextualFramework();
+    const host = new DecoratedWorkerHost(framework);
+
+    await expect((host.asyncTask("ok") as unknown as { wait: () => Promise<unknown> }).wait()).resolves.toBe("async:ok");
+    await expect((host.syncTask("ok") as unknown as { wait: () => Promise<unknown> }).wait()).resolves.toBe("sync:ok");
+
+    const first = host.exclusiveTask("first") as unknown as { wait: () => Promise<unknown> };
+    const second = host.exclusiveTask("second") as unknown as { wait: () => Promise<unknown> };
+
+    await expect(first.wait()).rejects.toBeInstanceOf(WorkerCancelled);
+    await expect(second.wait()).resolves.toBe("second");
+  });
+
+  it("allows nested workers and surfaces self-wait deadlocks as worker failures", async () => {
+    const framework = new TextualFramework();
+    const results: string[] = [];
+
+    const parent = framework.run_worker(async () => {
+      framework.run_worker(async () => {
+        results.push("child");
+      }, { name: "child" });
+      results.push("parent");
+    }, { name: "parent" });
+
+    await parent.wait();
+    await framework.workers.wait_for_complete();
+
+    expect(new Set(results)).toEqual(new Set(["parent", "child"]));
+
+    const selfWaiter = framework.run_worker(async () => {
+      await getCurrentWorker().wait();
+    }, { name: "self" });
+
+    await expect(selfWaiter.wait()).rejects.toBeInstanceOf(WorkerFailed);
+    expect(selfWaiter.error).toBeInstanceOf(DeadlockError);
   });
 });

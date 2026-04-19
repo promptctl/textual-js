@@ -1,8 +1,16 @@
 import React from "react";
 
 import type { BindingDeclaration } from "../bindings/index.js";
-import { TextualFramework, type KeymapInput } from "../framework/app-framework.js";
+import {
+  TextualFramework,
+  type KeymapInput,
+  type SimpleCommand,
+} from "../framework/app-framework.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
+import { CommandPalette } from "../commands/index.js";
+import { Notification, type NotificationSeverity } from "../services/notifications.js";
+import type { AnsiTheme } from "../services/theme.js";
+import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import { runTestRoot, type RunTestOptions, type TestSession } from "../testing/run-test.js";
 import { TextualApp } from "./textual-app.js";
 
@@ -137,6 +145,106 @@ export class App<Result = unknown> {
 
   batch_update<T>(callback: () => T): T {
     return this.batchUpdate(callback);
+  }
+
+  runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    return this.framework.runAppWorker(work, options);
+  }
+
+  run_worker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    return this.runWorker(work, options);
+  }
+
+  notify(message: string, severity?: NotificationSeverity, timeout?: number, title?: string): Notification {
+    return this.framework.notify(message, severity, timeout, title);
+  }
+
+  clearNotifications(): void {
+    this.framework.clearNotifications();
+  }
+
+  clear_notifications(): void {
+    this.clearNotifications();
+  }
+
+  get theme(): string {
+    return this.framework.theme;
+  }
+
+  set theme(name: string) {
+    this.framework.setTheme(name);
+  }
+
+  get dark(): boolean {
+    return this.framework.dark;
+  }
+
+  set dark(value: boolean) {
+    this.framework.setDarkMode(value);
+  }
+
+  get ansiTheme(): AnsiTheme {
+    return this.framework.ansiTheme;
+  }
+
+  get ansi_theme(): AnsiTheme {
+    return this.ansiTheme;
+  }
+
+  get ansiThemeDark(): AnsiTheme {
+    return this.framework.ansiThemeDark;
+  }
+
+  set ansiThemeDark(theme: AnsiTheme) {
+    this.framework.ansiThemeDark = theme;
+  }
+
+  get ansi_theme_dark(): AnsiTheme {
+    return this.ansiThemeDark;
+  }
+
+  set ansi_theme_dark(theme: AnsiTheme) {
+    this.ansiThemeDark = theme;
+  }
+
+  get ansiThemeLight(): AnsiTheme {
+    return this.framework.ansiThemeLight;
+  }
+
+  set ansiThemeLight(theme: AnsiTheme) {
+    this.framework.ansiThemeLight = theme;
+  }
+
+  get ansi_theme_light(): AnsiTheme {
+    return this.ansiThemeLight;
+  }
+
+  set ansi_theme_light(theme: AnsiTheme) {
+    this.ansiThemeLight = theme;
+  }
+
+  get app_suspend_signal() {
+    return this.framework.signals.app_suspend_signal;
+  }
+
+  get app_resume_signal() {
+    return this.framework.signals.app_resume_signal;
+  }
+
+  get theme_changed_signal() {
+    return this.framework.signals.theme_changed_signal;
+  }
+
+  suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {
+    return this.framework.suspend(callback);
+  }
+
+  searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
+    return this.framework.searchCommands(commands);
+  }
+
+  search_commands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
+    return this.searchCommands(commands);
   }
 
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {

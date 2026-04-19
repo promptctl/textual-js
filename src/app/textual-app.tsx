@@ -73,6 +73,33 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
   );
 });
 
+const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null {
+  const framework = useTextual();
+  const notifications = framework.showNotifications ? framework.notifications.list() : [];
+
+  if (notifications.length === 0) {
+    return null;
+  }
+
+  // [LAW:one-source-of-truth] Toast display renders directly from the app
+  // notification collection; widgets never mount their own toast views.
+  return (
+    <Box
+      position="absolute"
+      flexDirection="column"
+      marginLeft={Math.max(0, framework.terminalSize.width - 32)}
+      marginTop={0}
+      width={32}
+    >
+      {notifications.map((notification) => (
+        <Box key={notification.identity}>
+          {renderVisual(visualize(notification.message), {}, `toast:${notification.identity}`)}
+        </Box>
+      ))}
+    </Box>
+  );
+});
+
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const framework = useTextual();
   const { stdout } = useStdout();
@@ -124,6 +151,7 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
       height={framework.terminalSize.height}
     >
       <Box flexDirection="column">{activeScreen ?? children}</Box>
+      <ToastOverlay />
       <TooltipOverlay />
     </Box>
   );

@@ -8,7 +8,7 @@ import { Size } from "../geometry/size.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
-import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
+import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
 import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
 import type { AnimationLevel, TextualFramework } from "./app-framework.js";
@@ -345,8 +345,14 @@ export class WidgetNode {
     this.scrollRelative(delta.x, delta.y);
   }
 
-  runWorker<TResult>(work: WorkFunction<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+  runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
     return this.framework.runWorker(this, work, options);
+  }
+
+  run_worker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    // [LAW:one-source-of-truth] runWorker is the canonical JS widget surface;
+    // run_worker is an alias that shares the framework worker boundary.
+    return this.runWorker(work, options);
   }
 
   createSignal<TValue>(): Signal<TValue> {

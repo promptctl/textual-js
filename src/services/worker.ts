@@ -3,10 +3,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import { Message, type MessageInit } from "../events/message.js";
-import type { WidgetNode } from "../framework/widget-node.js";
 
 export type WorkerState = "pending" | "running" | "success" | "error" | "cancelled";
 export type WorkFunction<TResult> = (signal: AbortSignal, worker: Worker<unknown>) => Promise<TResult> | TResult;
+export type WorkerCallable<TResult> = WorkFunction<TResult> | PromiseLike<TResult>;
+
+export interface WorkerOwner {
+  nodeId: string;
+  typeName: string;
+}
 
 export interface WorkerOptions {
   name?: string;
@@ -15,6 +20,7 @@ export interface WorkerOptions {
   start?: boolean;
   exitOnError?: boolean;
   exclusive?: boolean;
+  thread?: boolean;
 }
 
 export class WorkerError extends Error {}
@@ -22,6 +28,7 @@ export class WorkerFailed extends WorkerError {}
 export class WorkerCancelled extends WorkerError {}
 export class DeadlockError extends WorkerError {}
 export class NoActiveWorker extends WorkerError {}
+export class WorkerDeclarationError extends WorkerError {}
 
 export class WorkerStateChanged extends Message {
   constructor(
@@ -56,17 +63,32 @@ export class Worker<TResult> {
   private execution: Promise<TResult> | null = null;
 
   constructor(
-    readonly node: WidgetNode,
-    private readonly work: WorkFunction<TResult>,
+    readonly node: WorkerOwner,
+    private readonly work: WorkerCallable<TResult>,
     readonly name: string,
     readonly group: string | undefined,
     readonly description: string,
     readonly exitOnError: boolean,
-    private readonly postMessage: (targetId: string, message: Message) => void,
-    private readonly onSettled: (worker: Worker<TResult>) => void,
+    threadOrPostMessage: boolean | ((targetId: string, message: Message) => void),
+    postMessageOrOnSettled: ((targetId: string, message: Message) => void) | ((worker: Worker<TResult>) => void),
+    onSettled?: (worker: Worker<TResult>) => void,
   ) {
+    if (typeof threadOrPostMessage === "boolean") {
+      this.thread = threadOrPostMessage;
+      this.postMessage = postMessageOrOnSettled as (targetId: string, message: Message) => void;
+      this.onSettled = onSettled ?? (() => undefined);
+    } else {
+      this.thread = false;
+      this.postMessage = threadOrPostMessage;
+      this.onSettled = postMessageOrOnSettled as (worker: Worker<TResult>) => void;
+    }
+
     makeAutoObservable(this, {}, { autoBind: true });
   }
+
+  readonly thread: boolean;
+  private readonly postMessage: (targetId: string, message: Message) => void;
+  private readonly onSettled: (worker: Worker<TResult>) => void;
 
   get isCancelled(): boolean {
     return this.state === "cancelled";
@@ -93,10 +115,24 @@ export class Worker<TResult> {
       return this.execution;
     }
 
+    if (this.state === "cancelled") {
+      return Promise.reject(this.error ?? new WorkerCancelled("Worker was cancelled"));
+    }
+
     this.transition("running");
-    this.execution = currentWorkerStorage.run(this as Worker<unknown>, async () => {
+    let resolveExecution!: (result: TResult) => void;
+    let rejectExecution!: (error: unknown) => void;
+    this.execution = new Promise<TResult>((resolve, reject) => {
+      resolveExecution = resolve;
+      rejectExecution = reject;
+    });
+
+    // [LAW:one-source-of-truth] The execution promise is installed before
+    // work starts so wait(), double-start, and self-deadlock checks read one
+    // canonical lifecycle handle even during the first synchronous frame.
+    void currentWorkerStorage.run(this as Worker<unknown>, async () => {
       try {
-        const result = await this.work(this.controller.signal, this as Worker<unknown>);
+        const result = await this.executeWork();
 
         if (this.controller.signal.aborted) {
           throw new WorkerCancelled("Worker was cancelled");
@@ -106,6 +142,7 @@ export class Worker<TResult> {
           this.result = result;
           this.transition("success");
         });
+        resolveExecution(result);
         return result;
       } catch (error) {
         const resolvedError =
@@ -121,7 +158,7 @@ export class Worker<TResult> {
           this.error = resolvedError;
           this.transition(resolvedError instanceof WorkerCancelled ? "cancelled" : "error");
         });
-        throw resolvedError;
+        rejectExecution(resolvedError);
       } finally {
         this.onSettled(this);
       }
@@ -162,7 +199,13 @@ export class Worker<TResult> {
     }
   }
 
-  update(completedSteps: number, totalSteps?: number | null): void {
+  update(completedSteps: number | { completedSteps?: number; totalSteps?: number | null }, totalSteps?: number | null): void {
+    if (typeof completedSteps === "object") {
+      this.completedSteps = Math.max(0, completedSteps.completedSteps ?? this.completedSteps);
+      this.totalSteps = completedSteps.totalSteps ?? this.totalSteps;
+      return;
+    }
+
     this.completedSteps = Math.max(0, completedSteps);
     this.totalSteps = totalSteps ?? this.totalSteps;
   }
@@ -179,6 +222,23 @@ export class Worker<TResult> {
     this.state = nextState;
     this.postMessage(this.node.nodeId, new WorkerStateChanged(this as Worker<unknown>, nextState));
   }
+
+  private async executeWork(): Promise<TResult> {
+    const candidate =
+      typeof this.work === "function"
+        ? this.work(this.controller.signal, this as Worker<unknown>)
+        : this.work;
+
+    if (isPromiseLike(candidate)) {
+      return await candidate;
+    }
+
+    if (!this.thread) {
+      throw new WorkerDeclarationError("Synchronous worker functions require thread: true");
+    }
+
+    return candidate;
+  }
 }
 
 export class WorkerManager implements Iterable<Worker<unknown>> {
@@ -192,6 +252,7 @@ export class WorkerManager implements Iterable<Worker<unknown>> {
       {
         workers: false,
         orderedIds: false,
+        toString: false,
       } as never,
       { autoBind: true },
     );
@@ -217,10 +278,28 @@ export class WorkerManager implements Iterable<Worker<unknown>> {
     return worker;
   }
 
+  get size(): number {
+    return this.length;
+  }
+
   cancelAll(): void {
     for (const worker of this) {
       worker.cancel();
     }
+  }
+
+  startAll(): void {
+    for (const worker of this) {
+      if (worker.state === "pending") {
+        void worker.start();
+      }
+    }
+  }
+
+  start_all(): void {
+    // [LAW:one-source-of-truth] startAll is the canonical JS surface; this
+    // snake_case alias delegates so worker startup semantics cannot drift.
+    this.startAll();
   }
 
   cancelGroup(nodeId: string, group: string): void {
@@ -253,6 +332,12 @@ export class WorkerManager implements Iterable<Worker<unknown>> {
     );
   }
 
+  async wait_for_complete(workers?: Iterable<Worker<unknown>>): Promise<void> {
+    // [LAW:one-source-of-truth] waitForComplete owns draining/removal semantics;
+    // the compatibility alias keeps one worker-manager completion boundary.
+    return this.waitForComplete(workers);
+  }
+
   remove(worker: Worker<unknown>): void {
     const workerId = this.orderedIds.find((id) => this.workers.get(id) === worker);
 
@@ -264,9 +349,103 @@ export class WorkerManager implements Iterable<Worker<unknown>> {
     this.orderedIds.remove(workerId);
   }
 
+  has(worker: Worker<unknown>): boolean {
+    return this.orderedIds.some((id) => this.workers.get(id) === worker);
+  }
+
   [Symbol.iterator](): Iterator<Worker<unknown>> {
     return this.orderedIds
       .map((id) => this.workers.get(id))
       .filter((worker): worker is Worker<unknown> => worker !== undefined)[Symbol.iterator]();
   }
+
+  reversed(): IterableIterator<Worker<unknown>> {
+    return this.orderedIds
+      .slice()
+      .reverse()
+      .map((id) => this.workers.get(id))
+      .filter((worker): worker is Worker<unknown> => worker !== undefined)[Symbol.iterator]();
+  }
+
+  toString(): string {
+    return `WorkerManager(${this.length} workers)`;
+  }
+}
+
+export interface WorkDecoratorOptions extends Omit<WorkerOptions, "start"> {}
+
+interface WorkerHost {
+  runWorker?: <TResult>(work: WorkerCallable<TResult>, options?: WorkerOptions) => Worker<TResult>;
+  run_worker?: <TResult>(work: WorkerCallable<TResult>, options?: WorkerOptions) => Worker<TResult>;
+}
+
+type WorkMethod = (...args: unknown[]) => unknown;
+
+export function work(target: object, propertyKey: string | symbol, descriptor: TypedPropertyDescriptor<WorkMethod>): void;
+export function work(options?: WorkDecoratorOptions): MethodDecorator;
+export function work(
+  targetOrOptions?: object | WorkDecoratorOptions,
+  propertyKey?: string | symbol,
+  descriptor?: TypedPropertyDescriptor<WorkMethod>,
+): MethodDecorator | void {
+  const isDirectDecorator = propertyKey !== undefined && descriptor !== undefined;
+
+  if (isDirectDecorator) {
+    installWorkDecorator({}, propertyKey, descriptor);
+    return;
+  }
+
+  const options = (targetOrOptions ?? {}) as WorkDecoratorOptions;
+  return (_target, decoratedPropertyKey, decoratedDescriptor) => {
+    installWorkDecorator(options, decoratedPropertyKey, decoratedDescriptor as unknown as TypedPropertyDescriptor<WorkMethod>);
+  };
+}
+
+function installWorkDecorator(
+  options: WorkDecoratorOptions,
+  propertyKey: string | symbol,
+  descriptor: TypedPropertyDescriptor<WorkMethod>,
+): void {
+  const original = descriptor.value;
+
+  if (original === undefined) {
+    throw new WorkerDeclarationError("The work decorator can only be applied to methods");
+  }
+
+  const thread = options.thread ?? false;
+  const isAsyncMethod = original.constructor.name === "AsyncFunction";
+
+  if (!thread && !isAsyncMethod) {
+    throw new WorkerDeclarationError("Synchronous work methods require thread: true");
+  }
+
+  const methodName = String(propertyKey);
+
+  descriptor.value = function runDecoratedWorker(this: WorkerHost, ...args: unknown[]): Worker<unknown> {
+    const runner = this.runWorker ?? this.run_worker;
+
+    if (typeof runner !== "function") {
+      throw new WorkerDeclarationError("Decorated work methods require a runWorker-capable host");
+    }
+
+    const workerOptions: WorkerOptions = {
+      ...options,
+      name: options.name ?? methodName,
+      group: options.group ?? methodName,
+      thread,
+    };
+
+    // [LAW:single-enforcer] Decorated workers funnel through runWorker so
+    // exclusivity, cancellation, and manager membership use the same boundary.
+    return runner.call(this, () => original.apply(this, args), workerOptions);
+  };
+}
+
+function isPromiseLike<TResult>(value: unknown): value is PromiseLike<TResult> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }

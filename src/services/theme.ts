@@ -22,6 +22,55 @@ export interface ActiveTheme extends ThemeDefinition {
   variables: Record<string, string>;
 }
 
+export interface AnsiTheme {
+  name: string;
+  colors: readonly string[];
+}
+
+export const ANSI_THEME_LIGHT: AnsiTheme = {
+  name: "textual-light",
+  colors: [
+    "#000000",
+    "#ba2121",
+    "#008000",
+    "#a45c00",
+    "#0044aa",
+    "#7a1fa2",
+    "#008b8b",
+    "#f0f0f0",
+    "#555555",
+    "#d32f2f",
+    "#2e7d32",
+    "#b26b00",
+    "#0178d4",
+    "#6d28d9",
+    "#008b8b",
+    "#ffffff",
+  ],
+};
+
+export const ANSI_THEME_DARK: AnsiTheme = {
+  name: "textual-dark",
+  colors: [
+    "#0d1117",
+    "#f85149",
+    "#3fb950",
+    "#d29922",
+    "#58a6ff",
+    "#bc8cff",
+    "#39c5cf",
+    "#b1bac4",
+    "#6e7681",
+    "#ff7b72",
+    "#56d364",
+    "#e3b341",
+    "#79c0ff",
+    "#d2a8ff",
+    "#56d4dd",
+    "#f0f6fc",
+  ],
+};
+
 function normalizeThemeVariable(value: string | number): string {
   if (typeof value === "number") {
     return `${value}`;
@@ -115,12 +164,16 @@ export const BUILTIN_THEMES: ThemeDefinition[] = [
 export class ThemeManager {
   private readonly themes = observable.map<string, ActiveTheme>();
   activeThemeName = "default";
+  ansiThemeDark: AnsiTheme = ANSI_THEME_DARK;
+  ansiThemeLight: AnsiTheme = ANSI_THEME_LIGHT;
 
   constructor() {
     makeAutoObservable(
       this,
       {
         themes: false,
+        ansiThemeDark: observable.ref,
+        ansiThemeLight: observable.ref,
       } as never,
       { autoBind: true },
     );
@@ -144,6 +197,10 @@ export class ThemeManager {
     return this.activeTheme.dark;
   }
 
+  get ansiTheme(): AnsiTheme {
+    return this.dark ? this.ansiThemeDark : this.ansiThemeLight;
+  }
+
   register(theme: ThemeDefinition): ActiveTheme {
     const normalizedTheme = normalizeTheme(theme);
     this.themes.set(normalizedTheme.name, normalizedTheme);
@@ -157,6 +214,22 @@ export class ThemeManager {
 
     this.activeThemeName = name;
     return this.activeTheme;
+  }
+
+  setDarkMode(dark: boolean): ActiveTheme {
+    // [LAW:one-source-of-truth] Dark/light mode is derived from the active
+    // theme name, so switching mode selects the corresponding theme instead of
+    // storing a second mutable dark flag.
+    return this.setActiveTheme(dark ? "textual-dark" : "textual-light");
+  }
+
+  setAnsiTheme(dark: boolean, theme: AnsiTheme): void {
+    if (dark) {
+      this.ansiThemeDark = theme;
+      return;
+    }
+
+    this.ansiThemeLight = theme;
   }
 
   getCssVariables(): Record<string, string> {

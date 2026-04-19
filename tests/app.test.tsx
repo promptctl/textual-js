@@ -8,12 +8,21 @@ import {
   AppBlur,
   AppFocus,
   Message,
+  SuspendNotSupported,
+  _get_environ_bool,
+  _get_environ_int,
+  _get_environ_port,
   normalizeColor,
   runTest,
   TextualApp,
   TextualFramework,
+  type AppDriver,
+  type AnsiTheme,
   WidgetHost,
+  WidgetNode,
+  WidgetScope,
   useTextual,
+  useWidget,
 } from "../src/index.js";
 
 class Ping extends Message {}
@@ -26,6 +35,24 @@ function AppDispatcher(props: { onReady: (framework: TextualFramework) => void }
   }, [framework, props]);
 
   return null;
+}
+
+function AppServiceHarness(props: { onReady: (framework: TextualFramework, widget: WidgetNode) => void }): React.JSX.Element {
+  const framework = useTextual();
+  const widget = useWidget({
+    id: "app-service-harness",
+    typeName: "AppServiceHarness",
+  });
+
+  useLayoutEffect(() => {
+    props.onReady(framework, widget.handle);
+  }, [framework, props, widget.handle]);
+
+  return (
+    <WidgetScope widget={widget.handle}>
+      <Text>services</Text>
+    </WidgetScope>
+  );
 }
 
 function BlurHarness(props: { onToggleReady?: (setVisible: (visible: boolean) => void) => void }): React.JSX.Element {
@@ -353,5 +380,173 @@ describe("TextualApp and widget registry", () => {
     expect(received).toEqual([]);
 
     session.unmount();
+  });
+
+  it("selects ANSI themes from dark/light mode and publishes app theme changes", async () => {
+    const framework = new TextualFramework();
+    let widget!: WidgetNode;
+    const observedThemes: string[] = [];
+    const customDark: AnsiTheme = { name: "custom-dark", colors: Array.from({ length: 16 }, () => "#111111") };
+    const customLight: AnsiTheme = { name: "custom-light", colors: Array.from({ length: 16 }, () => "#eeeeee") };
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <AppServiceHarness
+          onReady={(_framework, value) => {
+            widget = value;
+          }}
+        />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const unsubscribe = framework.signals.theme_changed_signal.subscribe(widget, (theme) => {
+      observedThemes.push(theme.name);
+    });
+
+    framework.ansi_theme_dark = customDark;
+    framework.ansi_theme_light = customLight;
+
+    expect(framework.ansi_theme).toBe(customLight);
+
+    framework.setTheme("textual-dark");
+    await framework.whenIdle();
+    expect(framework.ansi_theme).toBe(customDark);
+
+    framework.ansi_theme_light = customLight;
+    expect(framework.ansi_theme).toBe(customDark);
+
+    framework.dark = false;
+    await framework.whenIdle();
+
+    expect(framework.theme).toBe("textual-light");
+    expect(framework.ansi_theme).toBe(customLight);
+    expect(observedThemes).toEqual(["textual-dark", "textual-light"]);
+
+    unsubscribe();
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("suspends through driver support checks and publishes suspend/resume signals around the yielded block", async () => {
+    const calls: string[] = [];
+    const driver: AppDriver = {
+      canSuspend: true,
+      isHeadless: false,
+      suspendApplicationMode: () => {
+        calls.push("driver:suspend");
+      },
+      resumeApplicationMode: () => {
+        calls.push("driver:resume");
+      },
+    };
+    const framework = new TextualFramework({ driver });
+    let widget!: WidgetNode;
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <AppServiceHarness
+          onReady={(_framework, value) => {
+            widget = value;
+          }}
+        />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const unsubscribeSuspend = framework.signals.app_suspend_signal.subscribe(widget, () => {
+      calls.push("signal:suspend");
+    }, true);
+    const unsubscribeResume = framework.signals.app_resume_signal.subscribe(widget, () => {
+      calls.push("signal:resume");
+    }, true);
+
+    await framework.suspend(async () => {
+      calls.push("body");
+    });
+
+    expect(calls).toEqual(["signal:suspend", "driver:suspend", "body", "driver:resume", "signal:resume"]);
+
+    const unsupported = new TextualFramework({
+      driver: {
+        canSuspend: true,
+        isHeadless: true,
+        suspendApplicationMode: () => undefined,
+        resumeApplicationMode: () => undefined,
+      },
+    });
+
+    await expect(unsupported.suspend(() => undefined)).rejects.toBeInstanceOf(SuspendNotSupported);
+
+    unsubscribeSuspend();
+    unsubscribeResume();
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("opens search_commands with command entries and handles empty command lists", async () => {
+    const framework = new TextualFramework();
+    const selected: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <Text>commands</Text>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const palette = await framework.search_commands([
+      ["Open File", () => {
+        selected.push("open");
+      }, "Open a file"],
+      { name: "Close File", callback: () => {
+        selected.push("close");
+      } },
+    ]);
+
+    expect(framework.activeScreen?.name).toBe("__command_palette__");
+    expect(framework.activeCommandPalette).toBe(palette);
+
+    const results = await palette.search("open");
+    expect(results[0]?.text).toBe("Open File");
+
+    results[0]?.command();
+    expect(selected).toEqual(["open"]);
+
+    const emptyPalette = await framework.search_commands([]);
+    expect(await emptyPalette.search("anything")).toEqual([]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("parses TEXTUAL feature flags and environment helper values", () => {
+    const empty = new TextualFramework({ env: { TEXTUAL: "" } });
+    const debug = new TextualFramework({ env: { TEXTUAL: "devtools, debug" } });
+    const debugWithoutDevtools = new TextualFramework({ env: { TEXTUAL: "debug" } });
+
+    expect(empty.features.size).toBe(0);
+    expect(empty.devtools).toBeNull();
+    expect(empty.debug).toBe(false);
+    expect(debug.devtools).not.toBeNull();
+    expect(debug.debug).toBe(true);
+    expect(debugWithoutDevtools.debug).toBe(false);
+
+    const env = {
+      COUNT: "-5",
+      ENABLED: "1",
+      DISABLED: "true",
+      PORT: "70000",
+      GOOD_PORT: "1234",
+    };
+
+    expect(_get_environ_int("COUNT", 10, 0, env)).toBe(0);
+    expect(_get_environ_bool("ENABLED", env)).toBe(true);
+    expect(_get_environ_bool("DISABLED", env)).toBe(false);
+    expect(_get_environ_port("PORT", 8000, env)).toBe(8000);
+    expect(_get_environ_port("GOOD_PORT", 8000, env)).toBe(1234);
   });
 });

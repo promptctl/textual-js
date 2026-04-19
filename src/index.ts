@@ -66,6 +66,7 @@ export {
 export {
   type ActiveBinding,
   ActiveModeError,
+  type AppDriver,
   type ActionTargetDescriptor,
   type AnimationLevel,
   BadIdentifier,
@@ -77,7 +78,10 @@ export {
   type KeymapInput,
   OnDecoratorError,
   ScreenStackError,
+  type SimpleCommand,
   StylesheetError,
+  SuspendNotSupported,
+  type TextualFrameworkOptions,
   TextualFramework,
   TextualProvider,
   UnknownModeError,
@@ -129,26 +133,46 @@ export {
 export { RLock } from "./services/concurrency.js";
 export { Signal, SignalError, type SignalCallback } from "./services/signal.js";
 export {
+  ANSI_THEME_DARK,
+  ANSI_THEME_LIGHT,
   BUILTIN_THEMES,
   ThemeManager,
   type ActiveTheme,
+  type AnsiTheme,
   type ThemeDefinition,
 } from "./services/theme.js";
+export {
+  _get_environ_bool,
+  _get_environ_int,
+  _get_environ_port,
+  getEnvironBool,
+  getEnvironInt,
+  getEnvironPort,
+  parseTextualFeatures,
+  type EnvironmentMap,
+  type TextualFeatureState,
+} from "./services/environment.js";
 export { ManagedTimer, type TimerOptions } from "./services/timer.js";
 export {
   DeadlockError,
   NoActiveWorker,
   Worker,
   WorkerCancelled,
+  WorkerDeclarationError,
   WorkerError,
   WorkerFailed,
   WorkerManager,
   WorkerStateChanged,
   getCurrentWorker,
+  work,
+  type WorkerCallable,
+  type WorkerOwner,
   type WorkFunction,
+  type WorkDecoratorOptions,
   type WorkerOptions,
   type WorkerState,
 } from "./services/worker.js";
+export { RuntimeError, getActiveMessagePump } from "./services/concurrency.js";
 export {
   Initialize,
   ReactiveError,

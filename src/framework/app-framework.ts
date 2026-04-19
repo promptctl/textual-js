@@ -35,7 +35,7 @@ import { measureVisual, visualize, type Visual, type VisualInput } from "../cont
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationSeverity } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
-import { ThemeManager, type ActiveTheme, type ThemeDefinition } from "../services/theme.js";
+import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
 import { ManagedTimer, type TimerCallback, type TimerOptions } from "../services/timer.js";
 import {
   Worker,
@@ -43,9 +43,17 @@ import {
   WorkerFailed,
   WorkerManager,
   getCurrentWorker,
-  type WorkFunction,
+  type WorkerCallable,
+  type WorkerOwner,
   type WorkerOptions,
 } from "../services/worker.js";
+import { RuntimeError, getActiveMessagePump, runWithActiveMessagePump } from "../services/concurrency.js";
+import {
+  parseTextualFeatures,
+  type EnvironmentMap,
+  type TextualFeatureState,
+} from "../services/environment.js";
+import { CommandPalette, Provider, type CommandHit, type DiscoveryHit } from "../commands/index.js";
 import {
   matchesSelector as selectorMatchesWidget,
   parseSelectorList,
@@ -198,6 +206,26 @@ export interface ActiveBinding {
 
 export type AnimationLevel = "full" | "basic" | "none";
 
+export interface AppDriver {
+  canSuspend: boolean;
+  isHeadless: boolean;
+  suspendApplicationMode: () => Promise<void> | void;
+  resumeApplicationMode: () => Promise<void> | void;
+}
+
+export interface TextualFrameworkOptions {
+  driver?: AppDriver;
+  env?: EnvironmentMap;
+}
+
+export type SimpleCommand =
+  | readonly [name: string, callback: () => void, helpText?: string]
+  | {
+      name: string;
+      callback: () => void;
+      helpText?: string;
+    };
+
 export class ScreenStackError extends Error {}
 
 export class UnknownModeError extends Error {}
@@ -209,6 +237,74 @@ export class ActiveModeError extends Error {}
 export class StylesheetError extends Error {}
 
 export class DuplicateKeyHandlers extends Error {}
+
+export class SuspendNotSupported extends Error {}
+
+class HeadlessDriver implements AppDriver {
+  readonly canSuspend = false;
+  readonly isHeadless = true;
+
+  suspendApplicationMode(): void {
+    return undefined;
+  }
+
+  resumeApplicationMode(): void {
+    return undefined;
+  }
+}
+
+class SimpleCommandProvider extends Provider {
+  private readonly commands: readonly SimpleCommand[];
+
+  constructor(commands: readonly SimpleCommand[]) {
+    super();
+    this.commands = commands;
+  }
+
+  search(query: string): CommandHit[] {
+    const normalizedQuery = query.toLowerCase();
+
+    return this.commands
+      .map(normalizeSimpleCommand)
+      .filter((command) => command.name.toLowerCase().includes(normalizedQuery))
+      .map((command) => ({
+        score: command.name.toLowerCase().startsWith(normalizedQuery) ? 100 : 50,
+        matchDisplay: command.name,
+        text: command.name,
+        command: command.callback,
+        helpText: command.helpText,
+      }));
+  }
+
+  discover(): DiscoveryHit[] {
+    return this.commands.map((command) => {
+      const normalizedCommand = normalizeSimpleCommand(command);
+
+      return {
+        display: normalizedCommand.name,
+        text: normalizedCommand.name,
+        command: normalizedCommand.callback,
+        helpText: normalizedCommand.helpText,
+      };
+    });
+  }
+}
+
+function normalizeSimpleCommand(command: SimpleCommand): { name: string; callback: () => void; helpText?: string } {
+  if ("name" in command) {
+    return {
+      name: command.name,
+      callback: command.callback,
+      helpText: command.helpText,
+    };
+  }
+
+  return {
+    name: command[0],
+    callback: command[1],
+    helpText: command[2],
+  };
+}
 
 function normalizeCssSource(source: string | undefined): string | undefined {
   const normalizedSource = source?.trim();
@@ -359,6 +455,10 @@ export class TextualFramework {
   readonly workers = new WorkerManager();
   readonly notifications = new Notifications();
   readonly themeManager = new ThemeManager();
+  readonly driver: AppDriver;
+  readonly features: TextualFeatureState["features"];
+  readonly devtools: TextualFeatureState["devtools"];
+  readonly debug: boolean;
   focusedNodeId: string | null = null;
   isRunning = false;
   exitResult: unknown = undefined;
@@ -401,14 +501,25 @@ export class TextualFramework {
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingError: unknown = null;
   private readonly signalRegistry = new Set<Signal<unknown>>();
+  private readonly appWorkerOwner: WorkerOwner = {
+    nodeId: "__app__",
+    typeName: "App",
+  };
   private activePrevention: PreventionSnapshot = new Map();
   batchUpdateCount = 0;
   private pendingStyleRecalc = false;
   private pendingDrainAfterBatch = false;
+  activeCommandPalette: CommandPalette | null = null;
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
-  constructor() {
+  constructor(options: TextualFrameworkOptions = {}) {
+    const featureState = parseTextualFeatures(options.env?.TEXTUAL ?? process.env.TEXTUAL ?? "");
+
+    this.driver = options.driver ?? new HeadlessDriver();
+    this.features = featureState.features;
+    this.devtools = featureState.devtools;
+    this.debug = featureState.debug;
     this.signals = {
       theme_changed_signal: this.createFrameworkSignal<ActiveTheme>(),
       app_suspend_signal: this.createFrameworkSignal<void>(),
@@ -448,6 +559,11 @@ export class TextualFramework {
         afterRefreshRequester: false,
         signals: false,
         signalRegistry: false,
+        appWorkerOwner: false,
+        driver: false,
+        features: false,
+        devtools: false,
+        activeCommandPalette: false,
         workers: false,
         notifications: false,
         themeManager: false,
@@ -872,6 +988,93 @@ export class TextualFramework {
     return this.themeManager.dark;
   }
 
+  set dark(value: boolean) {
+    this.setDarkMode(value);
+  }
+
+  setDarkMode(value: boolean): ActiveTheme {
+    const nextTheme = this.themeManager.setDarkMode(value);
+    this.theme = nextTheme.name;
+    this.recalculateStyles();
+    this.signals.theme_changed_signal.publish(nextTheme);
+    return nextTheme;
+  }
+
+  get ansiTheme(): AnsiTheme {
+    return this.themeManager.ansiTheme;
+  }
+
+  get ansi_theme(): AnsiTheme {
+    return this.ansiTheme;
+  }
+
+  get ansiThemeDark(): AnsiTheme {
+    return this.themeManager.ansiThemeDark;
+  }
+
+  set ansiThemeDark(theme: AnsiTheme) {
+    this.themeManager.setAnsiTheme(true, theme);
+  }
+
+  get ansi_theme_dark(): AnsiTheme {
+    return this.ansiThemeDark;
+  }
+
+  set ansi_theme_dark(theme: AnsiTheme) {
+    this.ansiThemeDark = theme;
+  }
+
+  get ansiThemeLight(): AnsiTheme {
+    return this.themeManager.ansiThemeLight;
+  }
+
+  set ansiThemeLight(theme: AnsiTheme) {
+    this.themeManager.setAnsiTheme(false, theme);
+  }
+
+  get ansi_theme_light(): AnsiTheme {
+    return this.ansiThemeLight;
+  }
+
+  set ansi_theme_light(theme: AnsiTheme) {
+    this.ansiThemeLight = theme;
+  }
+
+  async suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {
+    if (!this.driver.canSuspend || this.driver.isHeadless) {
+      throw new SuspendNotSupported("Suspend is not supported by this driver");
+    }
+
+    // [LAW:single-enforcer] App suspend owns signal publishing, timer pausing,
+    // and driver mode changes; drivers only enter/exit terminal application mode.
+    this.signals.app_suspend_signal.publish(undefined);
+    this.pauseAllTimers();
+    await this.driver.suspendApplicationMode();
+
+    try {
+      return await callback();
+    } finally {
+      await this.driver.resumeApplicationMode();
+      this.resumeAllTimers();
+      this.signals.app_resume_signal.publish(undefined);
+      this.recalculateStyles();
+    }
+  }
+
+  async searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
+    const provider = new SimpleCommandProvider(commands);
+    const palette = new CommandPalette([provider], { app: this });
+
+    await palette.startup();
+    this.activeCommandPalette = palette;
+    this.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
+    return palette;
+  }
+
+  async search_commands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
+    return this.searchCommands(commands);
+  }
+
   getActiveStylesheetsFor(typeName: string): ParsedStylesheet[] {
     const defaultStylesheet = this.widgetTypes.get(typeName)?.defaultStylesheet;
     const stylesheets = [defaultStylesheet, ...this.userStylesheets].filter(
@@ -1153,16 +1356,18 @@ export class TextualFramework {
 
   runWorker<TResult>(
     node: WidgetNode,
-    work: WorkFunction<TResult>,
+    work: WorkerCallable<TResult>,
     options: WorkerOptions = {},
   ): Worker<TResult> {
+    const workerName = options.name ?? `${node.typeName.toLowerCase()}-worker`;
     const worker = new Worker(
       node,
       work,
-      options.name ?? `${node.typeName.toLowerCase()}-worker`,
-      options.group,
+      workerName,
+      options.group ?? (options.exclusive === true ? workerName : undefined),
       options.description ?? options.name ?? `${node.typeName} worker`,
       options.exitOnError ?? false,
+      options.thread ?? false,
       (targetId, message) => this.postMessage(targetId, message),
       (settledWorker) => {
         this.workers.remove(settledWorker as Worker<unknown>);
@@ -1180,6 +1385,41 @@ export class TextualFramework {
     }
 
     return registeredWorker;
+  }
+
+  runAppWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    const workerName = options.name ?? "app-worker";
+    const worker = new Worker(
+      this.appWorkerOwner,
+      work,
+      workerName,
+      options.group ?? (options.exclusive === true ? workerName : undefined),
+      options.description ?? options.name ?? "App worker",
+      options.exitOnError ?? false,
+      options.thread ?? false,
+      (targetId, message) => this.postMessage(targetId, message),
+      (settledWorker) => {
+        this.workers.remove(settledWorker as Worker<unknown>);
+      },
+    );
+    const registeredWorker = this.workers.addWorker(worker, false, options.exclusive ?? false);
+    const shouldStart = options.start ?? true;
+
+    if (shouldStart) {
+      void registeredWorker.start().catch((error) => {
+        if (!(error instanceof WorkerCancelled)) {
+          this.reportUnhandledError(new WorkerFailed((error as Error).message, { cause: error as Error }));
+        }
+      });
+    }
+
+    return registeredWorker;
+  }
+
+  run_worker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    // [LAW:one-source-of-truth] App-level worker creation delegates to the same
+    // framework boundary as runAppWorker, keeping manager and error behavior shared.
+    return this.runAppWorker(work, options);
   }
 
   setTimer(node: WidgetNode, name: string, delayMs: number, callback: TimerCallback): void {
@@ -1258,7 +1498,9 @@ export class TextualFramework {
 
   callAfterRefresh<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
     this.afterRefreshCallbacks.push(() => {
-      callback(...args);
+      runWithActiveMessagePump(this, () => {
+        callback(...args);
+      });
     });
 
     if (this.afterRefreshRequester === null) {
@@ -1269,6 +1511,38 @@ export class TextualFramework {
     this.callLater(() => {
       this.afterRefreshRequester?.();
     });
+  }
+
+  callFromThread<TResult, TArgs extends unknown[]>(callback: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
+    if (!this.isRunning) {
+      throw new RuntimeError("callFromThread requires a running app");
+    }
+
+    try {
+      if (getActiveMessagePump() === this) {
+        throw new RuntimeError("callFromThread must be called from a foreign thread");
+      }
+    } catch (error) {
+      if (error instanceof RuntimeError && error.message !== "No active message pump") {
+        throw error;
+      }
+    }
+
+    return new Promise<TResult>((resolve, reject) => {
+      // [LAW:single-enforcer] Foreign-thread callbacks are marshaled through
+      // callLater so app mutation still enters via the message queue boundary.
+      this.callLater(() => {
+        try {
+          resolve(callback(...args));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
+  call_from_thread<TResult, TArgs extends unknown[]>(callback: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
+    return this.callFromThread(callback, ...args);
   }
 
   handleAppBlur(): void {
@@ -2801,6 +3075,18 @@ export class TextualFramework {
     }
 
     this.timers.clear();
+  }
+
+  private pauseAllTimers(): void {
+    for (const timer of this.timers.values()) {
+      timer.pause();
+    }
+  }
+
+  private resumeAllTimers(): void {
+    for (const timer of this.timers.values()) {
+      timer.resume();
+    }
   }
 
   private getGlobalStyleVariables(): Record<string, string> {

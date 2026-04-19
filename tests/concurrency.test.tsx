@@ -3,7 +3,18 @@ import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 
-import { Message, RLock, TextualApp, TextualFramework, WidgetHost, WidgetNode, WidgetScope, useWidget } from "../src/index.js";
+import {
+  Message,
+  RLock,
+  RuntimeError,
+  TextualApp,
+  TextualFramework,
+  WidgetHost,
+  WidgetNode,
+  WidgetScope,
+  getActiveMessagePump,
+  useWidget,
+} from "../src/index.js";
 
 class NextTickPing extends Message {}
 
@@ -201,5 +212,108 @@ describe("concurrency primitives", () => {
     expect(lock.isLocked).toBe(false);
 
     expect(() => lock.release()).toThrow();
+  });
+
+  it("blocks competing RLock tasks until the owner releases and supports scoped acquisition", async () => {
+    const lock = new RLock();
+    const order: string[] = [];
+    let releaseHolder!: () => void;
+
+    const holder = lock.withLock(async () => {
+      order.push("holder:start");
+      await new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+      order.push("holder:end");
+    });
+
+    await Promise.resolve();
+
+    const competitor = lock.withLock(() => {
+      order.push("competitor");
+    });
+
+    await Promise.resolve();
+    expect(order).toEqual(["holder:start"]);
+
+    releaseHolder();
+    await holder;
+    await competitor;
+
+    expect(order).toEqual(["holder:start", "holder:end", "competitor"]);
+
+    await lock.withLock(async () => {
+      await lock.acquire();
+      expect(lock.isLocked).toBe(true);
+      lock.release();
+    });
+
+    expect(lock.isLocked).toBe(false);
+  });
+
+  it("runs callAfterRefresh inside the active message pump context", async () => {
+    const framework = new TextualFramework();
+    let active: TextualFramework | null = null;
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <Text>after-refresh-context</Text>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.callAfterRefresh(() => {
+      active = getActiveMessagePump<TextualFramework>();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(active).toBe(framework);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("marshals callFromThread work and rejects not-running or same-pump calls", async () => {
+    const stopped = new TextualFramework();
+
+    expect(() => stopped.callFromThread(() => "nope")).toThrow(RuntimeError);
+
+    const framework = new TextualFramework();
+    const order: string[] = [];
+    let samePumpError: unknown = null;
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <Text>call-from-thread</Text>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const result = await framework.callFromThread((value: string) => {
+      order.push("callback");
+      return `return:${value}`;
+    }, "value");
+
+    await framework.whenIdle();
+
+    expect(result).toBe("return:value");
+    expect(order).toEqual(["callback"]);
+
+    framework.callAfterRefresh(() => {
+      try {
+        void framework.callFromThread(() => "same");
+      } catch (error) {
+        samePumpError = error;
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(samePumpError).toBeInstanceOf(RuntimeError);
+
+    instance.unmount();
+    instance.cleanup();
   });
 });
