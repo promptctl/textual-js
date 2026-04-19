@@ -328,6 +328,50 @@ describe("styles and useStyles", () => {
     instance.cleanup();
   });
 
+  it("translates the Stage 2 resolved value model to Ink props", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          #bridge {
+            margin-top: 2;
+            padding-left: 3;
+            background: #010203;
+            color: #fefefe;
+            text-style: bold underline reverse;
+            text-wrap: ellipsis;
+            opacity: 0.5;
+            align: right bottom;
+          }
+        `}
+      >
+        <StyledLabel id="bridge" label="bridge" />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("bridge") as WidgetNode;
+
+    expect(widget.resolvedStyles.box.marginTop).toBe(2);
+    expect(widget.resolvedStyles.box.paddingLeft).toBe(3);
+    expect(widget.resolvedStyles.box.backgroundColor).toBe(normalizeColor("#010203"));
+    expect(widget.resolvedStyles.box.justifyContent).toBe("flex-end");
+    expect(widget.resolvedStyles.box.alignItems).toBe("flex-end");
+    expect(widget.resolvedStyles.text.color).toBe(normalizeColor("#fefefe"));
+    expect(widget.resolvedStyles.text.backgroundColor).toBe(normalizeColor("#010203"));
+    expect(widget.resolvedStyles.text.bold).toBe(true);
+    expect(widget.resolvedStyles.text.underline).toBe(true);
+    expect(widget.resolvedStyles.text.inverse).toBe(true);
+    expect(widget.resolvedStyles.text.wrap).toBe("truncate-end");
+    expect(widget.resolvedStyles.text.dimColor).toBe(true);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("rejects conflicting DEFAULT_CSS declarations for the same widget type", () => {
     const framework = new TextualFramework();
 

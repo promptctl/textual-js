@@ -4,6 +4,7 @@ export enum Unit {
   WIDTH = "width",
   HEIGHT = "height",
   FRACTION = "fraction",
+  AUTO = "auto",
 }
 
 export class Scalar {
@@ -27,6 +28,8 @@ export class Scalar {
 }
 
 export type ScalarAxis = "width" | "height";
+export class StyleValueError extends Error {}
+
 export interface ScalarViewport {
   width: number;
   height: number;
@@ -36,48 +39,83 @@ export function axisToPercentUnit(axis: ScalarAxis): Unit {
   return axis === "width" ? Unit.WIDTH : Unit.HEIGHT;
 }
 
+function assertScalarAxis(axis: ScalarAxis): void {
+  if (axis !== "width" && axis !== "height") {
+    throw new StyleValueError(`Invalid scalar axis "${String(axis)}"`);
+  }
+}
+
 export function parseScalar(input: string, axis: ScalarAxis): Scalar {
+  assertScalarAxis(axis);
   const value = input.trim();
-  const numeric = /^-?\d+(?:\.\d+)?$/;
-  const percent = /^(-?\d+(?:\.\d+)?)%$/;
-  const fraction = /^(-?\d+(?:\.\d+)?)fr$/;
-  const viewportWidth = /^(-?\d+(?:\.\d+)?)vw$/;
-  const viewportHeight = /^(-?\d+(?:\.\d+)?)vh$/;
+  const numeric = /^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
+  const unitMatch = value.match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/);
+
+  if (value === "auto") {
+    return new Scalar(0, Unit.AUTO, axisToPercentUnit(axis));
+  }
 
   if (numeric.test(value)) {
     return new Scalar(Number(value), Unit.CELLS, axisToPercentUnit(axis));
   }
 
-  const percentMatch = value.match(percent);
-
-  if (percentMatch !== null) {
-    return new Scalar(Number(percentMatch[1]), Unit.PERCENT, axisToPercentUnit(axis));
+  if (unitMatch === null) {
+    throw new StyleValueError(`Invalid scalar "${input}"`);
   }
 
-  const fractionMatch = value.match(fraction);
+  const number = Number(unitMatch[1]);
+  const unit = unitMatch[2];
+  const percentUnit = axisToPercentUnit(axis);
 
-  if (fractionMatch !== null) {
-    return new Scalar(Number(fractionMatch[1]), Unit.FRACTION, axisToPercentUnit(axis));
+  if (unit === "%") {
+    return new Scalar(number, Unit.PERCENT, percentUnit);
   }
 
-  const viewportWidthMatch = value.match(viewportWidth);
-
-  if (viewportWidthMatch !== null) {
-    return new Scalar(Number(viewportWidthMatch[1]), Unit.WIDTH, Unit.WIDTH);
+  if (unit === "fr") {
+    return new Scalar(number, Unit.FRACTION, percentUnit);
   }
 
-  const viewportHeightMatch = value.match(viewportHeight);
-
-  if (viewportHeightMatch !== null) {
-    return new Scalar(Number(viewportHeightMatch[1]), Unit.HEIGHT, Unit.HEIGHT);
+  if (unit === "w" || unit === "vw") {
+    return new Scalar(number, Unit.WIDTH, Unit.WIDTH);
   }
 
-  throw new Error(`Invalid scalar "${input}"`);
+  if (unit === "h" || unit === "vh") {
+    return new Scalar(number, Unit.HEIGHT, Unit.HEIGHT);
+  }
+
+  throw new StyleValueError(`Invalid scalar unit "${unit}" in "${input}"`);
+}
+
+export function normalizeScalar(input: string | number | Scalar, axis: ScalarAxis): Scalar {
+  assertScalarAxis(axis);
+
+  const scalar =
+    input instanceof Scalar
+      ? input
+      : typeof input === "number" && Number.isFinite(input)
+        ? new Scalar(input, Unit.CELLS, axisToPercentUnit(axis))
+        : typeof input === "string"
+          ? parseScalar(input, axis)
+          : null;
+
+  if (scalar === null) {
+    throw new StyleValueError(`Invalid scalar value "${String(input)}"`);
+  }
+
+  if (scalar.unit === Unit.PERCENT) {
+    return new Scalar(scalar.value, axisToPercentUnit(axis), axisToPercentUnit(axis));
+  }
+
+  return scalar;
 }
 
 export function scalarToInkValue(value: Scalar, viewport: ScalarViewport): number | string {
   if (value.unit === Unit.CELLS) {
     return value.value;
+  }
+
+  if (value.unit === Unit.AUTO) {
+    return "auto";
   }
 
   if (value.unit === Unit.FRACTION) {

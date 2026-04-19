@@ -7,17 +7,42 @@ export {
   type BorderRowGlyphs,
   type RenderBorderLabelOptions,
 } from "./borders.js";
-export { normalizeColor } from "./color.js";
-export { Scalar, Unit, axisToPercentUnit, parseScalar, scalarToInkValue, type ScalarAxis } from "./scalar.js";
+export {
+  Color,
+  ColorParseError,
+  Gradient,
+  labToRgb,
+  normalizeColor,
+  rgbToLab,
+  type HslColor,
+  type HsvColor,
+  type Lab,
+} from "./color.js";
+export {
+  Scalar,
+  StyleValueError,
+  Unit,
+  axisToPercentUnit,
+  normalizeScalar,
+  parseScalar,
+  scalarToInkValue,
+  type ScalarAxis,
+} from "./scalar.js";
 export {
   generateTcss,
   parseTcss,
   resolveStylesForWidget,
+  StylesheetParseError,
   type ParseStylesheetOptions,
   type ParsedDeclaration,
   type ParsedRule,
   type ParsedStylesheet,
   type StylesheetOrigin,
+  UnresolvedVariableError,
+  type AlignValue,
+  type OffsetValue,
+  type OverflowValue,
+  type TextStyleValue,
 } from "./stylesheet.js";
 export {
   InvalidQueryFormat,
