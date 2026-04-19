@@ -28,6 +28,21 @@ export interface ParsedSelector {
 
 export class InvalidQueryFormat extends Error {}
 
+const TEXTUAL_IDENTIFIER = /^-?[A-Za-z_][A-Za-z0-9_-]*$/;
+const TEXTUAL_TYPE_NAME = /^[A-Z][A-Za-z0-9-]*$/;
+
+function validateIdentifier(name: string, selectorText: string): void {
+  if (!TEXTUAL_IDENTIFIER.test(name)) {
+    throw new InvalidQueryFormat(`Invalid selector "${selectorText}"`);
+  }
+}
+
+function validateTypeName(name: string, selectorText: string): void {
+  if (!TEXTUAL_TYPE_NAME.test(name)) {
+    throw new InvalidQueryFormat(`Invalid selector "${selectorText}"`);
+  }
+}
+
 function compareSpecificity(left: SelectorSpecificity, right: SelectorSpecificity): number {
   return left.ids - right.ids || left.classes - right.classes || left.types - right.types;
 }
@@ -38,6 +53,10 @@ export function compareSelectorSpecificity(left: SelectorSpecificity, right: Sel
 
 export function parseSelectorList(selectorText: string): ParsedSelector[] {
   try {
+    if (selectorText.includes("&")) {
+      throw new Error("Parent selectors are only valid before nested CSS flattening");
+    }
+
     const selectorList = csstree.parse(selectorText, { context: "selectorList" }) as {
       children: Iterable<{ children: Iterable<unknown> }>;
     };
@@ -63,18 +82,21 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
             continue;
           }
 
+          validateTypeName(child.name ?? "", selectorText);
           specificity.types += 1;
           currentSegment.selectors.push({ type: "type", name: child.name ?? "" });
           continue;
         }
 
         if (child.type === "ClassSelector") {
+          validateIdentifier(child.name ?? "", selectorText);
           specificity.classes += 1;
           currentSegment.selectors.push({ type: "class", name: child.name ?? "" });
           continue;
         }
 
         if (child.type === "IdSelector") {
+          validateIdentifier(child.name ?? "", selectorText);
           specificity.ids += 1;
           currentSegment.selectors.push({ type: "id", name: child.name ?? "" });
           continue;

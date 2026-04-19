@@ -2,7 +2,7 @@ import * as csstree from "css-tree";
 
 import { Spacing } from "../geometry/index.js";
 import { normalizeColor } from "./color.js";
-import { parseScalar, type Scalar, scalarToInkValue, StyleValueError } from "./scalar.js";
+import { parseScalar, Scalar, scalarToInkValue, StyleValueError } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
 import type { TextualFramework } from "../framework/app-framework.js";
@@ -144,20 +144,30 @@ const KNOWN_PROPERTIES = new Set([
   "text-overflow",
   "dock",
   "overflow",
+  "overflow-x",
+  "overflow-y",
   "align",
+  "align-horizontal",
+  "align-vertical",
   "content-align",
+  "content-align-horizontal",
+  "content-align-vertical",
   "offset",
   "offset-x",
   "offset-y",
   "layers",
   "layer",
   "grid-size",
+  "grid-size-columns",
+  "grid-size-rows",
   "grid-gutter",
   "grid-gutter-horizontal",
   "grid-gutter-vertical",
   "row-span",
   "column-span",
   "scrollbar-size",
+  "scrollbar-size-horizontal",
+  "scrollbar-size-vertical",
   "link-style",
   "link-style-hover",
   "transition",
@@ -458,97 +468,186 @@ function scopeSelectors(selectors: string[], scopeTypeName?: string): string[] {
   });
 }
 
-interface CssTreeRule {
-  prelude: csstree.CssNode;
-  block: {
-    children: Iterable<csstree.CssNode>;
-  };
-}
-
 interface FlattenedRule {
   selectors: string[];
   declarations: string[];
 }
 
-function selectorStrings(prelude: csstree.CssNode): string[] {
-  return splitSelectors(csstree.generate(prelude));
+interface SourceRule {
+  selectorText: string;
+  body: string;
 }
 
-function ruleDeclarations(rule: CssTreeRule): string[] {
-  const declarations: string[] = [];
+function flattenNestedCss(source: string, scopeTypeName?: string): string {
+  const balance = [...source].reduce((depth, character) => depth + (character === "{" ? 1 : character === "}" ? -1 : 0), 0);
 
-  for (const child of rule.block.children) {
-    if (child.type === "Declaration") {
-      declarations.push(csstree.generate(child));
-    }
+  if (balance !== 0) {
+    throw new StylesheetParseError("Unclosed CSS block");
   }
 
-  return declarations;
+  const rules = flattenSourceRules(source, []);
+
+  // [LAW:one-source-of-truth] This pass owns TCSS nesting expansion once; the
+  // resulting flat source is the only stylesheet shape the cascade consumes.
+  return rules
+    .map((rule) => {
+      const selectors = scopeSelectors(rule.selectors, scopeTypeName).map(normalizeSelectorText);
+      return `${selectors.join(", ")} { ${rule.declarations.join("; ")}; }`;
+    })
+    .join("\n");
 }
 
-function nestedRules(rule: CssTreeRule): CssTreeRule[] {
-  const rules: CssTreeRule[] = [];
-
-  for (const child of rule.block.children) {
-    if (child.type === "Rule") {
-      rules.push(child as CssTreeRule);
-      continue;
-    }
-
-    if (child.type !== "Raw") {
-      continue;
-    }
-
-    const nestedAst = csstree.parse(child.value, { context: "stylesheet" }) as csstree.CssNode & {
-      children: Iterable<csstree.CssNode>;
-    };
-
-    for (const nestedNode of nestedAst.children) {
-      if (nestedNode.type === "Rule") {
-        rules.push(nestedNode as CssTreeRule);
-      }
-    }
-  }
-
-  return rules;
-}
-
-function flattenRule(rule: CssTreeRule, parentSelectors: string[]): FlattenedRule[] {
-  const selectors = combineSelectors(parentSelectors, selectorStrings(rule.prelude));
-  const declarations = ruleDeclarations(rule);
+function flattenSourceRules(source: string, parentSelectors: string[]): FlattenedRule[] {
   const flattenedRules: FlattenedRule[] = [];
 
-  if (declarations.length > 0) {
-    flattenedRules.push({ selectors, declarations });
-  }
+  for (const rule of readSourceRules(source)) {
+    const selectors = combineSelectors(parentSelectors, splitSelectors(rule.selectorText));
+    const declarations = readTopLevelDeclarations(rule.body);
 
-  for (const childRule of nestedRules(rule)) {
-    flattenedRules.push(...flattenRule(childRule, selectors));
+    if (declarations.length > 0) {
+      flattenedRules.push({ selectors, declarations });
+    }
+
+    flattenedRules.push(...flattenSourceRules(rule.body, selectors));
   }
 
   return flattenedRules;
 }
 
-function flattenNestedCss(source: string, scopeTypeName?: string): string {
-  const ast = csstree.parse(source, { context: "stylesheet" }) as csstree.CssNode & {
-    children: Iterable<csstree.CssNode>;
-  };
-  const rules: FlattenedRule[] = [];
+function readSourceRules(source: string): SourceRule[] {
+  const rules: SourceRule[] = [];
+  let index = 0;
 
-  // [LAW:one-source-of-truth] css-tree owns selector/declaration parsing; this
-  // pass only expands TCSS nesting into the canonical flat stylesheet source.
-  for (const node of ast.children) {
-    if (node.type === "Rule") {
-      rules.push(...flattenRule(node as CssTreeRule, []));
+  while (index < source.length) {
+    const openBrace = findNextTopLevelBrace(source, index);
+
+    if (openBrace === -1) {
+      break;
     }
+
+    const selectorStart = findSelectorStart(source, openBrace);
+    const selectorText = source.slice(selectorStart, openBrace).trim();
+    const closeBrace = findMatchingBrace(source, openBrace);
+
+    if (selectorText.length > 0) {
+      rules.push({
+        selectorText,
+        body: source.slice(openBrace + 1, closeBrace),
+      });
+    }
+
+    index = closeBrace + 1;
   }
 
-  return rules
-    .map((rule) => {
-      const selectors = scopeSelectors(rule.selectors, scopeTypeName);
-      return `${selectors.join(", ")} { ${rule.declarations.join("; ")}; }`;
-    })
-    .join("\n");
+  return rules;
+}
+
+function readTopLevelDeclarations(body: string): string[] {
+  const declarations: string[] = [];
+  let cursor = 0;
+  let index = 0;
+
+  while (index < body.length) {
+    const character = body[index];
+
+    if (character === "{") {
+      cursor = findMatchingBrace(body, index) + 1;
+      index = cursor;
+      continue;
+    }
+
+    if (character === ";") {
+      const declaration = body.slice(cursor, index).trim();
+
+      if (isDeclarationText(declaration)) {
+        declarations.push(normalizeDeclarationText(declaration));
+      }
+
+      cursor = index + 1;
+    }
+
+    index += 1;
+  }
+
+  const trailingDeclaration = body.slice(cursor).trim();
+
+  if (isDeclarationText(trailingDeclaration)) {
+    declarations.push(normalizeDeclarationText(trailingDeclaration));
+  }
+
+  return declarations;
+}
+
+function normalizeDeclarationText(declaration: string): string {
+  return csstree.generate(csstree.parse(declaration, { context: "declaration" }));
+}
+
+function normalizeSelectorText(selector: string): string {
+  return csstree.generate(csstree.parse(selector, { context: "selector" }));
+}
+
+function isDeclarationText(text: string): boolean {
+  const colonIndex = text.indexOf(":");
+
+  return colonIndex > 0 && !text.slice(0, colonIndex).includes("{") && !text.slice(0, colonIndex).includes("}");
+}
+
+function skipWhitespace(source: string, index: number): number {
+  let nextIndex = index;
+
+  while (nextIndex < source.length && /\s/.test(source[nextIndex]!)) {
+    nextIndex += 1;
+  }
+
+  return nextIndex;
+}
+
+function findNextTopLevelBrace(source: string, start: number): number {
+  let index = start;
+
+  while (index < source.length) {
+    if (source[index] === "{") {
+      return index;
+    }
+
+    index += 1;
+  }
+
+  return -1;
+}
+
+function findSelectorStart(source: string, openBrace: number): number {
+  let index = openBrace - 1;
+
+  while (index >= 0) {
+    const character = source[index];
+
+    if (character === ";" || character === "}") {
+      return skipWhitespace(source, index + 1);
+    }
+
+    index -= 1;
+  }
+
+  return skipWhitespace(source, 0);
+}
+
+function findMatchingBrace(source: string, openBrace: number): number {
+  let depth = 0;
+  let index = openBrace;
+
+  while (index < source.length) {
+    const character = source[index];
+    depth += character === "{" ? 1 : character === "}" ? -1 : 0;
+
+    if (depth === 0) {
+      return index;
+    }
+
+    index += 1;
+  }
+
+  throw new StylesheetParseError("Unclosed CSS block");
 }
 
 function parseSpacing(rawValue: string): Spacing {
@@ -593,7 +692,7 @@ function parseBorder(rawValue: string): BorderValue {
     color === undefined || color.startsWith("var(") ? color : normalizeColor(color);
 
   return {
-    style,
+    style: style === "none" || style === "hidden" ? "" : style,
     color: normalizedColor,
   };
 }
@@ -668,12 +767,28 @@ function parseTextStyle(rawValue: string): TextStyleValue {
     return textStyle;
   }
 
+  if (tokens.includes("none")) {
+    throw new StyleValueError(`Invalid text-style "${rawValue}"`);
+  }
+
+  let negating = false;
+
   for (const token of tokens) {
+    if (token === "not") {
+      negating = true;
+      continue;
+    }
+
     if (!(token in textStyle)) {
       throw new StyleValueError(`Invalid text-style "${token}"`);
     }
 
-    textStyle[token as keyof TextStyleValue] = true;
+    textStyle[token as keyof TextStyleValue] = !negating;
+    negating = false;
+  }
+
+  if (negating) {
+    throw new StyleValueError(`Invalid text-style "${rawValue}"`);
   }
 
   return textStyle;
@@ -740,6 +855,10 @@ function parseValue(property: string, rawValue: string): unknown {
     throw new StylesheetParseError(`Invalid CSS property "${property}"`);
   }
 
+  if (rawValue.trim() === "initial") {
+    return "initial";
+  }
+
   if (DIMENSION_PROPERTIES.has(property)) {
     const axis = WIDTH_AXIS_PROPERTIES.has(property) ? "width" : "height";
     return parseScalar(rawValue, axis);
@@ -798,8 +917,20 @@ function parseValue(property: string, rawValue: string): unknown {
     return parseOverflow(rawValue);
   }
 
+  if (property === "overflow-x" || property === "overflow-y") {
+    return parseStringEnum(property, rawValue, ["auto", "scroll", "hidden"] as const);
+  }
+
   if (property === "align" || property === "content-align") {
     return parseAlign(rawValue);
+  }
+
+  if (property === "align-horizontal" || property === "content-align-horizontal") {
+    return parseStringEnum(property, rawValue, ["left", "center", "right"] as const);
+  }
+
+  if (property === "align-vertical" || property === "content-align-vertical") {
+    return parseStringEnum(property, rawValue, ["top", "middle", "bottom"] as const);
   }
 
   if (property === "offset") {
@@ -816,6 +947,10 @@ function parseValue(property: string, rawValue: string): unknown {
 
   if (property === "grid-size") {
     return parseGridSize(rawValue);
+  }
+
+  if (property === "grid-size-columns" || property === "grid-size-rows") {
+    return parseInteger(rawValue, property);
   }
 
   if (property === "grid-gutter") {
@@ -842,6 +977,10 @@ function parseValue(property: string, rawValue: string): unknown {
 
   if (property === "scrollbar-size") {
     return parseScrollbarSize(rawValue);
+  }
+
+  if (property === "scrollbar-size-horizontal" || property === "scrollbar-size-vertical") {
+    return parseInteger(rawValue, property);
   }
 
   if (property === "box-sizing") {
@@ -885,7 +1024,15 @@ export function parseTcss(source: string, options: ParseStylesheetOptions): Pars
       continue;
     }
 
-    const selectors = parseSelectorList(csstree.generate(ruleNode.prelude));
+    let selectors: ParsedSelector[];
+
+    try {
+      selectors = parseSelectorList(csstree.generate(ruleNode.prelude));
+    } catch (error) {
+      throw new StylesheetParseError(`Invalid selector "${csstree.generate(ruleNode.prelude)}"`, {
+        cause: error as Error,
+      });
+    }
     const declarations: ParsedDeclaration[] = [];
 
     for (const declarationNode of ruleNode.block.children as Iterable<csstree.CssNode>) {
@@ -935,6 +1082,173 @@ export function generateTcss(ast: csstree.CssNode): string {
   return csstree.generate(ast);
 }
 
+function expandedDeclarationEntries(declaration: ParsedDeclaration): ParsedDeclaration[] {
+  const initialEntry = (property: string): ParsedDeclaration => ({
+    ...declaration,
+    property,
+    rawValue: "initial",
+    value: "initial",
+  });
+
+  if (declaration.value === "initial") {
+    if (declaration.property === "border" || declaration.property === "outline") {
+      return ["top", "right", "bottom", "left"].map((edge) => initialEntry(`${declaration.property}-${edge}`));
+    }
+
+    if (declaration.property === "padding" || declaration.property === "margin") {
+      return ["top", "right", "bottom", "left"].map((edge) => initialEntry(`${declaration.property}-${edge}`));
+    }
+
+    if (declaration.property === "align" || declaration.property === "content-align") {
+      return [initialEntry(`${declaration.property}-horizontal`), initialEntry(`${declaration.property}-vertical`)];
+    }
+
+    if (declaration.property === "offset") {
+      return [initialEntry("offset-x"), initialEntry("offset-y")];
+    }
+
+    if (declaration.property === "overflow") {
+      return [initialEntry("overflow-x"), initialEntry("overflow-y")];
+    }
+
+    if (declaration.property === "scrollbar-size") {
+      return [initialEntry("scrollbar-size-horizontal"), initialEntry("scrollbar-size-vertical")];
+    }
+
+    if (declaration.property === "grid-size") {
+      return [initialEntry("grid-size-columns"), initialEntry("grid-size-rows")];
+    }
+
+    if (declaration.property === "grid-gutter") {
+      return [initialEntry("grid-gutter-horizontal"), initialEntry("grid-gutter-vertical")];
+    }
+  }
+
+  if (declaration.property === "border" || declaration.property === "outline") {
+    return ["top", "right", "bottom", "left"].map((edge) => ({
+      ...declaration,
+      property: `${declaration.property}-${edge}`,
+    }));
+  }
+
+  if (declaration.property === "padding" || declaration.property === "margin") {
+    const spacing = declaration.value as Spacing;
+    const values = {
+      top: spacing.top,
+      right: spacing.right,
+      bottom: spacing.bottom,
+      left: spacing.left,
+    };
+
+    return Object.entries(values).map(([edge, value]) => ({
+      ...declaration,
+      property: `${declaration.property}-${edge}`,
+      rawValue: String(value),
+      value,
+    }));
+  }
+
+  if (declaration.property === "align" || declaration.property === "content-align") {
+    const align = declaration.value as AlignValue;
+
+    return [
+      {
+        ...declaration,
+        property: `${declaration.property}-horizontal`,
+        rawValue: align.horizontal,
+        value: align.horizontal,
+      },
+      {
+        ...declaration,
+        property: `${declaration.property}-vertical`,
+        rawValue: align.vertical,
+        value: align.vertical,
+      },
+    ];
+  }
+
+  if (declaration.property === "offset") {
+    const offset = declaration.value as OffsetValue;
+
+    return [
+      {
+        ...declaration,
+        property: "offset-x",
+        rawValue: scalarToRawValue(offset.x),
+        value: offset.x,
+      },
+      {
+        ...declaration,
+        property: "offset-y",
+        rawValue: scalarToRawValue(offset.y),
+        value: offset.y,
+      },
+    ];
+  }
+
+  if (declaration.property === "overflow") {
+    const overflow = declaration.value as OverflowValue;
+
+    return [
+      { ...declaration, property: "overflow-x", rawValue: overflow.x, value: overflow.x },
+      { ...declaration, property: "overflow-y", rawValue: overflow.y, value: overflow.y },
+    ];
+  }
+
+  if (declaration.property === "scrollbar-size") {
+    const [horizontal, vertical] = declaration.value as [number, number];
+
+    return [
+      { ...declaration, property: "scrollbar-size-horizontal", rawValue: String(horizontal), value: horizontal },
+      { ...declaration, property: "scrollbar-size-vertical", rawValue: String(vertical), value: vertical },
+    ];
+  }
+
+  if (declaration.property === "grid-size") {
+    const [columns, rows] = declaration.value as [number, number];
+
+    return [
+      { ...declaration, property: "grid-size-columns", rawValue: String(columns), value: columns },
+      { ...declaration, property: "grid-size-rows", rawValue: String(rows), value: rows },
+    ];
+  }
+
+  if (declaration.property === "grid-gutter") {
+    const gutter = declaration.value as OffsetValue;
+
+    return [
+      { ...declaration, property: "grid-gutter-horizontal", rawValue: scalarToRawValue(gutter.x), value: gutter.x },
+      { ...declaration, property: "grid-gutter-vertical", rawValue: scalarToRawValue(gutter.y), value: gutter.y },
+    ];
+  }
+
+  return [declaration];
+}
+
+function scalarToRawValue(value: Scalar): string {
+  if (value.unit === "cells") {
+    return String(value.value);
+  }
+
+  if (value.unit === "auto") {
+    return "auto";
+  }
+
+  if (value.unit === "fraction") {
+    return `${value.value}fr`;
+  }
+
+  if (value.unit === "width") {
+    return `${value.value}w`;
+  }
+
+  if (value.unit === "height") {
+    return `${value.value}h`;
+  }
+
+  return `${value.value}%`;
+}
+
 function compareCascade(left: CascadeValue, right: CascadeValue): number {
   return (
     Number(left.important) - Number(right.important) ||
@@ -946,6 +1260,57 @@ function compareCascade(left: CascadeValue, right: CascadeValue): number {
 
 function resolveValueReferences(rawValue: string, customProperties: Record<string, string>): string {
   return rawValue.replace(/var\((--[A-Za-z0-9_-]+)\)/g, (_match, variableName: string) => customProperties[variableName] ?? "");
+}
+
+const BUILT_IN_INITIAL_VALUES: Record<string, string> = {
+  background: "rgba(0,0,0,0)",
+  color: "white",
+  display: "block",
+  visibility: "visible",
+  opacity: "1",
+  "text-style": "none",
+  "link-style": "none",
+  "link-style-hover": "none",
+  "text-wrap": "wrap",
+  "text-align": "left",
+  "overflow-x": "auto",
+  "overflow-y": "auto",
+  "align-horizontal": "left",
+  "align-vertical": "top",
+  "content-align-horizontal": "left",
+  "content-align-vertical": "top",
+  "offset-x": "0",
+  "offset-y": "0",
+  "scrollbar-size-horizontal": "1",
+  "scrollbar-size-vertical": "1",
+  "grid-size-columns": "1",
+  "grid-size-rows": "1",
+  "grid-gutter-horizontal": "0",
+  "grid-gutter-vertical": "0",
+  "border-top": "none",
+  "border-right": "none",
+  "border-bottom": "none",
+  "border-left": "none",
+  "outline-top": "none",
+  "outline-right": "none",
+  "outline-bottom": "none",
+  "outline-left": "none",
+  "padding-top": "0",
+  "padding-right": "0",
+  "padding-bottom": "0",
+  "padding-left": "0",
+  "margin-top": "0",
+  "margin-right": "0",
+  "margin-bottom": "0",
+  "margin-left": "0",
+};
+
+function builtInInitialRawValue(property: string): string | undefined {
+  if (property.startsWith("--")) {
+    return undefined;
+  }
+
+  return BUILT_IN_INITIAL_VALUES[property];
 }
 
 function applyBoxSpacing(box: Record<string, unknown>, prefix: "padding" | "margin", spacing: Spacing): void {
@@ -982,6 +1347,34 @@ function rulesToInk(
 ): Pick<ResolvedInkStyles, "box" | "text"> {
   const box: Record<string, unknown> = {};
   const text: Record<string, unknown> = {};
+  const borderTop = rules["border-top"] as BorderValue | undefined;
+  const borderRight = rules["border-right"] as BorderValue | undefined;
+  const borderBottom = rules["border-bottom"] as BorderValue | undefined;
+  const borderLeft = rules["border-left"] as BorderValue | undefined;
+  const border = borderTop ?? borderRight ?? borderBottom ?? borderLeft;
+  const alignHorizontal = rules["align-horizontal"] as AlignValue["horizontal"] | undefined;
+  const alignVertical = rules["align-vertical"] as AlignValue["vertical"] | undefined;
+  const contentAlignVertical = rules["content-align-vertical"] as AlignValue["vertical"] | undefined;
+
+  if (border !== undefined) {
+    box.borderStyle = border.style === "" ? undefined : border.style;
+
+    if (border.color !== undefined) {
+      box.borderColor = border.color;
+    }
+  }
+
+  if (alignHorizontal !== undefined) {
+    box.justifyContent = mapHorizontalAlign(alignHorizontal);
+  }
+
+  if (alignVertical !== undefined) {
+    box.alignItems = mapVerticalAlign(alignVertical);
+  }
+
+  if (contentAlignVertical !== undefined) {
+    box.alignSelf = mapVerticalAlign(contentAlignVertical);
+  }
 
   for (const [property, value] of Object.entries(rules)) {
     if (property === "width" || property === "height" || property === "min-width" || property === "max-width" || property === "min-height" || property === "max-height") {
@@ -1002,16 +1395,6 @@ function rulesToInk(
 
     if (SPACING_EDGE_PROPERTIES.has(property)) {
       applyBoxEdgeSpacing(box, property, value as number);
-      continue;
-    }
-
-    if (property === "border") {
-      const border = value as BorderValue;
-      box.borderStyle = border.style === "none" ? undefined : border.style;
-
-      if (border.color !== undefined) {
-        box.borderColor = border.color;
-      }
       continue;
     }
 
@@ -1056,16 +1439,8 @@ function rulesToInk(
       continue;
     }
 
-    if (property === "align") {
-      const align = value as AlignValue;
-      box.justifyContent = mapHorizontalAlign(align.horizontal);
-      box.alignItems = mapVerticalAlign(align.vertical);
+    if (property === "align" || property === "content-align") {
       continue;
-    }
-
-    if (property === "content-align") {
-      const align = value as AlignValue;
-      box.alignSelf = mapVerticalAlign(align.vertical);
     }
   }
 
@@ -1080,9 +1455,16 @@ export function resolveStylesForWidget(
   widget: WidgetNode,
   parentCustomProperties: Record<string, string>,
 ): ResolvedInkStyles {
-  const resolvedProperties = new Map<string, CascadeValue>();
+  const candidatesByProperty = new Map<string, CascadeValue[]>();
   const customProperties = { ...parentCustomProperties };
   const stylesheets = framework.getActiveStylesheetsFor(widget.typeName);
+  let cascadeOrder = 0;
+
+  const addCandidate = (candidate: CascadeValue): void => {
+    const candidates = candidatesByProperty.get(candidate.property) ?? [];
+    candidates.push(candidate);
+    candidatesByProperty.set(candidate.property, candidates);
+  };
 
   // [LAW:single-enforcer] Style resolution always flows through the same cascade
   // pipeline so DEFAULT_CSS, user CSS, and inline styles cannot drift apart.
@@ -1092,19 +1474,17 @@ export function resolveStylesForWidget(
 
       for (const selector of matchingSelectors) {
         for (const declaration of rule.declarations) {
-          const nextValue: CascadeValue = {
-            property: declaration.property,
-            value: declaration.value,
-            rawValue: declaration.rawValue,
-            important: declaration.important,
-            order: rule.order,
-            originWeight: stylesheet.origin === "default" ? 0 : 1,
-            specificity: selector.specificity,
-          };
-          const currentValue = resolvedProperties.get(declaration.property);
-
-          if (currentValue === undefined || compareCascade(currentValue, nextValue) <= 0) {
-            resolvedProperties.set(declaration.property, nextValue);
+          for (const expandedDeclaration of expandedDeclarationEntries(declaration)) {
+            addCandidate({
+              property: expandedDeclaration.property,
+              value: expandedDeclaration.value,
+              rawValue: expandedDeclaration.rawValue,
+              important: expandedDeclaration.important,
+              order: cascadeOrder,
+              originWeight: stylesheet.origin === "default" ? 0 : 1,
+              specificity: selector.specificity,
+            });
+            cascadeOrder += 1;
           }
         }
       }
@@ -1112,20 +1492,84 @@ export function resolveStylesForWidget(
   }
 
   for (const [property, rawValue] of widget.inlineStyles.entries()) {
-    resolvedProperties.set(property, {
+    const inlineDeclaration: ParsedDeclaration = {
       property,
       value: parseValue(property, rawValue),
       rawValue,
       important: true,
-      order: Number.MAX_SAFE_INTEGER,
-      originWeight: 2,
-      specificity: { ids: Number.MAX_SAFE_INTEGER, classes: 0, types: 0 },
-    });
+    };
+
+    for (const expandedDeclaration of expandedDeclarationEntries(inlineDeclaration)) {
+      addCandidate({
+        property: expandedDeclaration.property,
+        value: expandedDeclaration.value,
+        rawValue: expandedDeclaration.rawValue,
+        important: true,
+        order: Number.MAX_SAFE_INTEGER,
+        originWeight: 2,
+        specificity: { ids: Number.MAX_SAFE_INTEGER, classes: 0, types: 0 },
+      });
+    }
   }
 
-  for (const [property, entry] of resolvedProperties.entries()) {
+  const resolvedProperties = new Map<string, CascadeValue>();
+
+  for (const [property, candidates] of candidatesByProperty.entries()) {
+    const sortedCandidates = [...candidates].sort(compareCascade);
+    const winner = sortedCandidates[sortedCandidates.length - 1];
+
+    if (winner === undefined) {
+      continue;
+    }
+
+    if (winner.rawValue.trim() !== "initial") {
+      resolvedProperties.set(property, winner);
+      continue;
+    }
+
+    const defaultFallback = [...sortedCandidates]
+      .reverse()
+      .find((candidate) => candidate.originWeight === 0 && candidate.rawValue.trim() !== "initial");
+    const fallbackRawValue = winner.originWeight > 0 ? defaultFallback?.rawValue : undefined;
+    const builtInRawValue = fallbackRawValue ?? builtInInitialRawValue(property);
+
+    if (builtInRawValue !== undefined) {
+      resolvedProperties.set(property, {
+        ...winner,
+        rawValue: builtInRawValue,
+        value: parseValue(property, builtInRawValue),
+        important: false,
+        originWeight: -1,
+      });
+    }
+  }
+
+  const resolvingCustomProperties = new Set<string>();
+
+  const resolveCustomProperty = (property: string): string => {
+    const inheritedValue = customProperties[property];
+    const entry = resolvedProperties.get(property);
+
+    if (entry === undefined) {
+      return inheritedValue ?? "";
+    }
+
+    if (resolvingCustomProperties.has(property)) {
+      throw new UnresolvedVariableError(`Circular custom property reference ${property}`);
+    }
+
+    resolvingCustomProperties.add(property);
+    const resolved = entry.rawValue.replace(/var\((--[A-Za-z0-9_-]+)\)/g, (_match, variableName: string) =>
+      resolveCustomProperty(variableName),
+    );
+    resolvingCustomProperties.delete(property);
+    customProperties[property] = resolved;
+    return resolved;
+  };
+
+  for (const property of resolvedProperties.keys()) {
     if (property.startsWith("--")) {
-      customProperties[property] = resolveValueReferences(entry.rawValue, customProperties);
+      resolveCustomProperty(property);
     }
   }
 
@@ -1140,9 +1584,113 @@ export function resolveStylesForWidget(
     rules[property] = parseValue(property, resolvedRawValue);
   }
 
+  deriveCompoundRules(rules);
+
   return {
     ...rulesToInk(rules, framework.terminalSize),
     rules,
     customProperties,
   };
+}
+
+function deriveCompoundRules(rules: ResolvedRuleMap): void {
+  const padding = spacingFromEdges(rules, "padding");
+  const margin = spacingFromEdges(rules, "margin");
+  const align = alignFromLonghands(rules, "align");
+  const contentAlign = alignFromLonghands(rules, "content-align");
+  const offset = offsetFromLonghands(rules);
+  const overflow = overflowFromLonghands(rules);
+  const scrollbarSize = pairFromLonghands(rules, "scrollbar-size-horizontal", "scrollbar-size-vertical");
+  const gridSize = pairFromLonghands(rules, "grid-size-columns", "grid-size-rows");
+  const gridGutter = gridGutterFromLonghands(rules);
+  const border = borderFromEdges(rules, "border");
+  const outline = borderFromEdges(rules, "outline");
+
+  // [LAW:one-source-of-truth] Compound rules exposed to consumers are derived
+  // from the canonical longhand cascade result, never resolved independently.
+  Object.assign(rules, {
+    ...(padding === undefined ? {} : { padding }),
+    ...(margin === undefined ? {} : { margin }),
+    ...(align === undefined ? {} : { align }),
+    ...(contentAlign === undefined ? {} : { "content-align": contentAlign }),
+    ...(offset === undefined ? {} : { offset }),
+    ...(overflow === undefined ? {} : { overflow }),
+    ...(scrollbarSize === undefined ? {} : { "scrollbar-size": scrollbarSize }),
+    ...(gridSize === undefined ? {} : { "grid-size": gridSize }),
+    ...(gridGutter === undefined ? {} : { "grid-gutter": gridGutter }),
+    ...(border === undefined ? {} : { border }),
+    ...(outline === undefined ? {} : { outline }),
+  });
+}
+
+function spacingFromEdges(rules: ResolvedRuleMap, prefix: "padding" | "margin"): Spacing | undefined {
+  const top = rules[`${prefix}-top`];
+  const right = rules[`${prefix}-right`];
+  const bottom = rules[`${prefix}-bottom`];
+  const left = rules[`${prefix}-left`];
+
+  return [top, right, bottom, left].every((value) => typeof value === "number")
+    ? new Spacing(top as number, right as number, bottom as number, left as number)
+    : undefined;
+}
+
+function alignFromLonghands(rules: ResolvedRuleMap, prefix: "align" | "content-align"): AlignValue | undefined {
+  const horizontal = rules[`${prefix}-horizontal`];
+  const vertical = rules[`${prefix}-vertical`];
+
+  return typeof horizontal === "string" && typeof vertical === "string"
+    ? {
+        horizontal: horizontal as AlignValue["horizontal"],
+        vertical: vertical as AlignValue["vertical"],
+      }
+    : undefined;
+}
+
+function offsetFromLonghands(rules: ResolvedRuleMap): OffsetValue | undefined {
+  const x = rules["offset-x"];
+  const y = rules["offset-y"];
+
+  return x instanceof Scalar && y instanceof Scalar ? { x, y } : undefined;
+}
+
+function overflowFromLonghands(rules: ResolvedRuleMap): OverflowValue | undefined {
+  const x = rules["overflow-x"];
+  const y = rules["overflow-y"];
+
+  return typeof x === "string" && typeof y === "string" ? { x: x as OverflowValue["x"], y: y as OverflowValue["y"] } : undefined;
+}
+
+function pairFromLonghands(rules: ResolvedRuleMap, leftName: string, rightName: string): [number, number] | undefined {
+  const left = rules[leftName];
+  const right = rules[rightName];
+
+  return typeof left === "number" && typeof right === "number" ? [left, right] : undefined;
+}
+
+function gridGutterFromLonghands(rules: ResolvedRuleMap): OffsetValue | undefined {
+  const x = rules["grid-gutter-horizontal"];
+  const y = rules["grid-gutter-vertical"];
+
+  return x instanceof Scalar && y instanceof Scalar ? { x, y } : undefined;
+}
+
+function borderFromEdges(rules: ResolvedRuleMap, prefix: "border" | "outline"): BorderValue | undefined {
+  const top = rules[`${prefix}-top`];
+  const right = rules[`${prefix}-right`];
+  const bottom = rules[`${prefix}-bottom`];
+  const left = rules[`${prefix}-left`];
+  const values = [top, right, bottom, left];
+
+  if (values.every((value) => isBorderValue(value))) {
+    const [first] = values as BorderValue[];
+    const allEqual = (values as BorderValue[]).every((value) => value.style === first.style && value.color === first.color);
+
+    return allEqual ? first : undefined;
+  }
+
+  return undefined;
+}
+
+function isBorderValue(value: unknown): value is BorderValue {
+  return typeof value === "object" && value !== null && "style" in value;
 }

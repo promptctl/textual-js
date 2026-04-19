@@ -250,6 +250,138 @@ describe("styles and useStyles", () => {
     instance.cleanup();
   });
 
+  it("resolves important shorthand declarations against more specific longhands", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          StyledLabel {
+            border: round green !important;
+            padding: 10 20 30 40 !important;
+            align: right bottom !important;
+            overflow: hidden hidden !important;
+            scrollbar-size: 23 42 !important;
+          }
+
+          #cascade.more-specific {
+            border-left: solid red;
+            padding-left: 1;
+            align: center middle;
+            overflow: scroll scroll;
+            scrollbar-size: 1 2;
+          }
+        `}
+      >
+        <StyledLabel id="cascade" classes="more-specific" label="cascade" />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("cascade") as WidgetNode;
+
+    expect(widget.resolvedStyles.getRule("border-left")).toEqual({ style: "round", color: normalizeColor("green") });
+    expect(widget.resolvedStyles.box.borderColor).toBe(normalizeColor("green"));
+    expect(widget.resolvedStyles.box.paddingRight).toBe(20);
+    expect(widget.resolvedStyles.box.paddingLeft).toBe(40);
+    expect(widget.resolvedStyles.box.justifyContent).toBe("flex-end");
+    expect(widget.resolvedStyles.box.alignItems).toBe("flex-end");
+    expect(widget.resolvedStyles.getRule("overflow")).toEqual({ x: "hidden", y: "hidden" });
+    expect(widget.resolvedStyles.getRule("scrollbar-size")).toEqual([23, 42]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("resolves initial through DEFAULT_CSS and carries custom properties through inline overrides", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          StyledRoot StyledLabel {
+            background: var(--accent);
+          }
+
+          #initial {
+            color: initial;
+          }
+        `}
+      >
+        <StyledRoot>
+          <StyledLabel
+            id="initial"
+            label="initial"
+            defaultCss={`
+              StyledLabel {
+                color: magenta;
+              }
+            `}
+          />
+        </StyledRoot>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const root = framework.registry.getByCssId("styled-root") as WidgetNode;
+    const child = framework.registry.getByCssId("initial") as WidgetNode;
+
+    expect(child.resolvedStyles.getRule("color")).toBe(normalizeColor("magenta"));
+    expect(child.resolvedStyles.getRule("background")).toBe(normalizeColor("tomato"));
+
+    root.setInlineStyle("--accent", "rebeccapurple");
+    await framework.whenIdle();
+
+    expect(child.resolvedStyles.getRule("background")).toBe(normalizeColor("rebeccapurple"));
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("recomputes pseudo-class selectors from canonical registry state", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          StyledRoot > StyledLabel:first-child {
+            background: red;
+          }
+
+          StyledRoot > StyledLabel:last-child {
+            color: blue;
+          }
+
+          StyledLabel:empty {
+            border: round green;
+          }
+        `}
+      >
+        <StyledRoot>
+          <StyledLabel id="first-pseudo" label="first" />
+          <StyledLabel id="last-pseudo" label="last" />
+        </StyledRoot>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const first = framework.registry.getByCssId("first-pseudo") as WidgetNode;
+    const last = framework.registry.getByCssId("last-pseudo") as WidgetNode;
+
+    expect(first.resolvedStyles.getRule("background")).toBe(normalizeColor("red"));
+    expect(last.resolvedStyles.getRule("color")).toBe(normalizeColor("blue"));
+    expect(first.resolvedStyles.getRule("border")).toEqual({ style: "round", color: normalizeColor("green") });
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("hides visibility-hidden output while routing input to visible widgets", async () => {
     const framework = new TextualFramework();
     const received: string[] = [];

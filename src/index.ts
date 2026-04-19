@@ -66,8 +66,10 @@ export {
 export {
   type ActiveBinding,
   ActiveModeError,
+  BadIdentifier,
   type BindingClash,
   type BindingNamespace,
+  DeclarationError,
   DuplicateKeyHandlers,
   InvalidModeError,
   type KeymapInput,
@@ -107,6 +109,7 @@ export {
   DOMQuery,
   NoMatches,
   TooManyMatches,
+  WrongType,
   WidgetNode,
   StylesReader,
   WidgetScope,

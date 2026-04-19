@@ -106,16 +106,16 @@ export class WidgetRegistry {
 
   getDescendants(nodeId: string): WidgetNode[] {
     const descendants: WidgetNode[] = [];
-    const queue = this.getChildren(nodeId);
-
-    while (queue.length > 0) {
-      const widget = queue.shift();
-
-      if (widget !== undefined) {
-        descendants.push(widget);
-        queue.push(...this.getChildren(widget.nodeId));
+    const visit = (parentId: string): void => {
+      for (const child of this.getChildren(parentId)) {
+        descendants.push(child);
+        visit(child.nodeId);
       }
-    }
+    };
+
+    // [LAW:one-source-of-truth] Query order is derived directly from registry
+    // parent links in DOM/depth order; no separate query tree is maintained.
+    visit(nodeId);
 
     return descendants;
   }
@@ -144,6 +144,30 @@ export class WidgetRegistry {
     const index = siblings.findIndex((sibling) => sibling.nodeId === nodeId);
 
     return index <= 0 ? [] : siblings.slice(0, index).reverse();
+  }
+
+  getSiblingIndex(nodeId: string): number {
+    const widget = this.entries.get(nodeId);
+    const siblings = widget === undefined ? [] : this.getChildren(widget.parentId);
+
+    return siblings.findIndex((sibling) => sibling.nodeId === nodeId);
+  }
+
+  getNextSiblings(nodeId: string): WidgetNode[] {
+    const widget = this.entries.get(nodeId);
+
+    if (widget === undefined) {
+      return [];
+    }
+
+    const siblings = this.getChildren(widget.parentId);
+    const index = siblings.findIndex((sibling) => sibling.nodeId === nodeId);
+
+    return index === -1 ? [] : siblings.slice(index + 1);
+  }
+
+  hasChildren(nodeId: string): boolean {
+    return this.getChildren(nodeId).length > 0;
   }
 
   getDefaultTarget(preferredNodeId: string | null): WidgetNode | undefined {

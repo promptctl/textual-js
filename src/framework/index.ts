@@ -37,7 +37,7 @@ export {
   type UseWidgetResult,
   type WidgetHostProps,
 } from "./context.js";
-export { DOMQuery, NoMatches, TooManyMatches } from "./dom-query.js";
+export { DOMQuery, DeclarationError, NoMatches, TooManyMatches, WrongType, type QueryTypeConstraint } from "./dom-query.js";
 export { OnDecoratorError, on, type OnOptions } from "./on.js";
 export {
   WidgetRegistry,
@@ -48,4 +48,4 @@ export {
   type WidgetIdentity,
   type WidgetMessageHandler,
 } from "./widget-registry.js";
-export { WidgetNode, type WidgetNodeInit } from "./widget-node.js";
+export { BadIdentifier, WidgetNode, type WalkChildrenOptions, type WidgetNodeInit } from "./widget-node.js";

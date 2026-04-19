@@ -24,6 +24,9 @@ describe("border helpers", () => {
 
   it("omits empty labels, truncates long labels with an ellipsis, and caches quad composition", () => {
     expect(renderBorderLabel("[bold][/]", 10)).toEqual([]);
+    expect(renderBorderLabel("[blue]", 10)).toEqual([]);
+    expect(renderBorderLabel("hey", 4)).toEqual([]);
+    expect(renderBorderLabel("hey", 5).map((segment) => segment.text).join("")).toBe(" hey ");
 
     const truncated = renderBorderLabel(new Content("hello world"), 7, {
       hasLeftCorner: true,

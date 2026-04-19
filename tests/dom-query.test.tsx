@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { describe, expect, it } from "vitest";
 
 import {
+  BadIdentifier,
   InvalidQueryFormat,
   NoMatches,
   TextualApp,
@@ -11,6 +12,7 @@ import {
   TooManyMatches,
   WidgetNode,
   WidgetScope,
+  WrongType,
   useWidget,
 } from "../src/index.js";
 import { render } from "ink-testing-library";
@@ -86,7 +88,72 @@ describe("DOM query API", () => {
     expect(root.query(".item").filter("#two").first().id).toBe("two");
     expect(root.query(".item").exclude("#one").last().id).toBe("two");
     expect(() => root.query("1")).toThrow(InvalidQueryFormat);
+    expect(() => root.query("foo_bar")).toThrow(InvalidQueryFormat);
     expect(second.queryChildren("*").results().map((widget) => widget.id)).toEqual(["two"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("supports traversal snapshots, typed singleton queries, and result-set mutations", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <QueryContainer id="root">
+          <QueryContainer id="first" classes="alpha">
+            <QueryLabel id="one" classes="item" text="one" />
+          </QueryContainer>
+          <QueryContainer id="second" classes="beta">
+            <QueryLabel id="two" classes="item" text="two" focusable />
+          </QueryContainer>
+          <QueryLabel id="three" classes="item" text="three" />
+        </QueryContainer>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const root = framework.registry.getByCssId("root") as WidgetNode;
+    const two = framework.registry.getByCssId("two") as WidgetNode;
+
+    expect(root.walkChildren({ method: "depth" }).map((widget) => widget.id)).toEqual([
+      "first",
+      "one",
+      "second",
+      "two",
+      "three",
+    ]);
+    expect(root.walkChildren({ method: "breadth", reverse: true }).map((widget) => widget.id)).toEqual([
+      "two",
+      "one",
+      "three",
+      "second",
+      "first",
+    ]);
+    expect(two.queryAncestor("#root", "Container").id).toBe("root");
+    expect(root.queryOneOptional("#missing")).toBeNull();
+    expect(() => root.queryOne("#one", "Container")).toThrow(WrongType);
+    expect(root.query(".item").results("Container")).toEqual([]);
+    expect(root.query(".item").length).toBe(3);
+    expect(root.query(".item").at(1)?.id).toBe("two");
+    expect(root.query(".item").slice(1).map((widget) => widget.id)).toEqual(["two", "three"]);
+    expect(root.query(".item").reversed().map((widget) => widget.id)).toEqual(["three", "two", "one"]);
+
+    root.query(".item").addClass("selected");
+    await framework.whenIdle();
+    expect(root.query(".selected").results().map((widget) => widget.id)).toEqual(["one", "two", "three"]);
+
+    root.query("#one").setStyles("background: red;");
+    await framework.whenIdle();
+    expect((framework.registry.getByCssId("one") as WidgetNode).resolvedStyles.getRule("background")).toBe("#ff0000");
+
+    expect(root.query(".item").focus()?.id).toBe("two");
+    expect(framework.focusedNodeId).toBe(two.nodeId);
+    root.query("#two").blur();
+    expect(framework.focusedNodeId).toBeNull();
+
+    expect(() => root.addClass("bad class")).toThrow(BadIdentifier);
 
     instance.unmount();
     instance.cleanup();

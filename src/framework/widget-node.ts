@@ -10,7 +10,7 @@ import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
-import { DOMQuery, NoMatches, TooManyMatches } from "./dom-query.js";
+import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
 import type { TextualFramework } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 
@@ -29,6 +29,31 @@ export interface WidgetNodeInit {
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
+}
+
+export class BadIdentifier extends Error {}
+
+export interface WalkChildrenOptions {
+  method?: "depth" | "breadth";
+  withSelf?: boolean;
+  reverse?: boolean;
+}
+
+const TEXTUAL_IDENTIFIER = /^-?[A-Za-z_][A-Za-z0-9_-]*$/;
+
+function validateCssIdentifier(identifier: string, kind: "id" | "class"): void {
+  if (!TEXTUAL_IDENTIFIER.test(identifier)) {
+    throw new BadIdentifier(`Invalid CSS ${kind} "${identifier}"`);
+  }
+}
+
+function normalizeClassInput(classes: string | string[]): string[] {
+  return Array.isArray(classes)
+    ? classes
+    : classes
+        .split(/\s+/)
+        .map((className) => className.trim())
+        .filter((className) => className.length > 0);
 }
 
 export class WidgetNode {
@@ -70,8 +95,13 @@ export class WidgetNode {
     this.loading = init.loading;
     this.tooltip = init.tooltip;
 
+    if (init.id !== undefined) {
+      validateCssIdentifier(init.id, "id");
+    }
+
     runInAction(() => {
       for (const className of init.classes) {
+        validateCssIdentifier(className, "class");
         this.classes.add(className);
       }
     });
@@ -355,6 +385,7 @@ export class WidgetNode {
       this.classes.clear();
 
       for (const className of nextClasses) {
+        validateCssIdentifier(className, "class");
         this.classes.add(className);
       }
     });
@@ -365,6 +396,8 @@ export class WidgetNode {
 
     runInAction(() => {
       for (const className of classNames) {
+        validateCssIdentifier(className, "class");
+
         if (!this.classes.has(className)) {
           this.classes.add(className);
           changed = true;
@@ -380,6 +413,8 @@ export class WidgetNode {
 
     runInAction(() => {
       for (const className of classNames) {
+        validateCssIdentifier(className, "class");
+
         if (this.classes.delete(className)) {
           changed = true;
         }
@@ -390,6 +425,7 @@ export class WidgetNode {
   }
 
   toggleClass(className: string, force?: boolean): void {
+    validateCssIdentifier(className, "class");
     const shouldHaveClass = force ?? !this.classes.has(className);
     const hadClass = this.classes.has(className);
 
@@ -405,12 +441,7 @@ export class WidgetNode {
   }
 
   setClasses(classes: string | string[]): void {
-    const nextClasses = Array.isArray(classes)
-      ? classes
-      : classes
-          .split(/\s+/)
-          .map((className) => className.trim())
-          .filter((className) => className.length > 0);
+    const nextClasses = normalizeClassInput(classes);
     const currentClasses = Array.from(this.classes);
     const same =
       currentClasses.length === nextClasses.length &&
@@ -420,6 +451,7 @@ export class WidgetNode {
       this.classes.clear();
 
       for (const className of nextClasses) {
+        validateCssIdentifier(className, "class");
         this.classes.add(className);
       }
     });
@@ -428,8 +460,9 @@ export class WidgetNode {
   }
 
   setPseudoClass(name: string, enabled: boolean): void {
+    const changed = this.pseudoClasses.get(name) !== enabled;
     this.pseudoClasses.set(name, enabled);
-    this.framework.refreshStyles(true);
+    this.framework.refreshStyles(changed);
   }
 
   hasPseudoClass(name: string): boolean {
@@ -474,6 +507,39 @@ export class WidgetNode {
       return this.isHovered;
     }
 
+    if (name === "dark") {
+      return this.framework.dark;
+    }
+
+    if (name === "light") {
+      return !this.framework.dark;
+    }
+
+    if (name === "first-child") {
+      return this.framework.registry.getSiblingIndex(this.nodeId) === 0;
+    }
+
+    if (name === "last-child") {
+      return this.framework.registry.getNextSiblings(this.nodeId).length === 0;
+    }
+
+    if (name === "first-of-type") {
+      return this.framework.registry.getPreviousSiblings(this.nodeId).every((sibling) => !sibling.matchesType(this.typeName));
+    }
+
+    if (name === "last-of-type") {
+      return this.framework.registry.getNextSiblings(this.nodeId).every((sibling) => !sibling.matchesType(this.typeName));
+    }
+
+    if (name === "even" || name === "odd") {
+      const index = this.framework.registry.getSiblingIndex(this.nodeId);
+      return index >= 0 && (name === "even" ? index % 2 === 0 : index % 2 === 1);
+    }
+
+    if (name === "empty") {
+      return !this.framework.registry.hasChildren(this.nodeId);
+    }
+
     return this.pseudoClasses.get(name) ?? false;
   }
 
@@ -510,17 +576,27 @@ export class WidgetNode {
     return new DOMQuery(this.framework, this, "children").filter(selectorText);
   }
 
-  queryOne(selectorText: string): WidgetNode {
+  queryOne(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode {
     const results = this.query(selectorText).results();
 
     if (results.length === 0) {
       throw new NoMatches(`No widgets matched "${selectorText}"`);
     }
 
-    return results[0];
+    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).first(typeConstraint);
   }
 
-  queryExactlyOne(selectorText: string): WidgetNode {
+  queryOneOptional(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode | null {
+    const results = this.query(selectorText).results();
+
+    if (results.length === 0) {
+      return null;
+    }
+
+    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).first(typeConstraint);
+  }
+
+  queryExactlyOne(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode {
     const results = this.query(selectorText).results();
 
     if (results.length === 0) {
@@ -531,10 +607,10 @@ export class WidgetNode {
       throw new TooManyMatches(`More than one widget matched "${selectorText}"`);
     }
 
-    return results[0];
+    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).onlyOne(typeConstraint);
   }
 
-  queryAncestor(selectorText: string): WidgetNode {
+  queryAncestor(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode {
     const selectors = this.framework.parseSelectors(selectorText);
     let currentParent = this.parent;
 
@@ -542,13 +618,42 @@ export class WidgetNode {
       const candidate = currentParent;
 
       if (selectors.some((selector) => this.framework.matchesSelector(candidate, selector))) {
-        return candidate;
+        return ensureQueryType(candidate, typeConstraint);
       }
 
       currentParent = candidate.parent;
     }
 
     throw new NoMatches(`No ancestors matched "${selectorText}"`);
+  }
+
+  walkChildren(options: WalkChildrenOptions = {}): WidgetNode[] {
+    const method = options.method ?? "depth";
+    const withSelf = options.withSelf ?? false;
+    const seed = withSelf ? [this] : this.framework.registry.getChildren(this.nodeId);
+    const output: WidgetNode[] = [];
+    const queue = [...seed];
+
+    // [LAW:one-source-of-truth] Traversal snapshots derive from the widget
+    // registry parent links; no parallel tree representation is created.
+    while (queue.length > 0) {
+      const node = queue.shift();
+
+      if (node === undefined) {
+        continue;
+      }
+
+      output.push(node);
+      const children = this.framework.registry.getChildren(node.nodeId);
+
+      if (method === "depth") {
+        queue.unshift(...children);
+      } else {
+        queue.push(...children);
+      }
+    }
+
+    return options.reverse === true ? output.reverse() : output;
   }
 
   get maxScrollX(): number {

@@ -174,10 +174,52 @@ describe("TCSS parsing", () => {
     });
   });
 
+  it("canonicalizes nested selector expansion before cascade consumption", () => {
+    const stylesheet = parseTcss(
+      `
+        Vertical {
+          Button:light {
+            background: red;
+          }
+
+          min-height: 3;
+
+          #two, *:focus {
+            background: green !important;
+          }
+
+          height: auto;
+
+          Label {
+            background: yellow;
+
+            &:light, &:dark {
+              color: blue;
+            }
+
+            &:hover {
+              background: orange !important;
+            }
+          }
+        }
+      `,
+      { origin: "user" },
+    );
+
+    expect(stylesheet.flatSource).toContain("Vertical { min-height:3; height:auto; }");
+    expect(stylesheet.flatSource).toContain("Vertical Button:light { background:red; }");
+    expect(stylesheet.flatSource).toContain("Vertical #two, Vertical *:focus { background:green!important; }");
+    expect(stylesheet.flatSource).toContain("Vertical Label:hover { background:orange!important; }");
+  });
+
   it("raises explicit parse errors for malformed TCSS and declaration values", () => {
     expect(() => parseTcss("Button { color: $missing; }", { origin: "user" })).toThrow(UnresolvedVariableError);
     expect(() => parseTcss("Button { colr: red; }", { origin: "user" })).toThrow(StylesheetParseError);
     expect(() => parseTcss("Button { width: 10px; }", { origin: "user" })).toThrow(StylesheetParseError);
     expect(() => parseTcss("Button { text-align: sideways; }", { origin: "user" })).toThrow(StylesheetParseError);
+    expect(() => parseTcss("Selector {", { origin: "user" })).toThrow(StylesheetParseError);
+    expect(() => parseTcss("Selector{ Foo {", { origin: "user" })).toThrow(StylesheetParseError);
+    expect(() => parseTcss("&.foo { color: red; }", { origin: "user" })).toThrow(StylesheetParseError);
+    expect(() => parseTcss("& { color: red; }", { origin: "user" })).toThrow(StylesheetParseError);
   });
 });
