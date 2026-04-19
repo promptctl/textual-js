@@ -2,6 +2,8 @@ export {
   type ActiveBinding,
   type ActiveTooltip,
   ActiveModeError,
+  type AnimationLevel,
+  type ActionTargetDescriptor,
   type BindingClash,
   type BindingNamespace,
   InvalidModeError,
@@ -48,4 +50,11 @@ export {
   type WidgetIdentity,
   type WidgetMessageHandler,
 } from "./widget-registry.js";
-export { BadIdentifier, WidgetNode, type WalkChildrenOptions, type WidgetNodeInit } from "./widget-node.js";
+export {
+  BadIdentifier,
+  WidgetNode,
+  type ScrollAnimationState,
+  type ScrollToOptions,
+  type WalkChildrenOptions,
+  type WidgetNodeInit,
+} from "./widget-node.js";

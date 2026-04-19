@@ -11,7 +11,7 @@ import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
 import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
-import type { TextualFramework } from "./app-framework.js";
+import type { AnimationLevel, TextualFramework } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 
 export interface WidgetNodeInit {
@@ -37,6 +37,17 @@ export interface WalkChildrenOptions {
   method?: "depth" | "breadth";
   withSelf?: boolean;
   reverse?: boolean;
+}
+
+export interface ScrollToOptions {
+  animate?: boolean;
+  duration?: number;
+}
+
+export interface ScrollAnimationState {
+  x: number;
+  y: number;
+  duration: number;
 }
 
 const TEXTUAL_IDENTIFIER = /^-?[A-Za-z_][A-Za-z0-9_-]*$/;
@@ -74,6 +85,9 @@ export class WidgetNode {
   screenRegion = Region.EMPTY;
   scrollOffsetX = 0;
   scrollOffsetY = 0;
+  scrollTargetX = 0;
+  scrollTargetY = 0;
+  scrollAnimation: ScrollAnimationState | null = null;
   virtualWidth = 0;
   virtualHeight = 0;
   disabled: boolean;
@@ -283,14 +297,17 @@ export class WidgetNode {
     this.scrollTo(this.scrollOffsetX, this.scrollOffsetY);
   }
 
-  scrollTo(x: number, y: number): void {
+  scrollTo(x: number, y: number, options: ScrollToOptions = {}): void {
     const next = this.clampScrollOffsets(x, y);
+    this.scrollTargetX = next.x;
+    this.scrollTargetY = next.y;
+    this.scrollAnimation = this.createScrollAnimation(next, options, this.framework.animationLevel);
     this.scrollOffsetX = next.x;
     this.scrollOffsetY = next.y;
   }
 
-  scrollRelative(dx: number, dy: number): void {
-    this.scrollTo(this.scrollOffsetX + dx, this.scrollOffsetY + dy);
+  scrollRelative(dx: number, dy: number, options: ScrollToOptions = {}): void {
+    this.scrollTo(this.scrollOffsetX + dx, this.scrollOffsetY + dy, options);
   }
 
   scrollEnd(): void {
@@ -669,5 +686,18 @@ export class WidgetNode {
       x: Math.max(0, Math.min(this.maxScrollX, Math.trunc(x))),
       y: Math.max(0, Math.min(this.maxScrollY, Math.trunc(y))),
     };
+  }
+
+  private createScrollAnimation(
+    target: { x: number; y: number },
+    options: ScrollToOptions,
+    animationLevel: AnimationLevel,
+  ): ScrollAnimationState | null {
+    const duration = Math.max(0, Math.trunc(options.duration ?? 0));
+    const shouldAnimate = options.animate === true && duration > 0 && animationLevel !== "none";
+
+    // [LAW:one-source-of-truth] The scroll target is stored once on the widget;
+    // animation metadata is derived from that target plus framework policy.
+    return shouldAnimate ? { x: target.x, y: target.y, duration } : null;
   }
 }

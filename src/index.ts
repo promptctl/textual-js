@@ -66,6 +66,8 @@ export {
 export {
   type ActiveBinding,
   ActiveModeError,
+  type ActionTargetDescriptor,
+  type AnimationLevel,
   BadIdentifier,
   type BindingClash,
   type BindingNamespace,
@@ -104,6 +106,8 @@ export {
   type WidgetHostProps,
   type WidgetIdentity,
   type WidgetMessageHandler,
+  type ScrollAnimationState,
+  type ScrollToOptions,
 } from "./framework/index.js";
 export {
   DOMQuery,
@@ -197,6 +201,7 @@ export {
   type AlignValue,
   type OffsetValue,
   type OverflowValue,
+  type ScrollbarGutterValue,
   type TextStyleValue,
 } from "./styles/index.js";
 export {

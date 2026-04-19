@@ -1,4 +1,5 @@
 import { Message, type MessageInit } from "../events/message.js";
+import type { WidgetActions } from "../framework/widget-registry.js";
 
 export class InputChanged extends Message {
   constructor(
@@ -16,6 +17,37 @@ export class InputSubmitted extends Message {
   ) {
     super(init);
   }
+}
+
+export function createInputActions(model: InputModel): WidgetActions {
+  // [LAW:single-enforcer] Input key commands enter through framework actions;
+  // the model owns text mutation while bindings only name these commands.
+  return {
+    action_cursor_left: () => model.moveCursorLeft(),
+    action_cursor_right: () => model.moveCursorRight(),
+    action_cursor_left_word: () => model.moveCursorWordLeft(),
+    action_cursor_right_word: () => model.moveCursorWordRight(),
+    action_home: () => model.moveCursorHome(),
+    action_end: () => model.moveCursorEnd(),
+    action_delete_left: () => {
+      model.deleteLeft();
+    },
+    action_delete_left_word: () => {
+      model.deleteWordLeft();
+    },
+    action_delete_left_all: () => {
+      model.deleteToStart();
+    },
+    action_delete_right: () => {
+      model.deleteRight();
+    },
+    action_delete_right_word: () => {
+      model.deleteWordRight();
+    },
+    action_delete_right_all: () => {
+      model.deleteToEnd();
+    },
+  };
 }
 
 export interface InputSelection {

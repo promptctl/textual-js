@@ -72,6 +72,8 @@ export interface TextStyleValue {
   reverse: boolean;
 }
 
+export type ScrollbarGutterValue = "auto" | "stable";
+
 const DIMENSION_PROPERTIES = new Set([
   "width",
   "height",
@@ -983,6 +985,12 @@ function parseValue(property: string, rawValue: string): unknown {
     return parseInteger(rawValue, property);
   }
 
+  if (property === "scrollbar-gutter") {
+    // [LAW:single-enforcer] Scrollbar gutter grammar is enforced at the TCSS
+    // value boundary so layout infrastructure consumes one canonical enum.
+    return parseStringEnum(property, rawValue, ["auto", "stable"] as const);
+  }
+
   if (property === "box-sizing") {
     return parseStringEnum(property, rawValue, ["border-box", "content-box"] as const);
   }
@@ -1283,6 +1291,7 @@ const BUILT_IN_INITIAL_VALUES: Record<string, string> = {
   "offset-y": "0",
   "scrollbar-size-horizontal": "1",
   "scrollbar-size-vertical": "1",
+  "scrollbar-gutter": "auto",
   "grid-size-columns": "1",
   "grid-size-rows": "1",
   "grid-gutter-horizontal": "0",

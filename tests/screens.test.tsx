@@ -76,6 +76,14 @@ async function settleScreen(framework: TextualFramework): Promise<void> {
 }
 
 describe("screen stack", () => {
+  it("exposes the implicit default screen as the initial stack surface", () => {
+    const framework = new TextualFramework();
+
+    expect(framework.getScreenStack().map((screen) => screen.id)).toEqual(["_default"]);
+    expect(framework.activeScreen?.id).toBe("_default");
+    expect(framework.activeScreenElement).toBeNull();
+  });
+
   it("installs named screens, reuses cached elements, and enforces expected types", () => {
     const framework = new TextualFramework();
 

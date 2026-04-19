@@ -196,6 +196,8 @@ export interface ActiveBinding {
   run: () => boolean;
 }
 
+export type AnimationLevel = "full" | "basic" | "none";
+
 export class ScreenStackError extends Error {}
 
 export class UnknownModeError extends Error {}
@@ -366,6 +368,7 @@ export class TextualFramework {
   private controlledTerminalSize: Size | null = null;
   captureUnhandledErrors = false;
   activeMode = DEFAULT_MODE;
+  animationLevel: AnimationLevel = "full";
   private readonly modeStacks = new Map<string, ScreenEntry[]>();
   private readonly modeFactories = new Map<string, () => React.ReactElement>();
   private readonly installedScreens = new Map<string, ScreenFactoryRecord>();
@@ -513,6 +516,12 @@ export class TextualFramework {
     if (this.isRunning && !this.isAppBlurred && this.focusedNodeId === null) {
       this.scheduleActiveScreenFocusResolution(true);
     }
+  }
+
+  setAnimationLevel(level: AnimationLevel): void {
+    // [LAW:single-enforcer] Animation policy is owned by the framework so
+    // scroll-capable widgets derive behavior from one runtime setting.
+    this.animationLevel = level;
   }
 
   setTooltipDelay(delayMs: number | null | undefined): void {
@@ -800,16 +809,16 @@ export class TextualFramework {
     });
   }
 
-  focusNext(): WidgetNode | null {
-    return this.moveFocus(1);
+  focusNext(selectorText?: string): WidgetNode | null {
+    return this.moveFocus(1, selectorText);
   }
 
-  focusPrevious(): WidgetNode | null {
-    return this.moveFocus(-1);
+  focusPrevious(selectorText?: string): WidgetNode | null {
+    return this.moveFocus(-1, selectorText);
   }
 
-  private moveFocus(direction: 1 | -1): WidgetNode | null {
-    const chain = this.getFocusChain();
+  private moveFocus(direction: 1 | -1, selectorText?: string): WidgetNode | null {
+    const chain = this.filterFocusChain(selectorText);
 
     if (chain.length === 0) {
       this.focusWidget(null);
@@ -997,6 +1006,11 @@ export class TextualFramework {
     const resolved = this.resolvePointerTarget(screenX, screenY);
     const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
     const dispatched = this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseDown(x, y));
+    const focusTarget = this.resolvePointerFocusTarget(resolved.targetNode);
+
+    if (focusTarget !== undefined) {
+      this.focusWidget(focusTarget.nodeId);
+    }
 
     // [LAW:one-source-of-truth] The active press target and down timestamp live
     // in one framework-owned record so MouseUp and MouseMove derive click state
@@ -1342,6 +1356,26 @@ export class TextualFramework {
 
   private resolvePointerDispatchTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
     return targetNode ?? this.resolveDefaultDispatchTarget();
+  }
+
+  private resolvePointerFocusTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
+    // [LAW:single-enforcer] Disabled/loading pointer focus gating shares the
+    // framework pointer boundary with event suppression instead of widget code.
+    if (targetNode?.isDisabledEffective || targetNode?.isLoadingEffective) {
+      return undefined;
+    }
+
+    let current = targetNode;
+
+    while (current !== undefined) {
+      if (current.focusable && !current.isDisabledEffective && !current.isLoadingEffective && current.isInteractive) {
+        return current;
+      }
+
+      current = current.parent;
+    }
+
+    return undefined;
   }
 
   private postResolvedPointerMessage(
@@ -2626,6 +2660,17 @@ export class TextualFramework {
     return this.resolveAutoFocusTarget(chain);
   }
 
+  private filterFocusChain(selectorText?: string): WidgetNode[] {
+    const chain = this.getFocusChain();
+
+    if (selectorText === undefined) {
+      return chain;
+    }
+
+    const selectors = this.parseSelectors(selectorText);
+    return chain.filter((widget) => selectors.some((selector) => this.matchesSelector(widget, selector)));
+  }
+
   private resolveAutoFocusTarget(chain: WidgetNode[]): WidgetNode | null {
     const selector = this.getEffectiveAutoFocusSelector();
 
@@ -2775,7 +2820,7 @@ interface ActiveBindingSeed {
   actions: WidgetActions | undefined;
 }
 
-interface ActionTargetDescriptor {
+export interface ActionTargetDescriptor {
   actions: WidgetActions | undefined;
 }
 
@@ -2783,7 +2828,7 @@ type ActionDispatchResult = "handled" | "consumed" | "unhandled";
 
 function createImplicitEntry(): ScreenEntry {
   return {
-    id: `screen-implicit-${nextScreenId++}`,
+    id: "_default",
     name: null,
     element: null,
     bindings: [],

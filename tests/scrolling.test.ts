@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Offset, Region } from "../src/index.js";
+import { Offset, Region, Size, TextualFramework, WidgetNode } from "../src/index.js";
 
 describe("scroll geometry", () => {
   it("computes zero offset when the target is already within the window", () => {
@@ -81,5 +81,72 @@ describe("scrollbar-size CSS property", () => {
     );
 
     expect(declaration?.value).toEqual([2, 2]);
+  });
+});
+
+describe("scrollbar-gutter CSS property", () => {
+  it("parses stable scrollbar gutters and rejects unknown values", async () => {
+    const { parseTcss, StylesheetParseError } = await import("../src/index.js");
+
+    const stylesheet = parseTcss("Widget { scrollbar-gutter: stable; }", { origin: "user" });
+    const declaration = stylesheet.rules[0]?.declarations.find(
+      (decl) => decl.property === "scrollbar-gutter",
+    );
+
+    expect(declaration?.value).toBe("stable");
+    expect(() => parseTcss("Widget { scrollbar-gutter: always; }", { origin: "user" })).toThrow(StylesheetParseError);
+  });
+});
+
+describe("scroll animation level infrastructure", () => {
+  function createScrollWidget(framework: TextualFramework): WidgetNode {
+    const widget = new WidgetNode({
+      framework,
+      nodeId: "scroll-target",
+      parentId: null,
+      classes: [],
+      typeName: "ScrollTarget",
+      handlersRef: { current: undefined },
+      actionsRef: { current: undefined },
+      bindingsRef: { current: [] },
+      focusable: false,
+      autoFocus: false,
+      disabled: false,
+      loading: false,
+      tooltip: null,
+    });
+
+    widget.updateScreenRegion(new Region(0, 0, 10, 5));
+    widget.setVirtualSize(new Size(30, 20));
+    return widget;
+  }
+
+  it("records animated scroll targets for full and basic levels", () => {
+    const framework = new TextualFramework();
+    const widget = createScrollWidget(framework);
+
+    framework.setAnimationLevel("full");
+    widget.scrollTo(12, 7, { animate: true, duration: 250 });
+
+    expect(widget.scrollAnimation).toEqual({ x: 12, y: 7, duration: 250 });
+    expect(widget.scrollTargetX).toBe(12);
+    expect(widget.scrollTargetY).toBe(7);
+
+    framework.setAnimationLevel("basic");
+    widget.scrollTo(20, 15, { animate: true, duration: 100 });
+
+    expect(widget.scrollAnimation).toEqual({ x: 20, y: 15, duration: 100 });
+  });
+
+  it("suppresses animated scroll metadata when animation level is none", () => {
+    const framework = new TextualFramework();
+    const widget = createScrollWidget(framework);
+
+    framework.setAnimationLevel("none");
+    widget.scrollTo(12, 7, { animate: true, duration: 250 });
+
+    expect(widget.scrollOffsetX).toBe(12);
+    expect(widget.scrollOffsetY).toBe(7);
+    expect(widget.scrollAnimation).toBeNull();
   });
 });

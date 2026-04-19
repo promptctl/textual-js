@@ -42,6 +42,7 @@ export {
   type AlignValue,
   type OffsetValue,
   type OverflowValue,
+  type ScrollbarGutterValue,
   type TextStyleValue,
 } from "./stylesheet.js";
 export {

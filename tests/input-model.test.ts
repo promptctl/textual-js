@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { InputModel as Input, InputChanged, InputSubmitted } from "../src/widgets/input.js";
+import { InputModel as Input, InputChanged, InputSubmitted, createInputActions } from "../src/widgets/input.js";
+import { TextualFramework } from "../src/index.js";
 
 describe("Input model", () => {
   it("constructs with default empty value", () => {
@@ -435,5 +436,51 @@ describe("Input messages", () => {
   it("creates InputSubmitted with value", () => {
     const submitted = new InputSubmitted("hello");
     expect(submitted.value).toBe("hello");
+  });
+});
+
+describe("Input framework action routing", () => {
+  it("exposes movement commands through the canonical action dispatcher", () => {
+    const framework = new TextualFramework();
+    const input = new Input({ value: "hello world" });
+    const actions = createInputActions(input);
+
+    expect(framework.runAction("cursor_left", { actions })).toBe(true);
+    expect(input.cursorPosition).toBe(10);
+
+    expect(framework.runAction("cursor_left_word", { actions })).toBe(true);
+    expect(input.cursorPosition).toBe(6);
+
+    expect(framework.runAction("home", { actions })).toBe(true);
+    expect(input.cursorPosition).toBe(0);
+
+    expect(framework.runAction("cursor_right_word", { actions })).toBe(true);
+    expect(input.cursorPosition).toBe(6);
+
+    expect(framework.runAction("end", { actions })).toBe(true);
+    expect(input.cursorPosition).toBe(11);
+  });
+
+  it("exposes delete commands through the canonical action dispatcher", () => {
+    const framework = new TextualFramework();
+    const input = new Input({ value: "hello world" });
+    const actions = createInputActions(input);
+
+    input.cursorPosition = 5;
+    expect(framework.runAction("delete_left", { actions })).toBe(true);
+    expect(input.value).toBe("hell world");
+
+    input.value = "hello world";
+    input.cursorPosition = 6;
+    expect(framework.runAction("delete_right_word", { actions })).toBe(true);
+    expect(input.value).toBe("hello ");
+
+    input.value = "hello world";
+    input.cursorPosition = 5;
+    expect(framework.runAction("delete_left_all", { actions })).toBe(true);
+    expect(input.value).toBe(" world");
+
+    expect(framework.runAction("delete_right_all", { actions })).toBe(true);
+    expect(input.value).toBe("");
   });
 });

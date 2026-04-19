@@ -131,6 +131,72 @@ describe("focus manager", () => {
     instance.cleanup();
   });
 
+  it("supports selector-filtered focus navigation and clears focus when no candidate matches", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost typeName="Input" id="first-input" focusable>
+          <Text>first input</Text>
+        </WidgetHost>
+        <WidgetHost typeName="Label" id="label" focusable>
+          <Text>label</Text>
+        </WidgetHost>
+        <WidgetHost typeName="Input" id="second-input" focusable>
+          <Text>second input</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.focusWidget(framework.registry.getByCssId("first-input")!.nodeId);
+
+    expect(framework.focusNext("Input")?.id).toBe("second-input");
+    expect(framework.focusNext("Input")?.id).toBe("first-input");
+    expect(framework.focusPrevious("Input")?.id).toBe("second-input");
+    expect(framework.focusNext(".missing")).toBeNull();
+    expect(framework.focusedNodeId).toBeNull();
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("focuses the pointer target or nearest focusable ancestor on mouse down only", async () => {
+    const session = await runTest(
+      <>
+        <WidgetHost typeName="FocusableParent" id="parent" focusable>
+          <WidgetHost typeName="Leaf" id="child">
+            <Text>child</Text>
+          </WidgetHost>
+        </WidgetHost>
+        <WidgetHost typeName="FocusableLeaf" id="leaf" focusable>
+          <Text>leaf</Text>
+        </WidgetHost>
+      </>,
+    );
+
+    const parent = session.framework.registry.getByCssId("parent")!;
+    const child = session.framework.registry.getByCssId("child")!;
+    const leaf = session.framework.registry.getByCssId("leaf")!;
+
+    session.framework.focusWidget(null);
+
+    session.framework.dispatchPointerUp(leaf.screenRegion.x, leaf.screenRegion.y);
+    await session.framework.whenIdle();
+    expect(session.framework.focusedNodeId).toBeNull();
+
+    session.framework.dispatchPointerDown(child.screenRegion.x, child.screenRegion.y);
+    await session.framework.whenIdle();
+    expect(session.framework.focusedNodeId).toBe(parent.nodeId);
+
+    session.framework.dispatchPointerDown(leaf.screenRegion.x, leaf.screenRegion.y);
+    await session.framework.whenIdle();
+    expect(session.framework.focusedNodeId).toBe(leaf.nodeId);
+
+    session.unmount();
+  });
+
   it("routes Tab and Shift+Tab through the default app bindings", async () => {
     const session = await runTest(<FocusHarness />);
 
