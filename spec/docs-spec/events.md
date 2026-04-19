@@ -17,7 +17,7 @@ Widget authors and application authors. Readers need to understand when their ha
 8. Handler arguments: with or without event, sync or async.
 9. Handler dispatch order: selector-based handlers first, then convention handler; walk of inheritance chain.
 10. The `@on`-equivalent helper: attaching selector-filtered handlers to a method/function, with both positional (control) and keyword (other widget attributes) selectors.
-11. Posting messages: `postMessage` / equivalent; thread-safety guarantees; cross-boundary posting.
+11. Posting messages: `postMessage` / equivalent; event-loop re-entrancy guarantees; cross-boundary posting.
 12. Scheduling callbacks: call-next, call-later, call-after-refresh semantics.
 13. Timers: set-timer and set-interval, resulting Timer events, pause/resume.
 14. Preventing specific message types: context-scoped suppression (`prevent(...)`) for programmatic updates.
@@ -38,7 +38,7 @@ Widget authors and application authors. Readers need to understand when their ha
 ## Behaviors and contracts
 - Messages are processed in FIFO order; an async handler blocks the queue for the widget until it resolves.
 - When bubbling, the message is re-posted to the parent; bubbling halts at the App root, at `stop()`, or when the parent equals the sender (loop guard).
-- `@on`-style selector filtering requires the message to expose a `control` property (or other allow-listed widget-valued attribute) for the selector to match against.
+- `@on`-style positional selector filtering requires the message class to declare which widget-valued attribute is the selector target (typically `control` in the textual-js port), plus any other allow-listed widget-valued attributes for keyword selectors.
 - Selector parsing must happen at registration time — invalid selectors must raise immediately, not silently fail at dispatch.
 - When a message is posted while the pump is closing/closed, the post returns false and is not delivered.
 - `call_next`, `call_later`, and `call_after_refresh` have distinct ordering: call_next runs right after the current handler; call_later runs after queued messages; call_after_refresh runs after the next screen refresh.
@@ -68,5 +68,6 @@ All examples JSX/TypeScript, using Ink primitives and the textual-js React/MobX 
 - Async handlers: use Promise/async-await terminology, not asyncio/coroutines.
 - `prevent(...)` is a context manager in Python. In TypeScript, it will typically be a callback-scoped helper (e.g. `prevent(MessageType, () => { ... })`) or a disposable; describe whatever the framework actually implements.
 - The `@on` decorator becomes a helper function or HOC; avoid claiming a decorator syntax unless TypeScript decorators are in use.
+- Python "thread-safe post_message" language does not translate literally. Document the JS contract as main-runtime re-entrancy safety and explicit marshaling from off-main contexts.
 - Keep coalescing, bubbling, stop, and preventDefault semantics faithfully — these translate directly.
 - Drop mentions of `asyncio.create_task`; direct readers to the workers doc instead.

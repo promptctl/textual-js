@@ -8,7 +8,7 @@ Widget and screen authors who need to post custom messages, schedule timers and 
 
 ## Required sections
 1. Overview — what a message pump is, and which framework objects are pumps (widgets, screens, app).
-2. Posting messages — `postMessage(message)` and thread/worker safety.
+2. Posting messages — `postMessage(message)` and event-loop / worker-boundary safety.
 3. Preventing messages — `prevent(...messageTypes)` context scope during mutations.
 4. Enabling / disabling messages — `disableMessages`, `enableMessages`, `checkMessageEnabled`.
 5. Scheduling callbacks — `setTimer`, `setInterval`, `callLater`, `callNext`, `callAfterRefresh`, `waitForRefresh`.
@@ -31,7 +31,8 @@ Widget and screen authors who need to post custom messages, schedule timers and 
 - Message signal: low-level observable published for every dispatched message; intended for devtools and diagnostics, not regular handling.
 
 ## Behaviors and contracts
-- `postMessage(message)` queues the message. Called from a worker / off-main context, the pump schedules the post on the main event loop. Returns `true` if queued, `false` if the pump is closed/closing or the type is disabled.
+- `postMessage(message)` queues the message on the main runtime. It is re-entrancy-safe across handlers, timers, `callNext`, `callLater`, Promise continuations, and worker-completion callbacks. Returns `true` if queued, `false` if the pump is closed/closing or the type is disabled.
+- Off-main contexts do not call the pump directly in the current JS runtime; they marshal back to the main runtime, which performs the post.
 - `postMessage` throws if the message is missing expected internal attributes — this usually means the base class constructor was not invoked.
 - `prevent(...types) { ... }` (scoped block): while active, messages of the listed types posted to this pump are dropped. No types = no-op.
 - Disabled messages are silently dropped for the life of the pump until re-enabled.
@@ -71,6 +72,7 @@ All examples are JSX/TypeScript using Ink primitives and textual-js widgets:
 - Do not mention `metaclass`, `__init_subclass__`, `MRO`, or `asyncio`. Describe dispatch as walking the class hierarchy and use "promise" / "microtask" instead of "coroutine" / "awaitable".
 - Do not document `CallbackError` / `MessagePumpClosed` as Python exception classes with specific import paths; treat them as typed errors with textual-js names.
 - `prevent` is presented in Python as a `with` statement; in textual-js it is typically a scoped helper that takes a callback (for example, `pump.prevent([Input.Changed], () => { ... })`) or an async block — use whichever form the framework actually exposes.
+- Do not describe `postMessage` as thread-safe in the Python sense unless the implementation truly supports shared-memory multi-threading. The current contract is main-runtime re-entrancy safety.
 - Compute-method conflict detection (`TooManyComputesError`) is a MobX-era concern; document it in the reactive section, not here.
 - Weak-reference semantics on `parent` are implementation details unless they have visible behavior.
 - The compose / mount sequencing is load-bearing — make sure this page references `api_widget.md` for the full lifecycle rather than redefining it.

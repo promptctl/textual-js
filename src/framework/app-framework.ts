@@ -57,6 +57,7 @@ import {
 import { WidgetNode } from "./widget-node.js";
 import {
   discoverOnHandlers,
+  getSelectorAttribute,
   resolveNamedHandler,
   type OnHandlerRegistration,
 } from "./on.js";
@@ -2458,8 +2459,16 @@ export class TextualFramework {
   }
 
   private getDefaultOnSelectorTarget(message: Message): WidgetNode | null {
-    const messageWithControl = message as Message & { control?: unknown };
-    return coerceWidgetNode(messageWithControl.control) ?? coerceWidgetNode(message.sender);
+    const selectorAttribute = getSelectorAttribute(message.constructor as MessageConstructor);
+
+    if (selectorAttribute === null) {
+      return null;
+    }
+
+    // [LAW:one-source-of-truth] Positional on() matching reads the one
+    // declared selector attribute instead of guessing between sender/control.
+    const messageAttributes = message as Message & Record<string, unknown>;
+    return coerceWidgetNode(messageAttributes[selectorAttribute]);
   }
 
   private getOnAttributeTarget(message: Message, attribute: string): WidgetNode | null {

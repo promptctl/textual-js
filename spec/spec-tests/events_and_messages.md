@@ -24,7 +24,8 @@ Every widget and app is a message pump with a message queue.
 
 - `message_queue_size` returns the number of pending messages in the queue.
 - Posting a message increments the queue size; processing (via `await pilot.pause()`) drains it back to zero.
-- `post_message` is thread-safe and can be called from a background `threading.Thread`.
+- In textual-js, `post_message` is re-entrancy-safe on the main event loop: handlers, timers, `call_next`, `call_later`, and Promise continuations may all post messages without corrupting queue order.
+- True cross-thread posting is not part of the current JS runtime contract; off-main contexts must marshal back to the main runtime, which performs the post.
 
 ### Preventing Messages
 
@@ -66,7 +67,7 @@ Paste events (`events.Paste`) carry a `text` attribute with the pasted content.
 
 The `@on` decorator routes messages to handler methods with optional CSS selector filtering.
 
-- `@on(MessageType, selector)` invokes the handler only when the message's `control` matches the CSS selector.
+- `@on(MessageType, selector)` invokes the handler only when the message's declared positional selector target matches the CSS selector.
 - Selectors support `#id`, `.class`, combined `.a.b`, and comma-separated lists `.a, .b`.
 - `@on` handlers execute before `on_<message_name>` convention handlers.
 - Multiple `@on` decorators on the same handler are supported, matching different message types or selectors. The handler fires once per matching decorator.
@@ -84,7 +85,7 @@ The `@on` decorator routes messages to handler methods with optional CSS selecto
 
 **Error conditions**:
 - Invalid CSS selector (e.g., `"@"`) raises `OnDecoratorError`.
-- Using a selector on a message that has no `control` property raises `OnDecoratorError`.
+- Using a positional selector on a message that does not declare a positional selector target (typically `selectorAttribute = "control"`) raises `OnDecoratorError`.
 - Using a keyword attribute not in `ALLOW_SELECTOR_MATCH` raises `OnDecoratorError`.
 
 ### Handler Ordering with `@on` and Convention Handlers
@@ -99,9 +100,9 @@ When both `@on`-decorated handlers and `on_<name>` convention handlers exist for
 
 - A widget must not declare both `key_tab` and `key_ctrl_i` (or any equivalent alias pair); doing so raises `DuplicateKeyHandlers`.
 - A widget must not declare both `key_x` and `_key_x`; doing so raises `DuplicateKeyHandlers`.
-- `@on` with a CSS selector requires the message class to expose a `control` property; otherwise `OnDecoratorError` is raised at decoration time.
+- `@on` with a positional CSS selector requires the message class to declare a positional selector target; otherwise `OnDecoratorError` is raised at decoration time.
 - `@on` keyword attribute selectors require the attribute to be listed in the message's `ALLOW_SELECTOR_MATCH`; otherwise `OnDecoratorError` is raised at decoration time.
 - `@on` CSS selectors must be syntactically valid; invalid selectors raise `OnDecoratorError` at decoration time.
 - `prevent_default()` is scoped to the current handler's widget; it does not suppress the message for ancestors in the bubble chain.
 - `prevent(MessageType)` only suppresses posting of new messages of that type within its context; it does not retroactively affect already-queued messages.
-- `post_message` must be safe to call from non-async threads.
+- `post_message` must be re-entrancy-safe across async scheduling points on the main JS runtime.

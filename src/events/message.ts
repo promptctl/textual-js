@@ -7,6 +7,7 @@ export interface MessageConstructor<TMessage extends Message = Message> {
   readonly noDispatch?: boolean;
   readonly namespace?: string;
   readonly ALLOW_SELECTOR_MATCH?: Iterable<string>;
+  readonly selectorAttribute?: string | null;
 }
 
 export interface MessageInit {
@@ -19,6 +20,7 @@ export interface MessageInit {
 export class Message {
   static readonly namespace = "";
   static readonly ALLOW_SELECTOR_MATCH = new Set<string>();
+  static readonly selectorAttribute: string | null = null;
 
   readonly messageId = nextMessageId++;
   readonly bubble: boolean;

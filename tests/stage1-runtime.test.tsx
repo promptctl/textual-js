@@ -36,6 +36,14 @@ class PanePing extends Message {
   }
 }
 
+class ControlPing extends Message {
+  static override readonly selectorAttribute = "control";
+
+  constructor(readonly control: WidgetNode) {
+    super();
+  }
+}
+
 function HandleHarness(props: {
   onReady: (widget: WidgetNode) => void;
   onRender?: () => void;
@@ -267,6 +275,7 @@ describe("Stage 1 runtime seams", () => {
 
   it("validates @on selectors and attribute selector declarations at decoration time", () => {
     expect(() => on(Ping, "@", () => undefined)).toThrow(OnDecoratorError);
+    expect(() => on(Ping, "#save", () => undefined)).toThrow(OnDecoratorError);
     expect(() => on(PanePing, { missing: "#one" }, () => undefined)).toThrow(OnDecoratorError);
   });
 
@@ -290,6 +299,42 @@ describe("Stage 1 runtime seams", () => {
     });
 
     expect(() => on(PanePing, { pane: "#one" }, () => void widget)).not.toThrow();
+  });
+
+  it("matches positional @on selectors against the declared selector attribute", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost typeName="Leaf" id="save">
+          <Text>leaf</Text>
+        </WidgetHost>
+        <WidgetHost
+          typeName="Observer"
+          handlers={{
+            onControlPing: on(ControlPing, "#save", () => {
+              received.push("matched");
+            }),
+          }}
+        >
+          <Text>observer</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const leaf = framework.registry.getByCssId("save")!;
+    const observer = framework.registry.list().find((entry) => entry.typeName === "Observer")!;
+
+    framework.postMessage(observer.nodeId, new ControlPing(leaf));
+    await framework.whenIdle();
+
+    expect(received).toEqual(["matched"]);
+
+    instance.unmount();
+    instance.cleanup();
   });
 
   it("exposes key name formatting helpers", () => {

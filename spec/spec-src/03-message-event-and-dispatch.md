@@ -70,6 +70,8 @@ In practice, most message processing is synchronous within a single microtask â€
 
 - Returns `false` when the widget is unmounting or when the message type is disabled.
 - Otherwise enqueues the message and schedules processing (via `queueMicrotask` or equivalent).
+- In textual-js, the meaningful safety contract is **event-loop re-entrancy safety**, not Python thread safety. Posting from handlers, timers, `callNext`, `callLater`, Promise continuations, and worker-completion callbacks must append deterministically to the same main-runtime queue.
+- True cross-thread posting is out of scope for the current Node/Ink runtime. If future `worker_threads`, browser workers, or external processes participate, they must marshal data back to the main runtime and let that boundary call `postMessage`.
 
 Widgets post messages via `useTextual()`:
 
@@ -117,7 +119,7 @@ If `prevented` becomes true at any point, the discovery walk stops â€” `preventD
 
 #### The `on()` handler convention
 
-`on()` provides selector-filtered event handling. A handler registered with `on()` only fires when the message's sender matches the specified selector:
+`on()` provides selector-filtered event handling. A handler registered with `on()` only fires when the message's declared selector target matches the specified selector:
 
 ```tsx
 // Handle Button.Pressed only from buttons matching '#save'
@@ -135,10 +137,13 @@ const handlers = {
 };
 ```
 
-Selector-matched handlers require `message.sender` to be truthy. For each (attribute, selector) pair:
-- If the attribute is `null`, the handler is skipped.
-- If the attribute is not a registered widget, the handler throws.
-- The handler is invoked only if all selectors match.
+Positional selector matching is explicit in textual-js:
+- A message class that wants to support `on(MessageType, selector)` must declare a static `selectorAttribute` string naming the widget-valued instance field used for positional matching. The common case is `selectorAttribute = "control"`.
+- If `selectorAttribute` is absent / `null`, supplying a positional selector is a registration-time error.
+- For each selector-matched attribute:
+  - If the attribute is `null`, the handler is skipped.
+  - If the attribute is not a registered widget, the handler throws.
+  - The handler is invoked only if all selectors match.
 
 ### Bubbling
 

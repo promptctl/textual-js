@@ -7,6 +7,14 @@ import { render } from "ink-testing-library";
 
 class Ping extends Message {}
 class ChildPing extends Ping {}
+class NestedPing extends Message {}
+class ControlPing extends Message {
+  static override readonly selectorAttribute = "control";
+
+  constructor(readonly control: unknown) {
+    super();
+  }
+}
 
 class ReplaceablePing extends Message {
   override canReplace(message: Message): boolean {
@@ -362,10 +370,10 @@ describe("message dispatch", () => {
         <WidgetHost
           typeName="Parent"
           handlers={{
-            onPing: on(Ping, "#save", () => {
+            onControlPing: on(ControlPing, "#save", () => {
               received.push("decorated");
             }),
-            on_ping: () => {
+            on_control_ping: () => {
               received.push("convention");
             },
           }}
@@ -382,7 +390,7 @@ describe("message dispatch", () => {
     const child = framework.registry.getByCssId("save");
     expect(child).toBeDefined();
 
-    framework.postMessage(child!.nodeId, new Ping());
+    framework.postMessage(child!.nodeId, new ControlPing(child));
     await framework.whenIdle();
 
     expect(received).toEqual(["decorated", "convention"]);
@@ -445,6 +453,62 @@ describe("message dispatch", () => {
     await framework.whenIdle();
 
     expect(received).toEqual(["derived", "base"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("drains reentrant postMessage calls in queue order without recursive dispatch", async () => {
+    const framework = new TextualFramework();
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Parent"
+          handlers={{
+            onPing: () => {
+              received.push("parent:ping");
+            },
+            onNestedPing: () => {
+              received.push("parent:nested");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Child"
+            handlers={{
+              onPing: () => {
+                received.push("child:ping");
+                const child = framework.registry.list().find((entry) => entry.typeName === "Child");
+
+                if (child !== undefined) {
+                  framework.postMessage(child.nodeId, new NestedPing());
+                }
+              },
+              onNestedPing: () => {
+                received.push("child:nested");
+              },
+            }}
+          >
+            <Text>reentrant</Text>
+          </WidgetHost>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const child = framework.registry.list().find((entry) => entry.typeName === "Child")!;
+    framework.postMessage(child.nodeId, new Ping());
+    await framework.whenIdle();
+
+    expect(received).toEqual([
+      "child:ping",
+      "parent:ping",
+      "child:nested",
+      "parent:nested",
+    ]);
 
     instance.unmount();
     instance.cleanup();

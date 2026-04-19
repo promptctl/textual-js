@@ -166,7 +166,7 @@ function createRegistration<TMessage extends Message>(
 
   return {
     messageType,
-    selector: parseSelectorValue(selectorInput),
+    selector: parseControlSelector(messageType, selectorInput),
     attributeSelectors: parseAttributeSelectors(messageType, optionsInput),
     order: nextRegistrationOrder++,
   };
@@ -207,6 +207,21 @@ function parseSelectorValue(selector: string | null): ParsedSelector[] | null {
   }
 }
 
+function parseControlSelector<TMessage extends Message>(
+  messageType: MessageConstructor<TMessage>,
+  selector: string | null,
+): ParsedSelector[] | null {
+  if (selector !== null && getSelectorAttribute(messageType) === null) {
+    // [LAW:single-enforcer] Positional selector eligibility is validated at
+    // registration time from message-class metadata so dispatch stays simple.
+    throw new OnDecoratorError(
+      `Message ${messageType.name} does not expose a selector target for positional on() matching.`,
+    );
+  }
+
+  return parseSelectorValue(selector);
+}
+
 
 function parseAttributeSelectors<TMessage extends Message>(
   messageType: MessageConstructor<TMessage>,
@@ -231,4 +246,10 @@ function getAllowedSelectorAttributes<TMessage extends Message>(
 ): SelectorAttributeSource {
   return (messageType as MessageConstructor<TMessage> & { ALLOW_SELECTOR_MATCH?: SelectorAttributeSource })
     .ALLOW_SELECTOR_MATCH;
+}
+
+export function getSelectorAttribute<TMessage extends Message>(
+  messageType: MessageConstructor<TMessage>,
+): string | null {
+  return (messageType as MessageConstructor<TMessage> & { selectorAttribute?: string | null }).selectorAttribute ?? null;
 }
