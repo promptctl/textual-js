@@ -55,12 +55,13 @@ npm run lint                   # Type-check (no emit)
 npm test                       # Run Vitest suites
 npm run test:watch             # Run Vitest in watch mode
 npm run clean                  # Remove dist/
-bash visual-tests/run.sh       # Visual comparison: Python Textual vs textual-js
+bash visual-tests/run.sh       # Visual comparison: textual-js vs committed Python baselines
+npm run visual:update-python   # Regenerate committed Python visual baselines
 ```
 
 ### Visual comparison harness
 
-`visual-tests/run.sh` captures screenshots from both Python Textual and textual-js for paired widget fixtures in an isolated Docker/Xvfb terminal, then diffs the PNGs pixel-for-pixel. Requires `uv` (manages Python + textual automatically), `tsx`, Docker, and ImageMagick's `magick` CLI on PATH. See `visual-tests/README.md` for details.
+`visual-tests/run.sh` captures textual-js screenshots for paired widget fixtures in an isolated Docker/Xvfb terminal, then diffs those PNGs against committed Python baseline PNGs. Requires `tsx`, Docker, and ImageMagick's `magick` CLI on PATH. Python baselines are intentionally regenerated only via `npm run visual:update-python`, which uses `uv` to run Python Textual. See `visual-tests/README.md` for details.
 
 ```bash
 bash visual-tests/run.sh              # All fixtures

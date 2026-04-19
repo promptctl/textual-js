@@ -20,6 +20,7 @@ const DOCKER_IMAGE = "textual-js-visual-tests:local";
 const EXEC_MAX_BUFFER = 20 * 1024 * 1024;
 
 type SnapshotSide = "python" | "js";
+type RenderSide = SnapshotSide | "both";
 
 interface CaptureTarget {
   fixture: string;
@@ -74,9 +75,23 @@ async function discoverFixtures(): Promise<string[]> {
   return discoverPairedFixtures(FIXTURES_DIR);
 }
 
-function buildTargets(fixtures: string[]): CaptureTarget[] {
+function parseRenderSide(value: string | undefined): RenderSide {
+  if (value === undefined) {
+    return "both";
+  }
+
+  if (value === "python" || value === "js" || value === "both") {
+    return value;
+  }
+
+  throw new Error(`Invalid render side: ${value}`);
+}
+
+function buildTargets(fixtures: string[], renderSide: RenderSide): CaptureTarget[] {
+  const sides: SnapshotSide[] = renderSide === "both" ? ["python", "js"] : [renderSide];
+
   return fixtures.flatMap((fixture) => {
-    return (["python", "js"] as const).map((side) => ({
+    return sides.map((side) => ({
       fixture,
       side,
       ansiPath: join("visual-tests", "snapshots", side, `${fixture}.ansi`),
@@ -89,7 +104,9 @@ function buildTargets(fixtures: string[]): CaptureTarget[] {
 }
 
 export async function main(): Promise<void> {
-  const fixtureFilter = process.argv[2] ?? null;
+  const fixtureFilter = process.argv.find((argument) => !argument.startsWith("--") && argument !== process.argv[0] && argument !== process.argv[1]) ?? null;
+  const sideArgument = process.argv.find((argument) => argument.startsWith("--side="));
+  const renderSide = parseRenderSide(sideArgument?.slice("--side=".length));
   let fixtures = await discoverFixtures();
 
   if (fixtureFilter) {
@@ -100,11 +117,11 @@ export async function main(): Promise<void> {
     }
   }
 
-  process.stdout.write(`Rendering ${fixtures.length} fixture screenshot pair(s) in isolated Xvfb...\n\n`);
+  process.stdout.write(`Rendering ${fixtures.length} ${renderSide} fixture screenshot set(s) in isolated Xvfb...\n\n`);
 
   await ensureDockerImage();
 
-  const targets = buildTargets(fixtures);
+  const targets = buildTargets(fixtures, renderSide);
 
   for (const target of targets) {
     process.stdout.write(`  Capturing ${target.side}: ${target.fixture}\n`);

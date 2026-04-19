@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 #
 # Run the full visual comparison pipeline:
-#   1. Capture Python Textual ANSI frames (via uv)
-#   2. Capture textual-js ANSI frames
-#   3. Render real PNG screenshots in an isolated Xvfb terminal
-#   4. Compare the PNGs
+#   1. Capture textual-js ANSI frames
+#   2. Render textual-js PNG screenshots in an isolated Xvfb terminal
+#   3. Compare JS PNGs against committed Python PNG baselines
 #
 # Prerequisites:
-#   - uv (https://docs.astral.sh/uv/)
 #   - Node 18+ with project dependencies: npm install
 #   - tsx available on PATH
 #   - Docker available (for isolated Xvfb screenshots)
@@ -29,12 +27,6 @@ FIXTURE="${1:-}"
 cd "$PROJECT_DIR"
 
 # ── Preflight: fail immediately if tools are missing ──
-
-if ! command -v uv &>/dev/null; then
-  echo "FATAL: uv is not installed." >&2
-  echo "       Install it: https://docs.astral.sh/uv/getting-started/installation/" >&2
-  exit 1
-fi
 
 if ! command -v tsx &>/dev/null; then
   echo "FATAL: tsx is not installed." >&2
@@ -61,19 +53,7 @@ echo ""
 # contract so both renderers run against one explicit truecolor environment.
 export COLORTERM="truecolor"
 
-# Step 1: Capture Python Textual via uv
-# uv reads visual-tests/pyproject.toml, creates/reuses a venv, installs
-# textual, and runs the capture script. No manual environment management.
-echo "--- Step 1: Python Textual (via uv) ---"
-if [ -n "$FIXTURE" ]; then
-  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py "$FIXTURE"
-else
-  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py
-fi
-echo ""
-
-# Step 2: Capture textual-js
-echo "--- Step 2: textual-js ---"
+echo "--- Step 1: textual-js ---"
 if [ -n "$FIXTURE" ]; then
   env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/capture_js.ts "$FIXTURE"
 else
@@ -81,17 +61,15 @@ else
 fi
 echo ""
 
-# Step 3: Render PNG screenshots
-echo "--- Step 3: Render PNG Screenshots ---"
+echo "--- Step 2: Render JS PNG Screenshots ---"
 if [ -n "$FIXTURE" ]; then
-  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/render_pngs.ts "$FIXTURE"
+  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/render_pngs.ts "$FIXTURE" --side=js
 else
-  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/render_pngs.ts
+  env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/render_pngs.ts --side=js
 fi
 echo ""
 
-# Step 4: Compare
-echo "--- Step 4: Compare PNGs ---"
+echo "--- Step 3: Compare Against Python Baselines ---"
 if [ -n "$FIXTURE" ]; then
   env -u NO_COLOR COLORTERM="$COLORTERM" tsx visual-tests/compare.ts "$FIXTURE"
 else
