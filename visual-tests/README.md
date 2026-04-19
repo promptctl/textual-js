@@ -4,9 +4,9 @@ Compares textual-js PNG screenshots against committed Python Textual baseline PN
 
 ## How It Works
 
-1. **Fixtures** — Each fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout. The active fixture set is discovered from the paired filenames on disk.
+1. **Fixtures** — Each active fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout. The active fixture set is discovered from paired filenames on disk minus names listed in `fixture-todos.json`.
 
-2. **Python baselines** — `npm run visual:update-python` renders Python Textual fixtures and commits `visual-tests/snapshots/python/*.png` as reviewed reference artifacts. The default gate does not regenerate these files.
+2. **Python baselines** — `npm run visual:update-python` renders Python Textual fixtures and commits `visual-tests/snapshots/python/*.png` as reviewed reference artifacts. The default gate does not regenerate these files. Python-only future fixtures are rendered only when listed in `fixture-todos.json`.
 
 3. **JS capture** — `visual-tests/run.sh` renders textual-js fixtures headlessly at a fixed terminal size (80x24), starts an Xvfb display inside Docker, opens an `xterm` window in that isolated display, displays each JS ANSI frame, and captures that terminal window to PNG.
 
@@ -70,6 +70,7 @@ visual-tests/
   render-ansi-xvfb.sh    # Display one ANSI frame in xterm and screenshot it
   render_pngs.ts         # Docker/Xvfb screenshot renderer
   compare.ts             # PNG diff tool
+  fixture-todos.json     # Future fixtures excluded from the active JS gate
   run.sh                 # Pipeline orchestrator
   update-python-baselines.sh # Explicit Python baseline refresh task
 ```
@@ -77,11 +78,12 @@ visual-tests/
 ## Adding a Fixture
 
 1. Create `fixtures/<name>.py` with a Textual `App` class assigned to `app`.
-2. Create `fixtures/<name>.tsx` with a default-exported React component.
-3. Both should render the same widget layout.
-4. Run `npm run visual:update-python -- <name>` to generate and review the Python baseline PNG.
-5. Commit `visual-tests/snapshots/python/<name>.png`.
-6. Run `./visual-tests/run.sh <name>` to capture JS and compare.
+2. If the textual-js implementation is not ready yet, add `<name>` to `fixture-todos.json` with the target stage, component, and reason.
+3. Run `npm run visual:update-python -- <name>` to generate and review the Python baseline PNG.
+4. Commit `visual-tests/snapshots/python/<name>.png`.
+5. When implementing the textual-js side, create `fixtures/<name>.tsx` with a default-exported React component that renders the same widget layout.
+6. Remove `<name>` from `fixture-todos.json`; this makes the fixture part of the hard visual gate.
+7. Run `./visual-tests/run.sh <name>` to capture JS and compare.
 
 ## Comparison Output
 

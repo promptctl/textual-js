@@ -8,6 +8,7 @@ export {
   type KeymapInput,
   type PointerLocation,
   ScreenStackError,
+  StylesheetError,
   TextualFramework,
   UnknownModeError,
   normalizeKeyName,

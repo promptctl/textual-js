@@ -82,7 +82,7 @@ describe("tooltip and hover lifecycle", () => {
     await session.pilot.hover("#target");
     expect(session.framework.activeTooltip).toBeNull();
 
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
 
     expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
     expect(session.lastFrame()).toContain("details");
@@ -97,7 +97,7 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
 
     const frame = session.lastFrame() ?? "";
     expect(frame).toContain("\u001B[48;2;36;47;56m       ");
@@ -115,7 +115,7 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
 
     expect(session.framework.activeTooltip?.visual.plainText).toBeNull();
     expect(session.lastFrame()).toContain("details");
@@ -131,7 +131,7 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
 
     expect(widget.hasPseudoClass("hover")).toBe(true);
     expect(session.framework.activeTooltip).toBeNull();
@@ -147,7 +147,7 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
 
     expect(session.framework.activeTooltip).toBeNull();
 
@@ -165,13 +165,13 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#first");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
     expect(session.framework.activeTooltip?.visual.plainText).toBe("first tip");
 
     await session.pilot.hover("#second");
     expect(session.framework.activeTooltip).toBeNull();
 
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
     expect(session.framework.activeTooltip?.visual.plainText).toBe("second tip");
 
     session.unmount();
@@ -190,7 +190,7 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
     expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
 
     toggleMounted(false);
@@ -216,7 +216,7 @@ describe("tooltip and hover lifecycle", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
     expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
 
     widget.setDisplay(false);

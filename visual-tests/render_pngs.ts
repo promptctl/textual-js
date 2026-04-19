@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
-import { discoverPairedFixtures } from "./discover-fixtures.ts";
+import { discoverPairedFixtures, discoverPythonBaselineFixtures } from "./discover-fixtures.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -71,7 +71,11 @@ async function renderTarget(target: CaptureTarget): Promise<void> {
   );
 }
 
-async function discoverFixtures(): Promise<string[]> {
+async function discoverFixtures(renderSide: RenderSide): Promise<string[]> {
+  if (renderSide === "python") {
+    return discoverPythonBaselineFixtures(FIXTURES_DIR);
+  }
+
   return discoverPairedFixtures(FIXTURES_DIR);
 }
 
@@ -107,7 +111,7 @@ export async function main(): Promise<void> {
   const fixtureFilter = process.argv.find((argument) => !argument.startsWith("--") && argument !== process.argv[0] && argument !== process.argv[1]) ?? null;
   const sideArgument = process.argv.find((argument) => argument.startsWith("--side="));
   const renderSide = parseRenderSide(sideArgument?.slice("--side=".length));
-  let fixtures = await discoverFixtures();
+  let fixtures = await discoverFixtures(renderSide);
 
   if (fixtureFilter) {
     fixtures = fixtures.filter((name) => name === fixtureFilter);

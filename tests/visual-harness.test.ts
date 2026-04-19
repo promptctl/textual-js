@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { captureFixtures } from "../visual-tests/capture_js.ts";
 import { summarizeReports } from "../visual-tests/compare.ts";
-import { derivePairedFixtureNames } from "../visual-tests/discover-fixtures.ts";
+import { derivePairedFixtureNames, derivePythonBaselineFixtureNames } from "../visual-tests/discover-fixtures.ts";
 import { diffStyledGrids, parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 describe("visual harness gating", () => {
@@ -38,6 +38,37 @@ describe("visual harness gating", () => {
         "README.md",
       ]),
     ).toEqual(["button_markup", "static_basic"]);
+  });
+
+  it("excludes todo fixtures from the active visual gate", () => {
+    expect(
+      derivePairedFixtureNames(
+        [
+          "button_markup.py",
+          "button_markup.tsx",
+          "header_basic.py",
+          "header_basic.tsx",
+          "python_only.py",
+        ],
+        new Set(["header_basic"]),
+      ),
+    ).toEqual(["button_markup"]);
+  });
+
+  it("includes todo python fixtures in baseline generation", () => {
+    expect(
+      derivePythonBaselineFixtureNames(
+        [
+          "button_markup.py",
+          "button_markup.tsx",
+          "header_basic.py",
+          "header_basic.tsx",
+          "footer_basic.py",
+          "python_only.py",
+        ],
+        new Set(["header_basic", "footer_basic"]),
+      ),
+    ).toEqual(["button_markup", "footer_basic", "header_basic"]);
   });
 
   it("parses ANSI output into styled cells", () => {

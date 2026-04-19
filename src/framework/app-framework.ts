@@ -36,7 +36,15 @@ import { Notification, Notifications, type NotificationSeverity } from "../servi
 import { Signal } from "../services/signal.js";
 import { ThemeManager, type ActiveTheme, type ThemeDefinition } from "../services/theme.js";
 import { ManagedTimer, type TimerCallback, type TimerOptions } from "../services/timer.js";
-import { Worker, WorkerManager, getCurrentWorker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
+import {
+  Worker,
+  WorkerCancelled,
+  WorkerFailed,
+  WorkerManager,
+  getCurrentWorker,
+  type WorkFunction,
+  type WorkerOptions,
+} from "../services/worker.js";
 import {
   matchesSelector as selectorMatchesWidget,
   parseSelectorList,
@@ -189,9 +197,22 @@ export class InvalidModeError extends Error {}
 
 export class ActiveModeError extends Error {}
 
+export class StylesheetError extends Error {}
+
 function normalizeCssSource(source: string | undefined): string | undefined {
   const normalizedSource = source?.trim();
   return normalizedSource === undefined || normalizedSource.length === 0 ? undefined : normalizedSource;
+}
+
+function parseStylesheetOrThrow(
+  source: string,
+  options: { origin: "default" | "user"; scopeTypeName?: string },
+): ParsedStylesheet {
+  try {
+    return parseTcss(source, options);
+  } catch (error) {
+    throw new StylesheetError((error as Error).message, { cause: error as Error });
+  }
 }
 
 function coerceWidgetNode(value: unknown): WidgetNode | null {
@@ -284,6 +305,8 @@ export class TextualFramework {
   theme = "default";
   displayCount = 0;
   terminalSize = new Size(80, 24);
+  private controlledTerminalSize: Size | null = null;
+  captureUnhandledErrors = false;
   activeMode = DEFAULT_MODE;
   private readonly modeStacks = new Map<string, ScreenEntry[]>();
   private readonly modeFactories = new Map<string, () => React.ReactElement>();
@@ -315,6 +338,7 @@ export class TextualFramework {
   private pendingPointerClick: PendingPointerClick | null = null;
   private lastClickChain: ClickChainState | null = null;
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingError: unknown = null;
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
@@ -445,6 +469,44 @@ export class TextualFramework {
     this.showNotifications = enabled ?? true;
   }
 
+  setControlledTerminalSize(size: Size | null): void {
+    this.controlledTerminalSize = size;
+
+    if (size !== null) {
+      this.setTerminalSize(size);
+    }
+  }
+
+  syncHostTerminalSize(size: Size): void {
+    this.setTerminalSize(this.controlledTerminalSize ?? size);
+  }
+
+  setCaptureUnhandledErrors(enabled: boolean): void {
+    this.captureUnhandledErrors = enabled;
+  }
+
+  reportUnhandledError(error: unknown): void {
+    if (!this.captureUnhandledErrors) {
+      return;
+    }
+
+    if (this.pendingError === null) {
+      runInAction(() => {
+        this.pendingError = error;
+      });
+    }
+  }
+
+  throwPendingError(): void {
+    if (this.pendingError !== null) {
+      const error = this.pendingError;
+      runInAction(() => {
+        this.pendingError = null;
+      });
+      throw error;
+    }
+  }
+
   handleBindingsClash(_clashes: BindingClash[], _namespace: BindingNamespace): void {
     // Default no-op; apps may override to surface clashes.
   }
@@ -501,7 +563,7 @@ export class TextualFramework {
         defaultStylesheet:
           normalizedDefaultCss === undefined
             ? undefined
-            : parseTcss(normalizedDefaultCss, {
+            : parseStylesheetOrThrow(normalizedDefaultCss, {
                 origin: "default",
                 scopeTypeName: typeName,
               }),
@@ -521,7 +583,7 @@ export class TextualFramework {
     }
 
     existing.defaultCss = normalizedDefaultCss;
-    existing.defaultStylesheet = parseTcss(normalizedDefaultCss, {
+    existing.defaultStylesheet = parseStylesheetOrThrow(normalizedDefaultCss, {
       origin: "default",
       scopeTypeName: typeName,
     });
@@ -627,7 +689,7 @@ export class TextualFramework {
   }
 
   setUserStylesheet(source: string): void {
-    this.userStylesheets = source.trim().length === 0 ? [] : [parseTcss(source, { origin: "user" })];
+    this.userStylesheets = source.trim().length === 0 ? [] : [parseStylesheetOrThrow(source, { origin: "user" })];
     this.recalculateStyles();
   }
 
@@ -839,7 +901,14 @@ export class TextualFramework {
       const pendingDrain = this.drainPromise;
 
       if (pendingDrain !== null) {
-        await pendingDrain;
+        try {
+          await pendingDrain;
+        } catch (error) {
+          runInAction(() => {
+            this.pendingError = null;
+          });
+          throw error;
+        }
       }
 
       await Promise.resolve();
@@ -847,6 +916,7 @@ export class TextualFramework {
       // [LAW:single-enforcer] Queue idleness is observed from this boundary so
       // tests and framework callers share one definition of "fully drained."
       if (this.queue.length === 0 && this.nextCallbacks.length === 0 && this.drainPromise === null) {
+        this.throwPendingError();
         return;
       }
     } while (true);
@@ -878,8 +948,8 @@ export class TextualFramework {
     const candidates = widgets.filter(
       (widget) =>
         widget.isInteractive &&
-        !widget.screenRegion.isEmpty &&
-        widget.screenRegion.contains(screenX, screenY),
+        !widget.visibleScreenRegion.isEmpty &&
+        widget.visibleScreenRegion.contains(screenX, screenY),
     );
 
     return candidates
@@ -920,8 +990,18 @@ export class TextualFramework {
         this.workers.remove(settledWorker as Worker<unknown>);
       },
     );
+    const registeredWorker = this.workers.addWorker(worker, false, options.exclusive ?? false);
+    const shouldStart = options.start ?? true;
 
-    return this.workers.addWorker(worker, options.start ?? true, options.exclusive ?? false);
+    if (shouldStart) {
+      void registeredWorker.start().catch((error) => {
+        if (!(error instanceof WorkerCancelled)) {
+          this.reportUnhandledError(new WorkerFailed((error as Error).message, { cause: error as Error }));
+        }
+      });
+    }
+
+    return registeredWorker;
   }
 
   setTimer(node: WidgetNode, name: string, delayMs: number, callback: TimerCallback): void {
@@ -1081,8 +1161,8 @@ export class TextualFramework {
     }
 
     return {
-      x: screenX - targetNode.screenRegion.x,
-      y: screenY - targetNode.screenRegion.y,
+      x: screenX - targetNode.effectiveScreenRegion.x,
+      y: screenY - targetNode.effectiveScreenRegion.y,
       targetNode,
     };
   }
@@ -1951,6 +2031,10 @@ export class TextualFramework {
 
     this.drainPromise = Promise.resolve()
       .then(async () => this.drainQueue())
+      .catch((error) => {
+        this.reportUnhandledError(error);
+        throw error;
+      })
       .finally(() => {
         this.drainPromise = null;
 

@@ -144,6 +144,48 @@ export class WidgetNode {
     return this.parentId === null ? undefined : this.framework.registry.get(this.parentId);
   }
 
+  get effectiveScreenRegion(): Region {
+    let x = this.screenRegion.x;
+    let y = this.screenRegion.y;
+    let ancestor = this.parent;
+
+    while (ancestor !== undefined) {
+      x -= ancestor.scrollOffsetX;
+      y -= ancestor.scrollOffsetY;
+      ancestor = ancestor.parent;
+    }
+
+    return new Region(x, y, this.screenRegion.width, this.screenRegion.height);
+  }
+
+  get visibleScreenRegion(): Region {
+    const chain: WidgetNode[] = [];
+    let current: WidgetNode | undefined = this;
+
+    while (current !== undefined) {
+      chain.unshift(current);
+      current = current.parent;
+    }
+
+    let visibleRegion = new Region(0, 0, this.framework.terminalSize.width, this.framework.terminalSize.height);
+    let cumulativeScrollX = 0;
+    let cumulativeScrollY = 0;
+
+    for (const node of chain) {
+      const effectiveRegion = new Region(
+        node.screenRegion.x - cumulativeScrollX,
+        node.screenRegion.y - cumulativeScrollY,
+        node.screenRegion.width,
+        node.screenRegion.height,
+      );
+      visibleRegion = visibleRegion.intersection(effectiveRegion);
+      cumulativeScrollX += node.scrollOffsetX;
+      cumulativeScrollY += node.scrollOffsetY;
+    }
+
+    return visibleRegion;
+  }
+
   get isFocused(): boolean {
     return this.framework.focusedNodeId === this.nodeId;
   }

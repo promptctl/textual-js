@@ -14,6 +14,7 @@ Must be run via uv from the visual-tests directory:
 from __future__ import annotations
 
 import asyncio
+import argparse
 import importlib.util
 import json
 import sys
@@ -26,6 +27,7 @@ from rich.style import Style
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "python"
+FIXTURE_TODOS_PATH = Path(__file__).parent / "fixture-todos.json"
 
 TERMINAL_WIDTH = 80
 TERMINAL_HEIGHT = 24
@@ -33,13 +35,40 @@ AMBIENT_BACKGROUNDS = {"#121212"}
 AMBIENT_FOREGROUNDS = {"#e0e0e0"}
 
 
-def discover_fixtures() -> list[Path]:
+def discover_todo_names() -> set[str]:
+    # [LAW:one-source-of-truth] Python capture reads the shared fixture todo
+    # file instead of maintaining a second skip list.
+    raw_todos = json.loads(FIXTURE_TODOS_PATH.read_text())
+
+    if not isinstance(raw_todos, list):
+        raise ValueError("fixture-todos.json must contain an array")
+
+    todo_names: set[str] = set()
+    for index, entry in enumerate(raw_todos):
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("name"), str)
+            or not isinstance(entry.get("stage"), str)
+            or not isinstance(entry.get("component"), str)
+            or not isinstance(entry.get("reason"), str)
+        ):
+            raise ValueError(
+                f"fixture-todos.json entry {index} must include name, stage, component, and reason strings"
+            )
+        todo_names.add(entry["name"])
+
+    return todo_names
+
+
+def discover_fixtures(include_todos: bool = False) -> list[Path]:
     python_names = {path.stem for path in FIXTURES_DIR.glob("*.py")}
     js_names = {path.stem for path in FIXTURES_DIR.glob("*.tsx")}
-    # [LAW:one-source-of-truth] The fixture directory is the only source of
-    # truth for active visual fixtures; runnable fixtures are the paired names
-    # that exist on both sides of the port.
-    return [FIXTURES_DIR / f"{name}.py" for name in sorted(python_names & js_names)]
+    todo_names = discover_todo_names()
+    # [LAW:single-enforcer] Todo membership is the only Python capture boundary
+    # that admits future baselines without making them active gate fixtures.
+    active_names = (python_names & js_names) - todo_names
+    baseline_names = active_names | (python_names & todo_names if include_todos else set())
+    return [FIXTURES_DIR / f"{name}.py" for name in sorted(baseline_names)]
 
 
 def load_fixture(path: Path):
@@ -249,10 +278,10 @@ async def capture_fixture(fixture_path: Path) -> None:
     print(f"    -> {txt_path.relative_to(Path(__file__).parent)}")
 
 
-async def main(fixture_filter: str | None = None) -> None:
+async def main(fixture_filter: str | None = None, include_todos: bool = False) -> None:
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    fixtures = discover_fixtures()
+    fixtures = discover_fixtures(include_todos=include_todos)
     if fixture_filter:
         fixtures = [f for f in fixtures if f.stem == fixture_filter]
         if not fixtures:
@@ -268,5 +297,12 @@ async def main(fixture_filter: str | None = None) -> None:
 
 
 if __name__ == "__main__":
-    fixture_name = sys.argv[1] if len(sys.argv) > 1 else None
-    asyncio.run(main(fixture_name))
+    parser = argparse.ArgumentParser(description="Capture Python Textual visual fixtures.")
+    parser.add_argument("fixture", nargs="?")
+    parser.add_argument(
+        "--include-todos",
+        action="store_true",
+        help="Include Python fixtures listed in fixture-todos.json.",
+    )
+    args = parser.parse_args()
+    asyncio.run(main(args.fixture, include_todos=args.include_todos))

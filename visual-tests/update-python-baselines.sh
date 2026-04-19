@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Regenerate committed Python reference PNGs for all paired visual fixtures.
+# Regenerate committed Python reference PNGs for all active fixtures and
+# explicitly tracked future fixtures in fixture-todos.json.
 # The hard gate does not run this script; it compares JS screenshots against
 # the committed Python PNGs produced here.
 
@@ -39,9 +40,9 @@ export COLORTERM="truecolor"
 
 echo "--- Step 1: Python Textual (via uv) ---"
 if [ -n "$FIXTURE" ]; then
-  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py "$FIXTURE"
+  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py --include-todos "$FIXTURE"
 else
-  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py
+  env -u NO_COLOR COLORTERM="$COLORTERM" uv run --project visual-tests python visual-tests/capture_python.py --include-todos
 fi
 echo ""
 

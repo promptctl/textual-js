@@ -74,7 +74,7 @@ describe("styled content integration", () => {
     session.framework.setTooltipDelay(10);
 
     await session.pilot.hover("#target");
-    await session.pilot.pause(20);
+    await session.pilot.pause(0.02);
 
     const grid = parseAnsiToStyledGrid(session.lastFrame());
 

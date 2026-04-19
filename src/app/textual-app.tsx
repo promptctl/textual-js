@@ -84,7 +84,7 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
 
   useLayoutEffect(() => {
     const syncTerminalSize = (): void => {
-      framework.setTerminalSize(new Size(stdout.columns ?? 80, stdout.rows ?? 24));
+      framework.syncHostTerminalSize(new Size(stdout.columns ?? 80, stdout.rows ?? 24));
     };
 
     syncTerminalSize();

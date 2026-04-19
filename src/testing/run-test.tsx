@@ -4,6 +4,7 @@ import { render } from "ink-testing-library";
 import type { Message } from "../events/message.js";
 import { TextualApp, type TextualAppProps } from "../app/textual-app.js";
 import { TextualFramework } from "../framework/app-framework.js";
+import { Size } from "../geometry/index.js";
 import type { WidgetNode } from "../framework/widget-node.js";
 
 export class OutOfBounds extends Error {}
@@ -41,6 +42,11 @@ interface ResolvedPointerTarget {
   hitIntendedTarget: boolean;
 }
 
+interface ResolvedWidgetPointerRegion {
+  effectiveRegion: WidgetNode["effectiveScreenRegion"];
+  visibleRegion: WidgetNode["visibleScreenRegion"];
+}
+
 export function camelToSnake(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
@@ -65,6 +71,25 @@ function isWidgetNode(target: PointerTarget): target is WidgetNode {
 
 function readTypeName(target: React.ComponentType<unknown>): string {
   return target.displayName ?? target.name;
+}
+
+class TestErrorBoundary extends React.Component<React.PropsWithChildren<{ framework: TextualFramework }>, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error): void {
+    // [LAW:single-enforcer] Test-time render/compose failures are captured at
+    // one boundary so runTest observes the same exception path for initial
+    // render and later screen swaps instead of relying on Ink internals.
+    this.props.framework.reportUnhandledError(error);
+  }
+
+  render(): React.ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
 export class Pilot {
@@ -94,6 +119,7 @@ export class Pilot {
   }
 
   async hover(target?: PointerInput, y?: number): Promise<boolean> {
+    await this.pause();
     return this.dispatchPointer("move", target, y);
   }
 
@@ -125,16 +151,17 @@ export class Pilot {
   }
 
   async resizeTerminal(width: number, height: number): Promise<void> {
+    this.framework.setControlledTerminalSize(new Size(width, height));
     this.framework.postResize(width, height);
     await this.pause();
   }
 
-  async pause(delay = 0): Promise<void> {
-    await this.framework.whenIdle();
+  async pause(delay?: number): Promise<void> {
+    await settleFramework(this.framework);
 
-    if (delay > 0) {
-      await sleep(delay);
-      await this.framework.whenIdle();
+    if (delay !== undefined) {
+      await sleep(Math.max(0, delay) * 1000);
+      await settleFramework(this.framework);
     }
   }
 
@@ -199,10 +226,16 @@ export class Pilot {
     }
 
     const intendedNode = this.resolveTargetNode(intendedTarget as Exclude<PointerTarget, undefined>);
-    this.assertTargetRegionIsReachable(intendedNode);
-    const absoluteX = intendedNode.screenRegion.x + (offset?.x ?? defaultPointerCoordinate(intendedNode.screenRegion.width));
-    const absoluteY = intendedNode.screenRegion.y + (offset?.y ?? defaultPointerCoordinate(intendedNode.screenRegion.height));
-    this.assertBounds(absoluteX, absoluteY);
+    const resolvedRegion = this.assertTargetRegionIsReachable(intendedNode);
+    const absoluteX =
+      offset?.x === undefined
+        ? resolvedRegion.visibleRegion.x + defaultPointerCoordinate(resolvedRegion.visibleRegion.width)
+        : resolvedRegion.effectiveRegion.x + offset.x;
+    const absoluteY =
+      offset?.y === undefined
+        ? resolvedRegion.visibleRegion.y + defaultPointerCoordinate(resolvedRegion.visibleRegion.height)
+        : resolvedRegion.effectiveRegion.y + offset.y;
+    this.assertReachableCoordinate(absoluteX, absoluteY, resolvedRegion.visibleRegion);
     return this.resolveHitAtPoint(intendedNode, absoluteX, absoluteY);
   }
 
@@ -237,13 +270,26 @@ export class Pilot {
     }
   }
 
-  private assertTargetRegionIsReachable(target: WidgetNode): void {
-    const visibleRegion = target.screenRegion.clip(this.framework.terminalSize.width, this.framework.terminalSize.height);
+  private assertTargetRegionIsReachable(target: WidgetNode): ResolvedWidgetPointerRegion {
+    const visibleRegion = target.visibleScreenRegion;
 
     // [LAW:single-enforcer] Pointer reachability is validated at this boundary
     // so all selector/class/instance targeting shares one out-of-bounds rule.
     if (visibleRegion.isEmpty) {
       throw new OutOfBounds(`Widget "${target.typeName}" is outside the visible screen region`);
+    }
+
+    return {
+      effectiveRegion: target.effectiveScreenRegion,
+      visibleRegion,
+    };
+  }
+
+  private assertReachableCoordinate(x: number, y: number, visibleRegion: WidgetNode["visibleScreenRegion"]): void {
+    this.assertBounds(x, y);
+
+    if (!visibleRegion.contains(x, y)) {
+      throw new OutOfBounds(`Pointer target (${x}, ${y}) is outside the visible widget region`);
     }
   }
 
@@ -253,8 +299,8 @@ export class Pilot {
     absoluteY: number,
   ): ResolvedPointerTarget {
     const targetNode = this.framework.hitTest(absoluteX, absoluteY);
-    const localX = targetNode === undefined ? absoluteX : absoluteX - targetNode.screenRegion.x;
-    const localY = targetNode === undefined ? absoluteY : absoluteY - targetNode.screenRegion.y;
+    const localX = targetNode === undefined ? absoluteX : absoluteX - targetNode.effectiveScreenRegion.x;
+    const localY = targetNode === undefined ? absoluteY : absoluteY - targetNode.effectiveScreenRegion.y;
 
     return {
       screenX: absoluteX,
@@ -294,6 +340,12 @@ function defaultPointerCoordinate(size: number): number {
   return size <= 0 ? 0 : Math.floor((size - 1) / 2);
 }
 
+async function settleFramework(framework: TextualFramework): Promise<void> {
+  await framework.whenIdle();
+  await Promise.resolve();
+  framework.throwPendingError();
+}
+
 export interface TestSession {
   app: TextualFramework;
   framework: TextualFramework;
@@ -305,29 +357,54 @@ export interface TestSession {
   readonly result: unknown;
 }
 
-export async function runTest(component: AppInput, options: RunTestOptions = {}): Promise<TestSession> {
-  const framework = new TextualFramework();
+export async function runTestRoot(
+  root: React.ReactElement,
+  framework: TextualFramework,
+  options: RunTestOptions = {},
+): Promise<TestSession> {
+  const size = options.size ?? { width: 80, height: 24 };
+
+  // [LAW:one-source-of-truth] The requested test size is installed on the
+  // framework before the first render so mount/layout code observes one
+  // canonical terminal dimension instead of a later corrective resize.
+  framework.setControlledTerminalSize(new Size(size.width, size.height));
+  framework.setCaptureUnhandledErrors(true);
   framework.setShowNotifications(options.transients?.notifications ?? false);
+  framework.setShowTooltips(options.transients?.tooltips ?? false);
   const unsubscribeMessageHook =
     options.messageHook === undefined ? undefined : framework.subscribeToMessages(options.messageHook);
   const instance = render(
-    <TextualApp
-      {...options.appProps}
-      framework={framework}
-      showTooltips={options.transients?.tooltips ?? options.appProps?.showTooltips ?? false}
-    >
-      {resolveComponent(component, options.props ?? {})}
-    </TextualApp>,
+    <TestErrorBoundary framework={framework}>
+      {root}
+    </TestErrorBoundary>,
   );
 
-  const size = options.size ?? { width: 80, height: 24 };
-  framework.postResize(size.width, size.height);
-  await framework.whenIdle();
-
-  const unmount = (): void => {
+  try {
+    await settleFramework(framework);
+  } catch (error) {
     unsubscribeMessageHook?.();
     instance.unmount();
     instance.cleanup();
+    throw error;
+  }
+
+  const unmount = (): void => {
+    let thrownError: unknown = null;
+
+    unsubscribeMessageHook?.();
+
+    try {
+      instance.unmount();
+      instance.cleanup();
+    } catch (error) {
+      thrownError = error;
+    }
+
+    if (thrownError !== null) {
+      throw thrownError;
+    }
+
+    framework.throwPendingError();
   };
 
   return {
@@ -342,4 +419,19 @@ export async function runTest(component: AppInput, options: RunTestOptions = {})
       return framework.exitResult;
     },
   };
+}
+
+export async function runTest(component: AppInput, options: RunTestOptions = {}): Promise<TestSession> {
+  const framework = new TextualFramework();
+  const root = (
+    <TextualApp
+      {...options.appProps}
+      framework={framework}
+      showTooltips={options.transients?.tooltips ?? false}
+    >
+      {resolveComponent(component, options.props ?? {})}
+    </TextualApp>
+  );
+
+  return runTestRoot(root, framework, options);
 }

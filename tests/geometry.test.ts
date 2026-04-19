@@ -54,6 +54,48 @@ describe("geometry", () => {
     expect(
       Region.fromUnion([new Region(0, 0, 1, 1), new Region(3, 4, 2, 2)]).equals(new Region(0, 0, 5, 6)),
     ).toBe(true);
+    expect(outer.containsPoint([3, 4])).toBe(true);
+  });
+
+  it("supports spacing deltas, expansion, splitting, and translation inside containers", () => {
+    const outer = new Region(10, 10, 12, 8);
+    const inner = new Region(13, 12, 4, 2);
+
+    expect(outer.getSpacingBetween(inner).equals(new Spacing(2, 5, 4, 3))).toBe(true);
+    expect(inner.expand([2, 3]).equals(new Region(11, 9, 8, 8))).toBe(true);
+    expect(outer.split(3, 2)).toEqual([
+      new Region(10, 10, 3, 2),
+      new Region(13, 10, 9, 2),
+      new Region(10, 12, 3, 6),
+      new Region(13, 12, 9, 6),
+    ]);
+    expect(outer.split(-4, -3)).toEqual([
+      new Region(10, 10, 8, 5),
+      new Region(18, 10, 4, 5),
+      new Region(10, 15, 8, 3),
+      new Region(18, 15, 4, 3),
+    ]);
+    expect(outer.splitVertical(-4)).toEqual([new Region(10, 10, 8, 8), new Region(18, 10, 4, 8)]);
+    expect(outer.splitHorizontal(-3)).toEqual([new Region(10, 10, 12, 5), new Region(10, 15, 12, 3)]);
+    expect(new Region(18, 17, 6, 4).translateInside(new Region(10, 10, 10, 10)).equals(new Region(14, 16, 6, 4))).toBe(true);
+  });
+
+  it("supports scroll deltas, inflection, and constrained placement", () => {
+    const window = new Region(0, 0, 10, 5);
+
+    expect(Region.getScrollToVisible(window, new Region(8, 3, 4, 4)).equals(new Offset(2, 2))).toBe(true);
+    expect(Region.getScrollToVisible(window, new Region(3, 4, 2, 1), { top: true }).equals(new Offset(0, 4))).toBe(true);
+    expect(new Region(10, 10, 4, 2).inflect(1, -1, Spacing.symmetric(2, 3)).equals(new Region(17, 6, 4, 2))).toBe(true);
+    expect(
+      new Region(8, 8, 4, 2).constrain("inside", "inside", Spacing.all(1), new Region(0, 0, 10, 10)).equals(
+        new Region(5, 7, 4, 2),
+      ),
+    ).toBe(true);
+    expect(
+      new Region(8, 8, 4, 2).constrain("inflect", "inflect", Spacing.all(1), new Region(0, 0, 10, 10)).equals(
+        new Region(3, 5, 4, 2),
+      ),
+    ).toBe(true);
   });
 
   it("supports spacing arithmetic and compact css formatting", () => {
@@ -69,8 +111,17 @@ describe("geometry", () => {
     expect(Spacing.all(2).css).toBe("2");
     expect(Spacing.symmetric(1, 3).css).toBe("1 3");
     expect(spacing.css).toBe("1 2 3 4");
+    expect(spacing.maxWidth).toBe(4);
+    expect(spacing.maxHeight).toBe(3);
     expect(Spacing.vertical(5).equals(new Spacing(5, 0, 5, 0))).toBe(true);
     expect(Spacing.horizontal(6).equals(new Spacing(0, 6, 0, 6))).toBe(true);
     expect(Spacing.unpack([2, 4]).equals(Spacing.symmetric(2, 4))).toBe(true);
+    expect(spacing.growMaximum(new Spacing(4, 1, 0, 5)).equals(new Spacing(4, 2, 3, 5))).toBe(true);
+  });
+
+  it("rejects invalid geometry inputs that the spec defines as errors", () => {
+    expect(() => Region.fromUnion([])).toThrow("at least one");
+    expect(() => Spacing.unpack([] as unknown as [number])).toThrow();
+    expect(() => Spacing.unpack([1, 2, 3] as unknown as [number])).toThrow();
   });
 });

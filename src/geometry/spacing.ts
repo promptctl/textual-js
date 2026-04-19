@@ -26,6 +26,14 @@ export class Spacing {
     return this.totalHeight;
   }
 
+  get maxWidth(): number {
+    return Math.max(this.left, this.right);
+  }
+
+  get maxHeight(): number {
+    return Math.max(this.top, this.bottom);
+  }
+
   get topLeft(): [number, number] {
     return [this.left, this.top];
   }
@@ -79,6 +87,10 @@ export class Spacing {
       Math.max(this.bottom, other.bottom),
       Math.max(this.left, other.left),
     );
+  }
+
+  growMaximum(other: Spacing): Spacing {
+    return this.max(other);
   }
 
   equals(other: Spacing): boolean {

@@ -1,4 +1,11 @@
-export { TextualApp, type TextualAppProps } from "./app/index.js";
+export {
+  App,
+  type AppOptions,
+  type AppRunTestOptions,
+  type AppTestSession,
+  TextualApp,
+  type TextualAppProps,
+} from "./app/index.js";
 export {
   AppBlur,
   AppFocus,
@@ -64,6 +71,7 @@ export {
   type KeymapInput,
   OnDecoratorError,
   ScreenStackError,
+  StylesheetError,
   TextualFramework,
   TextualProvider,
   UnknownModeError,
