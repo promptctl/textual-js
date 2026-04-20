@@ -1,1 +1,6 @@
-export { SuggestFromList, Suggester } from "./suggester.js";
+export {
+  SuggestFromList,
+  SuggestionController,
+  SuggestionReady,
+  Suggester,
+} from "./suggester.js";

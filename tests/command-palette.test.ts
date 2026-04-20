@@ -4,9 +4,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   CommandPalette,
+  CommandPaletteClosed,
+  CommandPaletteOpened,
+  CommandPaletteOptionHighlighted,
   Content,
   Provider,
+  Static,
+  SystemCommandsProvider,
   TextualFramework,
+  WidgetHost,
+  WorkerCancelled,
+  runTest,
   type CommandHit,
   type DiscoveryHit,
 } from "../src/index.js";
@@ -85,7 +93,7 @@ function createPalette(
   options?: { runOnSelect?: boolean },
 ): CommandPalette {
   const framework = new TextualFramework();
-  return new CommandPalette(providers, { app: framework }, options);
+  return new CommandPalette(providers, { app: framework, screen: null, focused: null }, options);
 }
 
 describe("command palette provider model", () => {
@@ -113,6 +121,8 @@ describe("command palette provider model", () => {
 
     expect(provider.context).not.toBeNull();
     expect(provider.context?.app).toBeInstanceOf(TextualFramework);
+    expect(provider.context?.screen).toBeNull();
+    expect(provider.context?.focused).toBeNull();
   });
 
   it("creates a palette with empty providers when no commands are declared", async () => {
@@ -124,6 +134,78 @@ describe("command palette provider model", () => {
     expect(results).toEqual([]);
 
     await palette.shutdown();
+  });
+});
+
+describe("command palette provider composition", () => {
+  class AppProvider extends Provider {
+    search(): CommandHit[] {
+      return [];
+    }
+  }
+
+  class ScreenProvider extends Provider {
+    search(): CommandHit[] {
+      return [];
+    }
+  }
+
+  function ScreenWithCommands(): React.JSX.Element {
+    return React.createElement(Static, { content: "screen" });
+  }
+  ScreenWithCommands.COMMANDS = new Set([ScreenProvider]);
+
+  it("uses SystemCommandsProvider by default", async () => {
+    const framework = new TextualFramework();
+
+    const palette = await framework.openCommandPalette();
+
+    expect(palette.providers.some((provider) => provider instanceof SystemCommandsProvider)).toBe(true);
+  });
+
+  it("replaces default system providers with app COMMANDS and adds screen COMMANDS", async () => {
+    const framework = new TextualFramework();
+    framework.setAppCommandProviders(new Set([AppProvider]));
+    framework.pushScreen(ScreenWithCommands);
+
+    const palette = await framework.openCommandPalette();
+
+    expect(palette.providers.some((provider) => provider instanceof SystemCommandsProvider)).toBe(false);
+    expect(palette.providers.some((provider) => provider instanceof AppProvider)).toBe(true);
+    expect(palette.providers.some((provider) => provider instanceof ScreenProvider)).toBe(true);
+  });
+
+  it("passes the base screen and prior focused widget to providers", async () => {
+    const contexts: Array<NonNullable<Provider["context"]>> = [];
+
+    class ContextProvider extends Provider {
+      startup(): void {
+        contexts.push(this.context!);
+      }
+
+      search(): CommandHit[] {
+        return [];
+      }
+    }
+
+    function FocusedApp(): React.JSX.Element {
+      return React.createElement(
+        WidgetHost,
+        { typeName: "Focused", focusable: true, autoFocus: true },
+        React.createElement(Static, { content: "focused" }),
+      );
+    }
+
+    const session = await runTest(React.createElement(FocusedApp));
+    session.framework.setAppCommandProviders(new Set([ContextProvider]));
+
+    await session.framework.openCommandPalette();
+
+    expect(contexts[0]?.app).toBe(session.framework);
+    expect(contexts[0]?.screen).toBe(session.framework.getScreenStack()[0]);
+    expect(contexts[0]?.focused?.typeName).toBe("Focused");
+
+    session.unmount();
   });
 });
 
@@ -298,5 +380,163 @@ describe("command palette options", () => {
 
     framework.pushScreen(React.createElement(React.Fragment), { name: "dialog" });
     expect(CommandPalette.isOpen(framework)).toBe(false);
+  });
+});
+
+describe("command palette screen interaction", () => {
+  it("shows discovery results immediately and executes selected commands", async () => {
+    const events: string[] = [];
+    let selected = false;
+    const session = await runTest(React.createElement(Static, { content: "app" }), {
+      messageHook: (message) => {
+        if (message instanceof CommandPaletteOpened) {
+          events.push("opened");
+        } else if (message instanceof CommandPaletteClosed) {
+          events.push(`closed:${message.optionSelected}`);
+        }
+      },
+    });
+    session.framework.setSystemCommandResolver(() => [
+      {
+        name: "Open Settings",
+        callback: () => {
+          selected = true;
+        },
+        discover: true,
+      },
+    ]);
+
+    await session.pilot.press("ctrl+p");
+
+    expect(CommandPalette.isOpen(session.framework)).toBe(true);
+    expect(session.lastFrame()).toContain("Open Settings");
+
+    await session.pilot.press("enter");
+
+    expect(selected).toBe(true);
+    expect(CommandPalette.isOpen(session.framework)).toBe(false);
+    expect(events).toEqual(["opened", "closed:true"]);
+
+    session.unmount();
+  });
+
+  it("searches typed input, moves highlight, and reports highlight events", async () => {
+    const highlighted: string[] = [];
+    const session = await runTest(React.createElement(Static, { content: "app" }), {
+      messageHook: (message) => {
+        if (message instanceof CommandPaletteOptionHighlighted) {
+          highlighted.push(message.option.text);
+        }
+      },
+    });
+    session.framework.setSystemCommandResolver(() => [
+      { name: "Open File", callback: () => undefined, discover: false },
+      { name: "Open Folder", callback: () => undefined, discover: false },
+    ]);
+
+    await session.pilot.press("ctrl+p");
+    expect(session.lastFrame()).not.toContain("Open File");
+
+    await session.pilot.type("open");
+    expect(session.lastFrame()).toContain("Open File");
+    expect(session.lastFrame()).toContain("Open Folder");
+
+    await session.pilot.press("down");
+    expect(highlighted).toEqual(["Open Folder"]);
+
+    session.unmount();
+  });
+
+  it("dismisses with escape and click-away without selecting an option", async () => {
+    const closed: boolean[] = [];
+    const session = await runTest(React.createElement(Static, { content: "app" }), {
+      messageHook: (message) => {
+        if (message instanceof CommandPaletteClosed) {
+          closed.push(message.optionSelected);
+        }
+      },
+    });
+    session.framework.setSystemCommandResolver(() => [
+      { name: "Open File", callback: () => undefined, discover: true },
+    ]);
+
+    await session.pilot.press("ctrl+p", "escape");
+    expect(CommandPalette.isOpen(session.framework)).toBe(false);
+
+    await session.framework.openCommandPalette();
+    await session.pilot.click({ offset: { x: 79, y: 23 } });
+
+    expect(CommandPalette.isOpen(session.framework)).toBe(false);
+    expect(closed).toEqual([false, false]);
+
+    session.unmount();
+  });
+
+  it("cancels palette-owned workers without disturbing unrelated app workers", async () => {
+    const framework = new TextualFramework();
+    const unrelated = framework.runAppWorker(async (signal) => {
+      await new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          reject(new WorkerCancelled("cancelled"));
+        });
+      });
+    }, { name: "unrelated" });
+    const palette = await framework.openCommandPalette();
+    const paletteWorker = palette.runWorker(async (signal) => {
+      await new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          reject(new WorkerCancelled("cancelled"));
+        });
+      });
+    }, { name: "palette-owned" });
+
+    await framework.closeActiveCommandPalette(false);
+    await framework.workers.waitForComplete([paletteWorker]);
+
+    expect(paletteWorker.isCancelled).toBe(true);
+    expect(unrelated.isRunning).toBe(true);
+
+    unrelated.cancel();
+  });
+
+  it("keeps no-match results disabled", async () => {
+    let selected = false;
+    const provider = new DiscoveryProvider([], [{ name: "Open File" }]);
+    const palette = createPalette([provider], { runOnSelect: true });
+
+    await palette.startup();
+    await palette.open();
+    await palette.updateQuery("zzz");
+    await new Promise((resolve) => setTimeout(resolve, palette.noMatchesTimeout + 5));
+
+    selected = palette.selectHighlighted().selected;
+
+    expect(palette.results).toHaveLength(1);
+    expect(palette.results[0]?.text).toBe("No matches found");
+    expect(palette.results[0]?.disabled).toBe(true);
+    expect(selected).toBe(false);
+
+    await palette.shutdown();
+  });
+
+  it("requires two enter presses when runOnSelect is false", async () => {
+    let calls = 0;
+    const palette = createPalette([
+      new DiscoveryProvider([{ name: "Preview Command" }]),
+    ], { runOnSelect: false });
+
+    await palette.startup();
+    await palette.open();
+
+    const first = palette.selectHighlighted();
+    const second = palette.selectHighlighted();
+    second.command?.();
+    calls += second.selected ? 1 : 0;
+
+    expect(first.selected).toBe(false);
+    expect(palette.query).toBe("Preview Command");
+    expect(calls).toBe(1);
+
+    await palette.shutdown();
   });
 });

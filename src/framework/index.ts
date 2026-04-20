@@ -13,6 +13,8 @@ export {
   DuplicateKeyHandlers,
   ScreenStackError,
   type SimpleCommand,
+  type SystemCommand,
+  type SystemCommandResolver,
   StylesheetError,
   SuspendNotSupported,
   type TextualFrameworkOptions,

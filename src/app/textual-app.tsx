@@ -4,11 +4,17 @@ import { observer } from "mobx-react-lite";
 import { Padding } from "rich-js";
 
 import { measureVisual, renderVisual, visualize } from "../content/index.js";
-import { TextualFramework, type ActiveTooltip, type KeymapInput } from "../framework/app-framework.js";
+import {
+  TextualFramework,
+  type ActiveTooltip,
+  type KeymapInput,
+  type SystemCommandResolver,
+} from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
 import type { BindingDeclaration } from "../bindings/index.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
+import type { ProviderConstructor } from "../commands/index.js";
 
 export interface TextualAppProps extends PropsWithChildren {
   framework?: TextualFramework;
@@ -19,6 +25,8 @@ export interface TextualAppProps extends PropsWithChildren {
   bindings?: BindingDeclaration[];
   keymap?: KeymapInput;
   actions?: WidgetActions;
+  commandProviders?: Iterable<ProviderConstructor> | null;
+  getSystemCommands?: SystemCommandResolver;
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
@@ -167,6 +175,8 @@ export const TextualApp = observer(function TextualApp({
   bindings,
   keymap,
   actions,
+  commandProviders,
+  getSystemCommands,
   autoFocus,
   tooltipDelay,
   showTooltips,
@@ -198,6 +208,14 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedFramework.setAppActions(actions);
   }, [actions, ownedFramework]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setAppCommandProviders(commandProviders);
+  }, [commandProviders, ownedFramework]);
+
+  useLayoutEffect(() => {
+    ownedFramework.setSystemCommandResolver(getSystemCommands);
+  }, [getSystemCommands, ownedFramework]);
 
   useLayoutEffect(() => {
     ownedFramework.setAppAutoFocus(autoFocus);

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import React from "react";
 
 import {
+  Input,
+  InputChanged,
+  InputSubmitted,
+  InputValidationController,
   FunctionValidator,
   IntegerValidator,
   LengthValidator,
@@ -8,6 +13,7 @@ import {
   RegexValidator,
   URLValidator,
   ValidationResult,
+  runTest,
 } from "../src/index.js";
 
 describe("ValidationResult", () => {
@@ -79,6 +85,7 @@ describe("IntegerValidator", () => {
     expect(validator.validate("3.14").isValid).toBe(false);
     expect(validator.validate("1e5").isValid).toBe(false);
     expect(validator.validate("1.").isValid).toBe(false);
+    expect(validator.validate("_1").isValid).toBe(false);
     expect(validator.validate("abc").isValid).toBe(false);
     expect(validator.validate("").isValid).toBe(false);
   });
@@ -150,5 +157,92 @@ describe("custom failure descriptions", () => {
     const result = validator.validate("abc");
     expect(result.isValid).toBe(false);
     expect(result.failureDescriptions).toEqual(["Custom error"]);
+  });
+});
+
+describe("InputValidationController", () => {
+  it("normalizes validateOn defaults, combinations, empty sets, and unknown values", () => {
+    const validator = new LengthValidator({ min: 2 });
+    const all = new InputValidationController({ validators: [validator] });
+    const changedOnly = new InputValidationController({ validators: [validator], validateOn: ["changed", "fried"] });
+    const disabled = new InputValidationController({ validators: [validator], validateOn: [] });
+
+    expect(all.validate("x", "changed")?.isValid).toBe(false);
+    expect(all.validate("x", "submitted")?.isValid).toBe(false);
+    expect(all.validate("x", "blur")?.isValid).toBe(false);
+    expect(changedOnly.validate("x", "changed")?.isValid).toBe(false);
+    expect(changedOnly.validate("x", "submitted")).toBeNull();
+    expect(disabled.validate("x", "changed")).toBeNull();
+  });
+
+  it("treats empty values as valid when validEmpty is true", () => {
+    const controller = new InputValidationController({
+      validators: [new LengthValidator({ min: 2 })],
+      validEmpty: true,
+    });
+
+    expect(controller.validate("", "changed")?.isValid).toBe(true);
+  });
+});
+
+describe("Input validation integration", () => {
+  it("attaches validation results to changed messages and toggles validity classes", async () => {
+    const changed: InputChanged[] = [];
+    const session = await runTest(
+      React.createElement(Input, {
+        validators: [new RegexValidator("\\d+")],
+        validateOn: ["changed"],
+      }),
+      {
+        messageHook: (message) => {
+          if (message instanceof InputChanged) {
+            changed.push(message);
+          }
+        },
+      },
+    );
+
+    await session.pilot.type("a");
+
+    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input")!;
+    expect(changed[0]?.validationResult?.isValid).toBe(false);
+    expect(changed[0]?.validation_result?.isValid).toBe(false);
+    expect(input.hasClass("-invalid")).toBe(true);
+    expect(input.hasClass("-valid")).toBe(false);
+
+    session.unmount();
+  });
+
+  it("leaves changed messages inactive when validateOn excludes changed", async () => {
+    const changed: InputChanged[] = [];
+    const submitted: InputSubmitted[] = [];
+    const session = await runTest(
+      React.createElement(Input, {
+        validators: [new RegexValidator("\\d+")],
+        validateOn: ["submitted"],
+      }),
+      {
+        messageHook: (message) => {
+          if (message instanceof InputChanged) {
+            changed.push(message);
+          } else if (message instanceof InputSubmitted) {
+            submitted.push(message);
+          }
+        },
+      },
+    );
+
+    await session.pilot.type("a");
+    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input")!;
+
+    expect(changed[0]?.validationResult).toBeNull();
+    expect(input.hasClass("-invalid")).toBe(false);
+
+    await session.pilot.press("enter");
+
+    expect(submitted[0]?.validationResult?.isValid).toBe(false);
+    expect(input.hasClass("-invalid")).toBe(true);
+
+    session.unmount();
   });
 });

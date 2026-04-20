@@ -1,21 +1,32 @@
 import { Message, type MessageInit } from "../events/message.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
+import type { ValidationResult } from "../validation/index.js";
 
 export class InputChanged extends Message {
   constructor(
     readonly value: string,
+    readonly validationResult: ValidationResult | null = null,
     init?: MessageInit,
   ) {
     super(init);
+  }
+
+  get validation_result(): ValidationResult | null {
+    return this.validationResult;
   }
 }
 
 export class InputSubmitted extends Message {
   constructor(
     readonly value: string,
+    readonly validationResult: ValidationResult | null = null,
     init?: MessageInit,
   ) {
     super(init);
+  }
+
+  get validation_result(): ValidationResult | null {
+    return this.validationResult;
   }
 }
 

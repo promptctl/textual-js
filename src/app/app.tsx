@@ -5,9 +5,10 @@ import {
   TextualFramework,
   type KeymapInput,
   type SimpleCommand,
+  type SystemCommand,
 } from "../framework/app-framework.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
-import { CommandPalette } from "../commands/index.js";
+import { CommandPalette, type ProviderConstructor } from "../commands/index.js";
 import { Notification, type NotificationSeverity } from "../services/notifications.js";
 import type { AnsiTheme } from "../services/theme.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
@@ -25,6 +26,7 @@ export interface AppOptions {
   bindings?: BindingDeclaration[];
   keymap?: KeymapInput;
   actions?: WidgetActions;
+  commandProviders?: Iterable<ProviderConstructor> | null;
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
@@ -44,6 +46,7 @@ interface StoredAppOptions {
   bindings?: BindingDeclaration[];
   keymap?: KeymapInput;
   actions?: WidgetActions;
+  commandProviders?: Iterable<ProviderConstructor> | null;
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
@@ -64,6 +67,7 @@ export class App<Result = unknown> {
       bindings: options.bindings,
       keymap: options.keymap,
       actions: options.actions,
+      commandProviders: options.commandProviders,
       autoFocus: options.autoFocus,
       tooltipDelay: options.tooltipDelay,
       showTooltips: options.showTooltips,
@@ -76,6 +80,10 @@ export class App<Result = unknown> {
     return null;
   }
 
+  getSystemCommands(_screen: unknown): Iterable<SystemCommand> {
+    return [];
+  }
+
   render(): React.ReactElement {
     return (
       <TextualApp
@@ -86,6 +94,8 @@ export class App<Result = unknown> {
         bindings={this.appOptions.bindings}
         keymap={this.appOptions.keymap}
         actions={this.appOptions.actions}
+        commandProviders={this.resolveCommandProviders()}
+        getSystemCommands={(screen) => this.getSystemCommands(screen)}
         autoFocus={this.appOptions.autoFocus}
         tooltipDelay={this.appOptions.tooltipDelay}
         showTooltips={this.appOptions.showTooltips}
@@ -245,6 +255,13 @@ export class App<Result = unknown> {
 
   search_commands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
     return this.searchCommands(commands);
+  }
+
+  private resolveCommandProviders(): Iterable<ProviderConstructor> | null | undefined {
+    const constructorProviders = (this.constructor as { COMMANDS?: Iterable<ProviderConstructor> }).COMMANDS;
+    // [LAW:one-source-of-truth] App-level COMMANDS replacement is resolved
+    // once here so TextualApp and the framework consume one provider set.
+    return this.appOptions.commandProviders ?? constructorProviders;
   }
 
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {

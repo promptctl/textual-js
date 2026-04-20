@@ -101,6 +101,8 @@ export {
   type ScreenDescriptor,
   type ScreenEntry,
   type ScreenOptions,
+  type SystemCommand,
+  type SystemCommandResolver,
   type UseWidgetOptions,
   type UseWidgetResult,
   type WidgetActionCallback,
@@ -230,6 +232,7 @@ export {
 } from "./styles/index.js";
 export {
   FunctionValidator,
+  InputValidationController,
   IntegerValidator,
   LengthValidator,
   NumberValidator,
@@ -237,16 +240,31 @@ export {
   URLValidator,
   ValidationResult,
   Validator,
+  normalizeValidateOn,
   type ValidationFailure,
+  type ValidateOn,
 } from "./validation/index.js";
-export { SuggestFromList, Suggester } from "./suggestions/index.js";
+export {
+  SuggestFromList,
+  SuggestionController,
+  SuggestionReady,
+  Suggester,
+} from "./suggestions/index.js";
 export {
   CommandPalette,
+  CommandPaletteClosed,
+  CommandPaletteOpened,
+  CommandPaletteOptionHighlighted,
+  CommandPaletteScreen,
   Provider,
+  SimpleCommandProvider,
+  SystemCommandsProvider,
   type CommandHit,
   type CommandPaletteOptions,
+  type CommandPaletteScreenProps,
   type DiscoveryHit,
   type PaletteResult,
+  type ProviderConstructor,
   type ProviderContext,
 } from "./commands/index.js";
 export {
@@ -263,6 +281,9 @@ export {
   ButtonPressed,
   Footer,
   FooterKey,
+  Input,
+  InputChanged,
+  InputSubmitted,
   Static,
   Switch,
   SwitchChanged,
@@ -270,6 +291,7 @@ export {
   type ButtonVariant,
   type FooterKeyProps,
   type FooterProps,
+  type InputProps,
   type StaticProps,
   type SwitchProps,
 } from "./widgets/index.js";

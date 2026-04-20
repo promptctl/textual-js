@@ -1,5 +1,6 @@
 export {
   FunctionValidator,
+  InputValidationController,
   IntegerValidator,
   LengthValidator,
   NumberValidator,
@@ -7,5 +8,7 @@ export {
   URLValidator,
   ValidationResult,
   Validator,
+  normalizeValidateOn,
   type ValidationFailure,
+  type ValidateOn,
 } from "./validation.js";

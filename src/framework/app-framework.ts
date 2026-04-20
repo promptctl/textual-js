@@ -53,7 +53,15 @@ import {
   type EnvironmentMap,
   type TextualFeatureState,
 } from "../services/environment.js";
-import { CommandPalette, Provider, type CommandHit, type DiscoveryHit } from "../commands/index.js";
+import {
+  CommandPalette,
+  CommandPaletteScreen,
+  SimpleCommandProvider,
+  SystemCommandsProvider,
+  type CommandPaletteOptions,
+  type Provider,
+  type ProviderConstructor,
+} from "../commands/index.js";
 import {
   matchesSelector as selectorMatchesWidget,
   parseSelectorList,
@@ -145,6 +153,7 @@ export interface ScreenEntry {
   autoFocus: string | null;
   implicit: boolean;
   savedFocusNodeId: string | null;
+  commandProviders: ReadonlySet<ProviderConstructor>;
   // [LAW:one-source-of-truth] Structural focus address remains the canonical
   // restore token. savedFocusNodeId is a derived public snapshot for API users.
   lastFocusedAddress: FocusAddress | null;
@@ -226,6 +235,16 @@ export type SimpleCommand =
       helpText?: string;
     };
 
+export interface SystemCommand {
+  name: VisualInput;
+  text?: string;
+  helpText?: string;
+  callback: () => void;
+  discover: boolean;
+}
+
+export type SystemCommandResolver = (screen: ScreenEntry | null) => Iterable<SystemCommand>;
+
 export class ScreenStackError extends Error {}
 
 export class UnknownModeError extends Error {}
@@ -251,59 +270,6 @@ class HeadlessDriver implements AppDriver {
   resumeApplicationMode(): void {
     return undefined;
   }
-}
-
-class SimpleCommandProvider extends Provider {
-  private readonly commands: readonly SimpleCommand[];
-
-  constructor(commands: readonly SimpleCommand[]) {
-    super();
-    this.commands = commands;
-  }
-
-  search(query: string): CommandHit[] {
-    const normalizedQuery = query.toLowerCase();
-
-    return this.commands
-      .map(normalizeSimpleCommand)
-      .filter((command) => command.name.toLowerCase().includes(normalizedQuery))
-      .map((command) => ({
-        score: command.name.toLowerCase().startsWith(normalizedQuery) ? 100 : 50,
-        matchDisplay: command.name,
-        text: command.name,
-        command: command.callback,
-        helpText: command.helpText,
-      }));
-  }
-
-  discover(): DiscoveryHit[] {
-    return this.commands.map((command) => {
-      const normalizedCommand = normalizeSimpleCommand(command);
-
-      return {
-        display: normalizedCommand.name,
-        text: normalizedCommand.name,
-        command: normalizedCommand.callback,
-        helpText: normalizedCommand.helpText,
-      };
-    });
-  }
-}
-
-function normalizeSimpleCommand(command: SimpleCommand): { name: string; callback: () => void; helpText?: string } {
-  if ("name" in command) {
-    return {
-      name: command.name,
-      callback: command.callback,
-      helpText: command.helpText,
-    };
-  }
-
-  return {
-    name: command[0],
-    callback: command[1],
-    helpText: command[2],
-  };
 }
 
 function normalizeCssSource(source: string | undefined): string | undefined {
@@ -483,6 +449,8 @@ export class TextualFramework {
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
+  private appCommandProviders: ReadonlySet<ProviderConstructor> | null = null;
+  private systemCommandResolver: SystemCommandResolver = () => [];
   private keymap = new Map<string, string[]>();
   private appAutoFocus: string | null = null;
   hoveredNodeId: string | null = null;
@@ -544,6 +512,9 @@ export class TextualFramework {
       action_quit: () => {
         this.exit();
       },
+      action_command_palette: () => {
+        void this.openCommandPalette();
+      },
     };
 
     makeAutoObservable(
@@ -572,6 +543,8 @@ export class TextualFramework {
         installedScreens: false,
         appBindings: false,
         appActions: false,
+        appCommandProviders: false,
+        systemCommandResolver: false,
         keymap: false,
         tooltipTimer: false,
         lastActionDispatchResult: false,
@@ -620,7 +593,7 @@ export class TextualFramework {
         this.exit();
       },
       action_command_palette: () => {
-        return undefined;
+        void this.openCommandPalette();
       },
     };
     this.appActions = { ...navigation, ...(actions ?? {}) };
@@ -1061,18 +1034,90 @@ export class TextualFramework {
     }
   }
 
+  setAppCommandProviders(providers: Iterable<ProviderConstructor> | null | undefined): void {
+    // [LAW:one-source-of-truth] App COMMANDS are normalized into one provider
+    // set here; palette launches derive from it instead of re-reading props.
+    this.appCommandProviders = providers === undefined ? null : new Set(providers);
+  }
+
+  setSystemCommandResolver(resolver: SystemCommandResolver | undefined): void {
+    this.systemCommandResolver = resolver ?? (() => []);
+  }
+
+  getSystemCommands(screen: ScreenEntry | null): SystemCommand[] {
+    return Array.from(this.systemCommandResolver(screen));
+  }
+
+  private createCommandProviders(baseScreen: ScreenEntry | null): Provider[] {
+    const appProviders = this.appCommandProviders ?? new Set<ProviderConstructor>([SystemCommandsProvider]);
+    const screenProviders = baseScreen?.commandProviders ?? new Set<ProviderConstructor>();
+
+    // [LAW:one-source-of-truth] Provider composition is resolved once per
+    // palette launch from app replacement providers plus active screen additions.
+    return Array.from(new Set<ProviderConstructor>([...appProviders, ...screenProviders]))
+      .map((ProviderClass) => new ProviderClass());
+  }
+
+  private getFocusedWidget(): WidgetNode | null {
+    return this.focusedNodeId === null ? null : this.registry.get(this.focusedNodeId) ?? null;
+  }
+
   async searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
     const provider = new SimpleCommandProvider(commands);
-    const palette = new CommandPalette([provider], { app: this });
+    const palette = new CommandPalette([provider], {
+      app: this,
+      screen: this.activeScreen,
+      focused: this.getFocusedWidget(),
+    });
 
     await palette.startup();
+    await palette.open();
     this.activeCommandPalette = palette;
-    this.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
+    this.pushScreen(React.createElement(CommandPaletteScreen, { palette }), { name: CommandPalette.SCREEN_NAME });
+    this.postAppMessage(new CommandPalette.Opened());
     return palette;
   }
 
   async search_commands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
     return this.searchCommands(commands);
+  }
+
+  async openCommandPalette(options: CommandPaletteOptions = {}): Promise<CommandPalette> {
+    const baseScreen = this.activeScreen;
+    const focused = this.getFocusedWidget();
+    const providers = this.createCommandProviders(baseScreen);
+    const palette = new CommandPalette(providers, { app: this, screen: baseScreen, focused }, options);
+
+    await palette.startup();
+    await palette.open();
+    this.activeCommandPalette = palette;
+    this.pushScreen(React.createElement(CommandPaletteScreen, { palette }), { name: CommandPalette.SCREEN_NAME });
+    this.postAppMessage(new CommandPalette.Opened());
+    return palette;
+  }
+
+  async closeActiveCommandPalette(
+    optionSelected: boolean,
+    command?: () => void,
+  ): Promise<void> {
+    const palette = this.activeCommandPalette;
+
+    if (palette !== null) {
+      await palette.shutdown();
+    }
+
+    if (CommandPalette.isOpen(this)) {
+      this.popScreen(optionSelected);
+    }
+
+    this.activeCommandPalette = null;
+    this.postAppMessage(new CommandPalette.Closed(optionSelected));
+    command?.();
+  }
+
+  postAppMessage(message: Message): void {
+    this.queue.push({ targetId: null, message });
+    this.scheduleDrain();
   }
 
   getActiveStylesheetsFor(typeName: string): ParsedStylesheet[] {
@@ -2168,6 +2213,7 @@ export class TextualFramework {
       autoFocus: options.autoFocus ?? null,
       implicit: false,
       savedFocusNodeId: null,
+      commandProviders: readCommandProvidersFromElement(element),
       lastFocusedAddress: null,
       waiters: [],
       callback: options.callback,
@@ -3122,9 +3168,15 @@ function createImplicitEntry(): ScreenEntry {
     autoFocus: null,
     implicit: true,
     savedFocusNodeId: null,
+    commandProviders: new Set(),
     lastFocusedAddress: null,
     waiters: [],
   };
+}
+
+function readCommandProvidersFromElement(element: React.ReactElement): ReadonlySet<ProviderConstructor> {
+  const typeWithCommands = element.type as { COMMANDS?: Iterable<ProviderConstructor> };
+  return new Set(typeWithCommands.COMMANDS ?? []);
 }
 
 function normalizePushArgs(

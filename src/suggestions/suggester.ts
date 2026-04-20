@@ -1,6 +1,18 @@
 // [LAW:one-type-per-behavior] All suggesters share one base class.
 // SuggestFromList is a built-in instance.
 
+import { Message, type MessageInit } from "../events/message.js";
+
+export class SuggestionReady extends Message {
+  constructor(
+    readonly value: string,
+    readonly suggestion: string,
+    init?: MessageInit,
+  ) {
+    super(init);
+  }
+}
+
 export abstract class Suggester {
   private readonly cache: Map<string, string | null> | null;
   readonly caseSensitive: boolean;
@@ -37,6 +49,44 @@ export abstract class Suggester {
   }
 
   protected abstract getSuggestion(value: string): Promise<string | null> | string | null;
+}
+
+export class SuggestionController {
+  private generation = 0;
+  suggestion = "";
+
+  constructor(private readonly suggester: Suggester | null) {}
+
+  async update(
+    value: string,
+    postSuggestion: (message: SuggestionReady) => void,
+  ): Promise<string> {
+    const generation = this.generation + 1;
+    this.generation = generation;
+    const suggestion = await this.lookup(value);
+
+    if (generation !== this.generation) {
+      return this.suggestion;
+    }
+
+    this.suggestion = suggestion ?? "";
+
+    if (suggestion !== null) {
+      postSuggestion(new SuggestionReady(value, suggestion));
+    }
+
+    return this.suggestion;
+  }
+
+  private async lookup(value: string): Promise<string | null> {
+    if (this.suggester === null || value.length === 0) {
+      return null;
+    }
+
+    // [LAW:single-enforcer] Suggestion lookup, empty-value suppression, and
+    // message eligibility live here so Input does not duplicate suggester rules.
+    return this.suggester.lookup(value);
+  }
 }
 
 export class SuggestFromList extends Suggester {

@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
+import React from "react";
 
-import { SuggestFromList, Suggester } from "../src/index.js";
+import {
+  Input,
+  InputChanged,
+  SuggestFromList,
+  SuggestionReady,
+  Suggester,
+  runTest,
+} from "../src/index.js";
 
 class FillSuggester extends Suggester {
   protected getSuggestion(value: string): string | null {
     return value.length <= 10 ? value.padEnd(10, "x") : null;
   }
+}
+
+function stripAnsi(value: string | undefined): string {
+  return (value ?? "").replace(/\u001B\[[0-9;]*m/g, "");
 }
 
 describe("Suggester base", () => {
@@ -104,5 +116,88 @@ describe("SuggestFromList", () => {
   it("never produces a suggestion for empty input", async () => {
     const suggester = new SuggestFromList(["hello", "world"]);
     expect(await suggester.lookup("")).toBeNull();
+  });
+});
+
+describe("Input suggester integration", () => {
+  it("displays suggestions, posts SuggestionReady, and accepts with right arrow", async () => {
+    const suggestions: SuggestionReady[] = [];
+    const changes: InputChanged[] = [];
+    const session = await runTest(
+      React.createElement(Input, {
+        suggester: new SuggestFromList(["hello", "world"]),
+      }),
+      {
+        messageHook: (message) => {
+          if (message instanceof SuggestionReady) {
+            suggestions.push(message);
+          } else if (message instanceof InputChanged) {
+            changes.push(message);
+          }
+        },
+      },
+    );
+
+    await session.pilot.type("h");
+
+    expect(stripAnsi(session.lastFrame())).toContain("hello");
+    expect(suggestions.at(-1)?.value).toBe("h");
+    expect(suggestions.at(-1)?.suggestion).toBe("hello");
+
+    await session.pilot.press("right");
+
+    expect(changes.at(-1)?.value).toBe("hello");
+
+    session.unmount();
+  });
+
+  it("clears, restores, and re-evaluates suggestions as the value changes", async () => {
+    const session = await runTest(
+      React.createElement(Input, {
+        suggester: new SuggestFromList(["hello"]),
+      }),
+    );
+
+    await session.pilot.type("help");
+    expect(session.lastFrame()).toContain("help");
+    expect(session.lastFrame()).not.toContain("hello");
+
+    await session.pilot.press("backspace");
+    expect(stripAnsi(session.lastFrame())).toContain("hello");
+
+    await session.pilot.press("left", "backspace");
+    expect(session.lastFrame()).not.toContain("hello");
+
+    session.unmount();
+  });
+
+  it("does not post SuggestionReady when no suggestion exists", async () => {
+    const suggestions: SuggestionReady[] = [];
+    const session = await runTest(
+      React.createElement(Input, {
+        suggester: new SuggestFromList(["hello"]),
+      }),
+      {
+        messageHook: (message) => {
+          if (message instanceof SuggestionReady) {
+            suggestions.push(message);
+          }
+        },
+      },
+    );
+
+    await session.pilot.type("z");
+
+    expect(suggestions).toHaveLength(0);
+
+    session.unmount();
+  });
+
+  it("supports special-character prefixes", async () => {
+    const suggester = new SuggestFromList(["cafe-con-leche", "café", "hello.world"]);
+
+    expect(await suggester.lookup("cafe-")).toBe("cafe-con-leche");
+    expect(await suggester.lookup("café")).toBe("café");
+    expect(await suggester.lookup("hello.")).toBe("hello.world");
   });
 });

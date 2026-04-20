@@ -43,6 +43,57 @@ export class ValidationResult {
   }
 }
 
+export type ValidateOn = "changed" | "submitted" | "blur";
+
+const VALIDATE_ON_VALUES = new Set<ValidateOn>(["changed", "submitted", "blur"]);
+const ALL_VALIDATE_ON = new Set<ValidateOn>(["changed", "submitted", "blur"]);
+
+export function normalizeValidateOn(validateOn?: Iterable<string> | null): ReadonlySet<ValidateOn> {
+  if (validateOn === undefined || validateOn === null) {
+    return new Set(ALL_VALIDATE_ON);
+  }
+
+  return new Set(
+    Array.from(validateOn).filter((value): value is ValidateOn =>
+      VALIDATE_ON_VALUES.has(value as ValidateOn),
+    ),
+  );
+}
+
+export class InputValidationController {
+  readonly validators: readonly Validator<string>[];
+  readonly validEmpty: boolean;
+  readonly validateOn: ReadonlySet<ValidateOn>;
+  lastResult: ValidationResult | null = null;
+
+  constructor(options: {
+    validators?: readonly Validator<string>[];
+    validEmpty?: boolean;
+    validateOn?: Iterable<string> | null;
+  } = {}) {
+    this.validators = options.validators ?? [];
+    this.validEmpty = options.validEmpty ?? false;
+    this.validateOn = normalizeValidateOn(options.validateOn);
+  }
+
+  validate(value: string, event: ValidateOn): ValidationResult | null {
+    const active = this.validateOn.has(event);
+    const result = active ? this.validateValue(value) : null;
+    this.lastResult = result;
+    return result;
+  }
+
+  private validateValue(value: string): ValidationResult {
+    if (value.length === 0 && this.validEmpty) {
+      return ValidationResult.success();
+    }
+
+    // [LAW:single-enforcer] Input validation runs through this controller so
+    // changed/submitted/blur events cannot drift in empty-value or merge rules.
+    return ValidationResult.merge(this.validators.map((validator) => validator.validate(value)));
+  }
+}
+
 export abstract class Validator<T = string> {
   readonly failureDescription: string | undefined;
 
@@ -123,12 +174,21 @@ export class IntegerValidator extends Validator<string> {
   }
 
   validate(value: string): ValidationResult {
-    const trimmed = value.trim().replace(/_/g, "");
+    const raw = value.trim();
+    const unsigned = raw.replace(/^-/, "");
 
-    if (trimmed === "" || !/^-?\d+$/.test(trimmed)) {
+    if (
+      raw === "" ||
+      raw.includes(".") ||
+      /[eE]/.test(raw) ||
+      !/^-?[\d_]+$/.test(raw) ||
+      unsigned.startsWith("_") ||
+      unsigned.endsWith("_")
+    ) {
       return this.failure("Must be a valid integer.", value);
     }
 
+    const trimmed = raw.replace(/_/g, "");
     const number = Number(trimmed);
 
     if (!Number.isInteger(number)) {
