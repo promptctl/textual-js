@@ -2,7 +2,6 @@
 // It does not modify framework internals.
 
 import React from "react";
-import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
 import {
@@ -13,6 +12,7 @@ import {
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
+import { WidgetFrame } from "./widget-frame.js";
 
 export interface StaticProps extends WidgetComponentProps {
   content?: VisualInput;
@@ -28,6 +28,8 @@ export const Static = observer(function Static({
   id,
   classes,
   content,
+  borderTitle,
+  borderSubtitle,
 }: StaticProps): React.JSX.Element {
   const visual = React.useMemo(() => visualize(content), [content]);
 
@@ -35,6 +37,9 @@ export const Static = observer(function Static({
     id,
     classes: composeWidgetClasses(classes),
     typeName: "Static",
+    typeToken: Static,
+    borderTitle,
+    borderSubtitle,
   });
 
   const styles = useStyles(widget.handle);
@@ -42,9 +47,9 @@ export const Static = observer(function Static({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box}>
+      <WidgetFrame widget={widget.handle} styles={styles}>
         {renderVisual(visual, styles.text, `static:${widget.nodeId}`, renderWidth)}
-      </Box>
+      </WidgetFrame>
     </WidgetScope>
   );
 });

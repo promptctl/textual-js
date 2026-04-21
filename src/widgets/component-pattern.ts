@@ -6,6 +6,8 @@ export type WidgetClassInput = string | readonly string[] | null | undefined;
 export interface WidgetComponentProps {
   id?: string;
   classes?: string | string[];
+  borderTitle?: string;
+  borderSubtitle?: string;
 }
 
 function normalizeWidgetClasses(classes: WidgetClassInput): string[] {

@@ -8,6 +8,7 @@ import { observer } from "mobx-react-lite";
 import { WidgetScope, useBindings, useStyles, useWidget } from "../framework/context.js";
 import type { ActiveBinding } from "../framework/app-framework.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
+import { WidgetFrame } from "./widget-frame.js";
 
 const DEFAULT_CSS = `
   FooterKey {
@@ -67,6 +68,7 @@ export const FooterKey = observer(function FooterKey({
   const widget = useWidget({
     typeName: "FooterKey",
     classes: binding.enabled ? [] : ["-disabled"],
+    typeToken: FooterKey,
     handlers: {
       onClick: () => {
         binding.run();
@@ -77,9 +79,9 @@ export const FooterKey = observer(function FooterKey({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box}>
+      <WidgetFrame widget={widget.handle} styles={styles}>
         <FooterKeyLabel binding={binding} compact={compact} />
-      </Box>
+      </WidgetFrame>
     </WidgetScope>
   );
 });
@@ -87,6 +89,8 @@ export const FooterKey = observer(function FooterKey({
 export const Footer = observer(function Footer({
   id,
   classes,
+  borderTitle,
+  borderSubtitle,
   compact = false,
 }: FooterProps): React.JSX.Element {
   const widget = useWidget({
@@ -94,6 +98,9 @@ export const Footer = observer(function Footer({
     classes: composeWidgetClasses(classes),
     typeName: "Footer",
     defaultCss: DEFAULT_CSS,
+    typeToken: Footer,
+    borderTitle,
+    borderSubtitle,
   });
   const styles = useStyles(widget.handle);
   const bindings = useBindings(widget.handle).filter(
@@ -102,11 +109,11 @@ export const Footer = observer(function Footer({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box} flexDirection="row">
+      <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "row" }}>
         {bindings.map((binding) => (
           <FooterKey key={`${binding.namespace.key}:${binding.key}:${binding.action}`} binding={binding} compact={compact} />
         ))}
-      </Box>
+      </WidgetFrame>
     </WidgetScope>
   );
 });

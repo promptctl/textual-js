@@ -14,7 +14,7 @@ import { runInAction } from "mobx";
 import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
-import type { VisualInput } from "../content/index.js";
+import { Content, type VisualInput } from "../content/index.js";
 import { TextualFramework, type ActiveBinding } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { WidgetNode } from "./widget-node.js";
@@ -161,8 +161,12 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
     widgetRef.current.markLifecyclePending();
     widgetRef.current.replaceClasses(classes);
     runInAction(() => {
-      widgetRef.current.borderTitle = options.borderTitle ?? typeMetadata.borderTitle;
-      widgetRef.current.borderSubtitle = options.borderSubtitle ?? typeMetadata.borderSubtitle;
+      const nextBorderTitle = options.borderTitle ?? typeMetadata.borderTitle ?? null;
+      const nextBorderSubtitle = options.borderSubtitle ?? typeMetadata.borderSubtitle ?? null;
+      widgetRef.current.borderTitle =
+        nextBorderTitle === null ? null : Content.fromText(nextBorderTitle).firstLine;
+      widgetRef.current.borderSubtitle =
+        nextBorderSubtitle === null ? null : Content.fromText(nextBorderSubtitle).firstLine;
     });
     framework.registerWidget(widgetRef.current);
     setLifecycleReady(true);

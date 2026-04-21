@@ -1,7 +1,7 @@
 import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import type { Binding } from "../bindings/index.js";
-import type { VisualInput } from "../content/index.js";
+import { Content, type ContentInput, type VisualInput } from "../content/index.js";
 import type { Message, MessageConstructor } from "../events/message.js";
 import { Region } from "../geometry/region.js";
 import { Size } from "../geometry/size.js";
@@ -31,8 +31,8 @@ export interface WidgetNodeInit {
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
-  borderTitle?: string | null;
-  borderSubtitle?: string | null;
+  borderTitle?: ContentInput | null;
+  borderSubtitle?: ContentInput | null;
 }
 
 export class BadIdentifier extends Error {}
@@ -71,6 +71,14 @@ function normalizeClassInput(classes: string | string[]): string[] {
         .filter((className) => className.length > 0);
 }
 
+function normalizeBorderLabelInput(value: ContentInput | null | undefined): Content | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return Content.fromText(value).firstLine;
+}
+
 export class WidgetNode {
   readonly framework: TextualFramework;
   readonly nodeId: string;
@@ -99,8 +107,8 @@ export class WidgetNode {
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
-  borderTitle: string | null;
-  borderSubtitle: string | null;
+  borderTitle: Content | null;
+  borderSubtitle: Content | null;
   lifecycleReady = false;
 
   constructor(init: WidgetNodeInit) {
@@ -124,8 +132,8 @@ export class WidgetNode {
     );
     this.styles = this.inlineStyles;
     this.renderStyles = new RenderStyles(this, this.resolvedStyles, this.inlineStyles);
-    this.borderTitle = init.borderTitle ?? null;
-    this.borderSubtitle = init.borderSubtitle ?? null;
+    this.borderTitle = normalizeBorderLabelInput(init.borderTitle);
+    this.borderSubtitle = normalizeBorderLabelInput(init.borderSubtitle);
 
     if (init.id !== undefined) {
       validateCssIdentifier(init.id, "id");
@@ -298,21 +306,21 @@ export class WidgetNode {
     this.setVisible(value);
   }
 
-  get border_title(): string | null {
+  get border_title(): Content | null {
     return this.borderTitle;
   }
 
-  set border_title(value: string | null) {
-    this.borderTitle = value;
+  set border_title(value: ContentInput | null) {
+    this.borderTitle = normalizeBorderLabelInput(value);
     this.framework.refreshStyles(true);
   }
 
-  get border_subtitle(): string | null {
+  get border_subtitle(): Content | null {
     return this.borderSubtitle;
   }
 
-  set border_subtitle(value: string | null) {
-    this.borderSubtitle = value;
+  set border_subtitle(value: ContentInput | null) {
+    this.borderSubtitle = normalizeBorderLabelInput(value);
     this.framework.refreshStyles(true);
   }
 

@@ -2,9 +2,13 @@ import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   ActiveModeError,
+  Color,
   InvalidModeError,
   NoActiveWorker,
   ScreenResume,
@@ -33,6 +37,22 @@ function DialogScreen(): React.JSX.Element {
     </WidgetHost>
   );
 }
+
+function ScreenWithCss(): React.JSX.Element {
+  return (
+    <WidgetHost typeName="ScreenWithCss" id="screen-css-root">
+      <WidgetHost typeName="Label" id="screen-css-target">
+        <Text>screen css</Text>
+      </WidgetHost>
+    </WidgetHost>
+  );
+}
+
+(ScreenWithCss as typeof ScreenWithCss & { CSS?: string }).CSS = `
+  #screen-css-target {
+    background: red;
+  }
+`;
 
 let nextDetachedNodeId = 1;
 
@@ -263,6 +283,46 @@ describe("screen stack", () => {
     await settleScreen(framework);
 
     await expect(waiting).resolves.toBe("done");
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("loads static screen CSS and CSS_PATH with precedence over app CSS", async () => {
+    const framework = new TextualFramework();
+    const tempDir = mkdtempSync(join(tmpdir(), "textual-js-screen-css-"));
+    const cssPath = join(tempDir, "screen.tcss");
+    writeFileSync(cssPath, "#screen-css-target { color: white; }");
+    (ScreenWithCss as typeof ScreenWithCss & { CSS_PATH?: string | readonly string[] }).CSS_PATH = cssPath;
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          #screen-css-target {
+            background: green;
+            color: blue;
+          }
+        `}
+      >
+        <DefaultScreen />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+    framework.pushScreen(<ScreenWithCss />, { name: "css-screen" });
+    await settleScreen(framework);
+
+    const target = framework.registry.getByCssId("screen-css-target")!;
+    expect(target.resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
+    expect(target.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
+
+    framework.popScreen();
+    await settleScreen(framework);
+
+    expect(
+      framework.getActiveStylesheetsFor("Label").some((stylesheet) => stylesheet.source.includes("#screen-css-target")),
+    ).toBe(true);
 
     instance.unmount();
     instance.cleanup();

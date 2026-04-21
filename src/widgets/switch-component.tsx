@@ -11,6 +11,7 @@ import { WidgetScope, useStyles, useWidget, type UseWidgetResult } from "../fram
 import { colorToInkValue } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { SwitchModel, SwitchChanged } from "./switch.js";
+import { WidgetFrame } from "./widget-frame.js";
 
 export interface SwitchProps extends WidgetComponentProps {
   value?: boolean;
@@ -70,6 +71,8 @@ function renderSwitchRow(
 export const Switch = observer(function Switch({
   id,
   classes,
+  borderTitle,
+  borderSubtitle,
   value = false,
   disabled,
 }: SwitchProps): React.JSX.Element {
@@ -92,6 +95,8 @@ export const Switch = observer(function Switch({
     id,
     classes: composeWidgetClasses(classes, model.value ? ["-on"] : []),
     typeName: "Switch",
+    borderTitle,
+    borderSubtitle,
     focusable: true,
     disabled,
     defaultCss: DEFAULT_CSS,
@@ -110,6 +115,7 @@ export const Switch = observer(function Switch({
         toggle();
       },
     },
+    typeToken: Switch,
   });
 
   widgetRef.current = widget;
@@ -132,7 +138,7 @@ export const Switch = observer(function Switch({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box} flexDirection="column">
+      <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
         {renderSwitchRow(
           { text: "▊", color: border, backgroundColor: undefined, inverse: true },
           { text: "▔".repeat(innerWidth), color: border, backgroundColor: background },
@@ -179,7 +185,7 @@ export const Switch = observer(function Switch({
           { text: "▎", color: border, backgroundColor: undefined },
           `switch:${widget.nodeId}:bottom`,
         )}
-      </Box>
+      </WidgetFrame>
     </WidgetScope>
   );
 });

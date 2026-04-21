@@ -14,6 +14,7 @@ import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { colorToInkValue } from "../styles/index.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
+import { WidgetFrame } from "./widget-frame.js";
 
 export interface ButtonProps extends WidgetComponentProps {
   label?: ContentInput;
@@ -184,6 +185,8 @@ function renderButtonRow(
 export const Button = observer(function Button({
   id,
   classes,
+  borderTitle,
+  borderSubtitle,
   label,
   variant = "default",
   disabled,
@@ -200,6 +203,8 @@ export const Button = observer(function Button({
     id,
     classes: allClasses,
     typeName: "Button",
+    borderTitle,
+    borderSubtitle,
     focusable: true,
     disabled,
     loading,
@@ -218,6 +223,7 @@ export const Button = observer(function Button({
         widget.postMessage(new ButtonPressed());
       },
     },
+    typeToken: Button,
   });
 
   const styles = useStyles(widget.handle);
@@ -300,11 +306,11 @@ export const Button = observer(function Button({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box} flexDirection="column">
+      <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
         {height > 1 ? renderButtonRow("▔".repeat(width), palette.top, palette.background, `button:${widget.nodeId}:top`) : null}
         {middleRow}
         {height > 1 ? renderButtonRow("▁".repeat(width), palette.bottom, palette.background, `button:${widget.nodeId}:bottom`) : null}
-      </Box>
+      </WidgetFrame>
     </WidgetScope>
   );
 });

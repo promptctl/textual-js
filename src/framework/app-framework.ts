@@ -164,6 +164,14 @@ interface ScreenFactoryRecord {
   cachedElement: React.ReactElement | null;
 }
 
+interface ScreenStylesheetState {
+  css: string | null;
+  cssPath: string[];
+  scopedCss: boolean;
+  scopeTypeName?: string;
+  stylesheets: ParsedStylesheet[];
+}
+
 interface PendingPointerClick {
   targetId: string | null;
   canceled: boolean;
@@ -332,9 +340,17 @@ function normalizeCssSource(source: string | undefined): string | undefined {
   return normalizedSource === undefined || normalizedSource.length === 0 ? undefined : normalizedSource;
 }
 
+function normalizeCssPathSource(path: string | readonly string[] | undefined): string[] {
+  if (path === undefined) {
+    return [];
+  }
+
+  return typeof path === "string" ? [path] : [...path];
+}
+
 function parseStylesheetOrThrow(
   source: string,
-  options: { origin: "default" | "user"; scopeTypeName?: string },
+  options: { origin: "default" | "user"; scopeTypeName?: string; scopeMode?: "self" | "descendant" },
 ): ParsedStylesheet {
   try {
     return parseTcss(source, options);
@@ -500,6 +516,7 @@ export class TextualFramework {
   private readonly widgetTypeMetadata = new Map<string, WidgetTypeMetadata>();
   private readonly widgetTypeTokens = new Map<Function, string>();
   private readonly cssWatchers = new Map<string, FSWatcher>();
+  private readonly screenStyleCache = new Map<unknown, ScreenStylesheetState>();
   private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
@@ -591,6 +608,7 @@ export class TextualFramework {
         widgetTypeMetadata: false,
         widgetTypeTokens: false,
         cssWatchers: false,
+        screenStyleCache: false,
         messageSubscribers: false,
         timers: false,
         afterRefreshCallbacks: false,
@@ -1002,8 +1020,18 @@ export class TextualFramework {
   registerWidgetType(typeName: string, options?: RegisterWidgetTypeOptions): void;
   registerWidgetType(typeName: string, options: string | RegisterWidgetTypeOptions = {}): void {
     const normalizedOptions = typeof options === "string" ? { defaultCss: options } : options;
-    const normalizedDefaultCss = normalizeCssSource(normalizedOptions.defaultCss);
-    const normalizedScopedCss = normalizeCssSource(normalizedOptions.scopedCss);
+    const typeSource = normalizedOptions.typeToken as Partial<{
+      DEFAULT_CSS: string;
+      SCOPED_CSS: string;
+      COMPONENT_CLASSES: readonly string[];
+      BORDER_TITLE: string | null;
+      BORDER_SUBTITLE: string | null;
+      inheritCss: boolean;
+      inheritBindings: boolean;
+      inheritComponentClasses: boolean;
+    }> | undefined;
+    const normalizedDefaultCss = normalizeCssSource(normalizedOptions.defaultCss ?? typeSource?.DEFAULT_CSS);
+    const normalizedScopedCss = normalizeCssSource(normalizedOptions.scopedCss ?? typeSource?.SCOPED_CSS);
     const existing = this.widgetTypes.get(typeName);
     const normalizedBindings = [...(normalizedOptions.bindings ?? [])];
     const inheritedToken = normalizedOptions.typeToken === undefined ? undefined : Object.getPrototypeOf(normalizedOptions.typeToken);
@@ -1022,12 +1050,12 @@ export class TextualFramework {
         scopedCss: normalizedScopedCss,
         baseTypeNames: normalizedBaseTypeNames,
         bindings: normalizedBindings,
-        inheritCss: normalizedOptions.inheritCss ?? true,
-        inheritBindings: normalizedOptions.inheritBindings ?? true,
-        componentClasses: [...(normalizedOptions.componentClasses ?? [])],
-        inheritComponentClasses: normalizedOptions.inheritComponentClasses ?? true,
-        borderTitle: normalizedOptions.borderTitle ?? null,
-        borderSubtitle: normalizedOptions.borderSubtitle ?? null,
+        inheritCss: normalizedOptions.inheritCss ?? typeSource?.inheritCss ?? true,
+        inheritBindings: normalizedOptions.inheritBindings ?? typeSource?.inheritBindings ?? true,
+        componentClasses: [...(normalizedOptions.componentClasses ?? typeSource?.COMPONENT_CLASSES ?? [])],
+        inheritComponentClasses: normalizedOptions.inheritComponentClasses ?? typeSource?.inheritComponentClasses ?? true,
+        borderTitle: normalizedOptions.borderTitle ?? typeSource?.BORDER_TITLE ?? null,
+        borderSubtitle: normalizedOptions.borderSubtitle ?? typeSource?.BORDER_SUBTITLE ?? null,
         typeToken: normalizedOptions.typeToken,
         defaultStylesheet:
           normalizedDefaultCss === undefined
@@ -1054,14 +1082,14 @@ export class TextualFramework {
     const sameRegistration =
       (normalizedDefaultCss === undefined || existing.defaultCss === normalizedDefaultCss) &&
       (normalizedScopedCss === undefined || existing.scopedCss === normalizedScopedCss) &&
-      existing.inheritCss === (normalizedOptions.inheritCss ?? true) &&
-      existing.inheritBindings === (normalizedOptions.inheritBindings ?? true) &&
-      existing.inheritComponentClasses === (normalizedOptions.inheritComponentClasses ?? true) &&
+      existing.inheritCss === (normalizedOptions.inheritCss ?? typeSource?.inheritCss ?? true) &&
+      existing.inheritBindings === (normalizedOptions.inheritBindings ?? typeSource?.inheritBindings ?? true) &&
+      existing.inheritComponentClasses === (normalizedOptions.inheritComponentClasses ?? typeSource?.inheritComponentClasses ?? true) &&
       JSON.stringify(existing.baseTypeNames) === JSON.stringify(normalizedBaseTypeNames) &&
       JSON.stringify(existing.bindings) === JSON.stringify(normalizedBindings) &&
-      JSON.stringify(existing.componentClasses) === JSON.stringify(normalizedOptions.componentClasses ?? []) &&
-      existing.borderTitle === (normalizedOptions.borderTitle ?? null) &&
-      existing.borderSubtitle === (normalizedOptions.borderSubtitle ?? null);
+      JSON.stringify(existing.componentClasses) === JSON.stringify(normalizedOptions.componentClasses ?? typeSource?.COMPONENT_CLASSES ?? []) &&
+      existing.borderTitle === (normalizedOptions.borderTitle ?? typeSource?.BORDER_TITLE ?? null) &&
+      existing.borderSubtitle === (normalizedOptions.borderSubtitle ?? typeSource?.BORDER_SUBTITLE ?? null);
 
     if (sameRegistration) {
       if (normalizedOptions.typeToken !== undefined) {
@@ -1098,12 +1126,12 @@ export class TextualFramework {
           }));
     existing.baseTypeNames = normalizedBaseTypeNames;
     existing.bindings = normalizedBindings;
-    existing.inheritCss = normalizedOptions.inheritCss ?? true;
-    existing.inheritBindings = normalizedOptions.inheritBindings ?? true;
-    existing.componentClasses = [...(normalizedOptions.componentClasses ?? [])];
-    existing.inheritComponentClasses = normalizedOptions.inheritComponentClasses ?? true;
-    existing.borderTitle = normalizedOptions.borderTitle ?? existing.borderTitle;
-    existing.borderSubtitle = normalizedOptions.borderSubtitle ?? existing.borderSubtitle;
+    existing.inheritCss = normalizedOptions.inheritCss ?? typeSource?.inheritCss ?? true;
+    existing.inheritBindings = normalizedOptions.inheritBindings ?? typeSource?.inheritBindings ?? true;
+    existing.componentClasses = [...(normalizedOptions.componentClasses ?? typeSource?.COMPONENT_CLASSES ?? [])];
+    existing.inheritComponentClasses = normalizedOptions.inheritComponentClasses ?? typeSource?.inheritComponentClasses ?? true;
+    existing.borderTitle = normalizedOptions.borderTitle ?? typeSource?.BORDER_TITLE ?? existing.borderTitle;
+    existing.borderSubtitle = normalizedOptions.borderSubtitle ?? typeSource?.BORDER_SUBTITLE ?? existing.borderSubtitle;
     existing.typeToken = normalizedOptions.typeToken ?? existing.typeToken;
     if (existing.typeToken !== undefined) {
       this.widgetTypeTokens.set(existing.typeToken, typeName);
@@ -1259,24 +1287,94 @@ export class TextualFramework {
     return [...new Set([...this.cssPath, ...screenPaths])];
   }
 
+  private parseScreenStylesheetState(state: Omit<ScreenStylesheetState, "stylesheets">): ScreenStylesheetState {
+    const stylesheets = [
+      ...(state.css === null
+        ? []
+        : [
+            parseStylesheetOrThrow(state.css, {
+              origin: "user",
+              scopeTypeName: state.scopedCss ? state.scopeTypeName : undefined,
+              scopeMode: "descendant",
+            }),
+          ]),
+      ...state.cssPath
+        .filter((path) => existsSync(path))
+        .map((path) =>
+          parseStylesheetOrThrow(readFileSync(path, "utf8"), {
+            origin: "user",
+            scopeTypeName: state.scopedCss ? state.scopeTypeName : undefined,
+            scopeMode: "descendant",
+          }),
+        ),
+    ];
+
+    return {
+      ...state,
+      stylesheets,
+    };
+  }
+
+  private readScreenStylesheetState(
+    element: React.ReactElement,
+    options: ScreenOptions,
+  ): ScreenStylesheetState {
+    const screenType = element.type as {
+      CSS?: string;
+      CSS_PATH?: string | readonly string[];
+      SCOPED_CSS?: boolean;
+      name?: string;
+    };
+    const css = normalizeCssSource(options.css ?? screenType.CSS) ?? null;
+    const cssPath = normalizeCssPathSource(options.cssPath ?? screenType.CSS_PATH);
+    const scopedCss = options.scopedCss ?? screenType.SCOPED_CSS ?? true;
+    const scopeTypeName =
+      scopedCss && typeof screenType.name === "string" && screenType.name.length > 0 ? screenType.name : undefined;
+    const cacheKey = element.type;
+    const cached = this.screenStyleCache.get(cacheKey);
+
+    if (
+      cached !== undefined &&
+      cached.css === css &&
+      cached.scopedCss === scopedCss &&
+      JSON.stringify(cached.cssPath) === JSON.stringify(cssPath) &&
+      cached.scopeTypeName === scopeTypeName
+    ) {
+      return cached;
+    }
+
+    const parsed = this.parseScreenStylesheetState({
+      css,
+      cssPath,
+      scopedCss,
+      scopeTypeName,
+    });
+    this.screenStyleCache.set(cacheKey, parsed);
+    return parsed;
+  }
+
   private refreshScreenStylesheets(): void {
+    for (const [cacheKey, cached] of this.screenStyleCache.entries()) {
+      try {
+        this.screenStyleCache.set(cacheKey, this.parseScreenStylesheetState(cached));
+      } catch {
+        continue;
+      }
+    }
+
     for (const stack of this.modeStacks.values()) {
       for (const entry of stack) {
-        if (entry.implicit) {
+        if (entry.implicit || entry.element === null) {
           continue;
         }
 
-        try {
-          entry.stylesheets = [
-            ...(entry.css === null || entry.css.trim().length === 0
-              ? []
-              : [parseStylesheetOrThrow(entry.css, { origin: "user" })]),
-            ...entry.cssPath
-              .filter((path) => existsSync(path))
-              .map((path) => parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" })),
-          ];
-        } catch {
-          continue;
+        const cached = this.screenStyleCache.get(entry.element.type);
+
+        if (cached !== undefined) {
+          entry.css = cached.css;
+          entry.cssPath = cached.cssPath;
+          entry.scopedCss = cached.scopedCss;
+          entry.stylesheets = cached.stylesheets;
         }
       }
     }
@@ -1511,9 +1609,11 @@ export class TextualFramework {
   }
 
   getActiveStylesheetsFor(typeName: string): ParsedStylesheet[] {
+    const cachedScreenStylesheets = [...this.screenStyleCache.values()].flatMap((state) => state.stylesheets);
     return [
       ...this.getWidgetTypeMetadata(typeName).defaultStylesheets,
       ...this.userStylesheets,
+      ...cachedScreenStylesheets,
       ...(this.activeScreen?.stylesheets ?? []),
     ];
   }
@@ -2629,15 +2729,7 @@ export class TextualFramework {
     options: ScreenOptions & { callback?: (result: unknown) => void },
   ): ScreenEntry {
     const bindings = makeBindings(options.bindings ?? []);
-    const cssPath = typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
-    const stylesheets = [
-      ...(options.css === undefined || options.css.trim().length === 0
-        ? []
-        : [parseStylesheetOrThrow(options.css, { origin: "user" })]),
-      ...cssPath
-        .filter((path) => existsSync(path))
-        .map((path) => parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" })),
-    ];
+    const screenStyles = this.readScreenStylesheetState(element, options);
     const entry: ScreenEntry = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
@@ -2645,10 +2737,10 @@ export class TextualFramework {
       bindings,
       actions: undefined,
       autoFocus: options.autoFocus ?? null,
-      css: options.css ?? null,
-      cssPath,
-      scopedCss: options.scopedCss ?? true,
-      stylesheets,
+      css: screenStyles.css,
+      cssPath: screenStyles.cssPath,
+      scopedCss: screenStyles.scopedCss,
+      stylesheets: screenStyles.stylesheets,
       implicit: false,
       savedFocusNodeId: null,
       commandProviders: readCommandProvidersFromElement(element),

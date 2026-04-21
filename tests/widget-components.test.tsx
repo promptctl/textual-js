@@ -101,6 +101,30 @@ describe("Static", () => {
 
     session.unmount();
   });
+
+  it("renders border titles, subtitles, and outline wrappers through the shared frame", async () => {
+    const session = await runTest(
+      <Static id="framed" content="center" borderTitle="Title" borderSubtitle="Sub" />,
+      {
+        props: {
+          css: `
+            Static {
+              width: 12;
+              outline: round green;
+              border: round green;
+              border-title-align: center;
+              border-subtitle-align: right;
+            }
+          `,
+        } as never,
+      },
+    );
+
+    expect(session.lastFrame()).toContain("Title");
+    expect(session.lastFrame()).toContain("Sub");
+
+    session.unmount();
+  });
 });
 
 describe("Button", () => {

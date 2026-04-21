@@ -36,6 +36,7 @@ export interface ParsedStylesheet {
 export interface ParseStylesheetOptions {
   origin: StylesheetOrigin;
   scopeTypeName?: string;
+  scopeMode?: "self" | "descendant";
 }
 
 export interface CascadeValue {
@@ -811,7 +812,11 @@ function combineSelectors(parentSelectors: string[], childSelectors: string[]): 
   return combinations;
 }
 
-function scopeSelectors(selectors: string[], scopeTypeName?: string): string[] {
+function scopeSelectors(
+  selectors: string[],
+  scopeTypeName?: string,
+  scopeMode: "self" | "descendant" = "self",
+): string[] {
   if (scopeTypeName === undefined) {
     return selectors;
   }
@@ -824,6 +829,10 @@ function scopeSelectors(selectors: string[], scopeTypeName?: string): string[] {
 
     if (firstSelector?.type === "type" && firstSelector.name === scopeTypeName) {
       return trimmed;
+    }
+
+    if (scopeMode === "descendant") {
+      return `${scopeTypeName} ${trimmed}`.trim();
     }
 
     if (trimmed === "*") {
@@ -852,7 +861,11 @@ interface SourceRule {
   body: string;
 }
 
-function flattenNestedCss(source: string, scopeTypeName?: string): string {
+function flattenNestedCss(
+  source: string,
+  scopeTypeName?: string,
+  scopeMode: "self" | "descendant" = "self",
+): string {
   const balance = [...source].reduce((depth, character) => depth + (character === "{" ? 1 : character === "}" ? -1 : 0), 0);
 
   if (balance !== 0) {
@@ -865,7 +878,7 @@ function flattenNestedCss(source: string, scopeTypeName?: string): string {
   // resulting flat source is the only stylesheet shape the cascade consumes.
   return rules
     .map((rule) => {
-      const selectors = scopeSelectors(rule.selectors, scopeTypeName).map(normalizeSelectorText);
+      const selectors = scopeSelectors(rule.selectors, scopeTypeName, scopeMode).map(normalizeSelectorText);
       return `${selectors.join(", ")} { ${rule.declarations.join("; ")}; }`;
     })
     .join("\n");
@@ -1547,7 +1560,7 @@ export function normalizeStyleAssignment(property: string, value: StyleAssignmen
 
 export function parseTcss(source: string, options: ParseStylesheetOptions): ParsedStylesheet {
   const substitutedSource = substituteVariables(source);
-  const flatSource = flattenNestedCss(substitutedSource, options.scopeTypeName);
+  const flatSource = flattenNestedCss(substitutedSource, options.scopeTypeName, options.scopeMode);
   const ast = csstree.parse(flatSource, { context: "stylesheet" }) as csstree.CssNode & {
     children: Iterable<csstree.CssNode>;
   };

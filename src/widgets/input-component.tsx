@@ -11,6 +11,7 @@ import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { InputValidationController, type ValidateOn, type Validator } from "../validation/index.js";
 import { SuggestionController, type Suggester } from "../suggestions/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
+import { WidgetFrame } from "./widget-frame.js";
 import {
   InputChanged,
   InputModel,
@@ -47,6 +48,8 @@ const INPUT_BINDINGS = [
 export const Input = observer(function Input({
   id,
   classes,
+  borderTitle,
+  borderSubtitle,
   value = "",
   type = "text",
   restrict,
@@ -84,6 +87,8 @@ export const Input = observer(function Input({
     id,
     classes: composeWidgetClasses(classes),
     typeName: "Input",
+    borderTitle,
+    borderSubtitle,
     focusable: true,
     bindings: INPUT_BINDINGS,
     actions: createInputActions(modelRef.current),
@@ -95,6 +100,7 @@ export const Input = observer(function Input({
         applyValidation("blur");
       },
     },
+    typeToken: Input,
   });
   const styles = useStyles(widget.handle);
 
@@ -182,9 +188,9 @@ export const Input = observer(function Input({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box}>
+      <WidgetFrame widget={widget.handle} styles={styles}>
         {renderContent(content, styles.text, `input:${widget.nodeId}`)}
-      </Box>
+      </WidgetFrame>
     </WidgetScope>
   );
 });
