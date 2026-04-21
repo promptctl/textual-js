@@ -6,9 +6,27 @@ export class Mount extends Message {}
 
 export class Unmount extends Message {}
 
+export class Show extends Message {}
+
+export class Hide extends Message {}
+
+export class Ready extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
 export class Focus extends Message {}
 
 export class Blur extends Message {}
+
+export class DescendantFocus extends Message {
+  static override readonly verbose = true;
+}
+
+export class DescendantBlur extends Message {
+  static override readonly verbose = true;
+}
 
 export class AppBlur extends Message {
   constructor(init?: MessageInit) {
@@ -27,6 +45,8 @@ export class Idle extends Message {
 }
 
 export class Callback extends Message {
+  static override readonly verbose = true;
+
   constructor(
     private readonly callback: () => void,
     init?: MessageInit,
@@ -36,6 +56,23 @@ export class Callback extends Message {
 
   invoke(): void {
     this.callback();
+  }
+}
+
+export class Timer extends Message {
+  static override readonly verbose = true;
+
+  constructor(
+    private readonly callback: () => void,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+
+  invoke(): void {
+    this.callback();
+    this.preventDefault();
+    this.stop();
   }
 }
 
@@ -86,13 +123,18 @@ export interface KeyMeta {
 }
 
 export class Key extends Message {
+  readonly input: string;
+  readonly character: string | null;
+
   constructor(
     readonly key: string,
-    readonly input: string,
+    character: string | null = null,
     readonly meta: KeyMeta = {},
     init?: MessageInit,
   ) {
     super(init);
+    this.character = character;
+    this.input = character ?? "";
   }
 }
 
@@ -115,9 +157,35 @@ export class MouseEvent extends Message {
   }
 }
 
-export class MouseDown extends MouseEvent {}
+export class MouseDown extends MouseEvent {
+  readonly button: number;
 
-export class MouseUp extends MouseEvent {}
+  constructor(
+    x: number,
+    y: number,
+    buttonOrInit: number | MessageInit = 1,
+    init?: MessageInit,
+  ) {
+    const resolvedInit = typeof buttonOrInit === "number" ? init : buttonOrInit;
+    super(x, y, resolvedInit);
+    this.button = typeof buttonOrInit === "number" ? buttonOrInit : 1;
+  }
+}
+
+export class MouseUp extends MouseEvent {
+  readonly button: number;
+
+  constructor(
+    x: number,
+    y: number,
+    buttonOrInit: number | MessageInit = 1,
+    init?: MessageInit,
+  ) {
+    const resolvedInit = typeof buttonOrInit === "number" ? init : buttonOrInit;
+    super(x, y, resolvedInit);
+    this.button = typeof buttonOrInit === "number" ? buttonOrInit : 1;
+  }
+}
 
 export class MouseMove extends MouseEvent {
   static readonly canReplace = true;
@@ -134,6 +202,54 @@ export class Click extends MouseEvent {
   }
 }
 
+export class Enter extends Message {
+  static override readonly verbose = true;
+}
+
+export class Leave extends Message {
+  static override readonly verbose = true;
+}
+
+export class MouseScrollUp extends MouseEvent {}
+
+export class MouseScrollDown extends MouseEvent {}
+
+export class MouseScrollLeft extends MouseEvent {}
+
+export class MouseScrollRight extends MouseEvent {}
+
+export class MouseCapture extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class MouseRelease extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export interface TextSelectionEndpoint {
+  widget: unknown;
+  offset: number;
+}
+
+export interface TextSelectionRange {
+  start: TextSelectionEndpoint;
+  end: TextSelectionEndpoint;
+}
+
+export class TextSelected extends Message {
+  constructor(
+    readonly text: unknown,
+    readonly range: TextSelectionRange,
+    init?: MessageInit,
+  ) {
+    super(init);
+  }
+}
+
 export class ScrollEvent extends MouseEvent {
   constructor(
     x: number,
@@ -143,5 +259,70 @@ export class ScrollEvent extends MouseEvent {
     init?: MessageInit,
   ) {
     super(x, y, init);
+  }
+}
+
+export class CursorPosition extends Message {
+  constructor(
+    readonly x: number,
+    readonly y: number,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class DeliveryComplete extends Message {
+  constructor(
+    readonly id: string,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class DeliveryFailed extends Message {
+  constructor(
+    readonly id: string,
+    readonly error: unknown,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class Notify extends Message {
+  constructor(
+    readonly notification: unknown,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class Print extends Message {
+  static override readonly verbose = true;
+
+  constructor(
+    readonly text: string,
+    readonly stderr = false,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class CloseMessages extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class ExitApp extends Message {
+  constructor(
+    readonly result?: unknown,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
   }
 }

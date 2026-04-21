@@ -6,6 +6,8 @@ import { render } from "ink-testing-library";
 import {
   App,
   DuplicateKeyHandlers,
+  DuplicateIds,
+  Key,
   Message,
   OnDecoratorError,
   Paste,
@@ -23,6 +25,8 @@ import {
 } from "../src/index.js";
 
 class Ping extends Message {}
+
+class SubPing extends Ping {}
 
 class NamespacedPing extends Message {
   static override readonly namespace = "base_widget";
@@ -120,6 +124,53 @@ describe("Stage 1 runtime seams", () => {
     widget.postMessage(new Ping());
     await framework.whenIdle();
     expect(received).toEqual(["ping"]);
+
+    unsubscribe();
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("uses exact message types for scoped and long-lived suppression", async () => {
+    const framework = new TextualFramework();
+    let widget!: WidgetNode;
+    const received: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <HandleHarness
+          onReady={(value) => {
+            widget = value;
+          }}
+        />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    widget.prevent(Ping, () => {
+      expect(widget.postMessage(new Ping())).toBe(false);
+      expect(widget.postMessage(new SubPing())).toBe(true);
+    });
+
+    const unsubscribe = framework.subscribeToMessages((message) => {
+      if (message instanceof Ping) {
+        received.push(message.constructor.name);
+      }
+    });
+
+    await framework.whenIdle();
+    expect(received).toEqual(["SubPing"]);
+
+    widget.disableMessages(Ping);
+    expect(widget.postMessage(new Ping())).toBe(false);
+    expect(widget.postMessage(new SubPing())).toBe(true);
+    await framework.whenIdle();
+    expect(received).toEqual(["SubPing", "SubPing"]);
+
+    widget.enableMessages(Ping);
+    expect(widget.postMessage(new Ping())).toBe(true);
+    await framework.whenIdle();
+    expect(received).toEqual(["SubPing", "SubPing", "Ping"]);
 
     unsubscribe();
     instance.unmount();
@@ -337,6 +388,32 @@ describe("Stage 1 runtime seams", () => {
     instance.cleanup();
   });
 
+  it("throws when selector-matched message attributes are not registered widgets", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Observer"
+          handlers={{
+            onControlPing: on(ControlPing, "#save", () => undefined),
+          }}
+        >
+          <Text>observer</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+    const observer = framework.registry.list()[0]!;
+    framework.postMessage(observer.nodeId, new ControlPing("not-widget" as unknown as WidgetNode));
+
+    await expect(framework.whenIdle()).rejects.toThrow(/not a widget/);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("exposes key name formatting helpers", () => {
     expect(formatKey("minus")).toBe("-");
     expect(getKeyDisplay("p")).toBe("p");
@@ -347,6 +424,51 @@ describe("Stage 1 runtime seams", () => {
     expect(keyToCharacter("right_square_bracket")).toBe("]");
     expect(keyToCharacter("ctrl+space")).toBeNull();
     expect(keyToCharacter("unknown_key")).toBeNull();
+  });
+
+  it("exposes Key.character as null for non-character keys", () => {
+    expect(new Key("enter").character).toBeNull();
+    expect(new Key("a", "a").character).toBe("a");
+  });
+
+  it("throws DuplicateIds for duplicate widget ids", async () => {
+    const framework = new TextualFramework();
+    const first = new WidgetNode({
+      framework,
+      nodeId: "first",
+      parentId: null,
+      id: "dupe",
+      classes: [],
+      typeName: "First",
+      handlersRef: { current: undefined },
+      actionsRef: { current: undefined },
+      bindingsRef: { current: [] },
+      focusable: false,
+      autoFocus: false,
+      disabled: false,
+      loading: false,
+      tooltip: null,
+    });
+    const second = new WidgetNode({
+      framework,
+      nodeId: "second",
+      parentId: null,
+      id: "dupe",
+      classes: [],
+      typeName: "Second",
+      handlersRef: { current: undefined },
+      actionsRef: { current: undefined },
+      bindingsRef: { current: [] },
+      focusable: false,
+      autoFocus: false,
+      disabled: false,
+      loading: false,
+      tooltip: null,
+    });
+
+    framework.registerWidget(first);
+
+    expect(() => framework.registerWidget(second)).toThrow(DuplicateIds);
   });
 
   it("cleans up signal subscriptions when a widget unmounts", async () => {

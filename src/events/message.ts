@@ -1,9 +1,12 @@
+import { getActiveMessagePump } from "../services/concurrency.js";
+
 let nextMessageId = 1;
 
 export interface MessageConstructor<TMessage extends Message = Message> {
   new (...args: never[]): TMessage;
   readonly name: string;
   readonly canReplace?: boolean;
+  readonly verbose?: boolean;
   readonly noDispatch?: boolean;
   readonly namespace?: string;
   readonly ALLOW_SELECTOR_MATCH?: Iterable<string>;
@@ -14,6 +17,7 @@ export interface MessageInit {
   bubble?: boolean;
   sender?: unknown;
   forwarded?: boolean;
+  verbose?: boolean;
   noDispatch?: boolean;
 }
 
@@ -21,11 +25,13 @@ export class Message {
   static readonly namespace = "";
   static readonly ALLOW_SELECTOR_MATCH = new Set<string>();
   static readonly selectorAttribute: string | null = null;
+  static readonly verbose: boolean = false;
 
   readonly messageId = nextMessageId++;
   readonly bubble: boolean;
   readonly time = Date.now();
   readonly forwarded: boolean;
+  readonly verbose: boolean;
   sender: unknown;
   private propagationStopped = false;
   private defaultPrevented = false;
@@ -33,8 +39,9 @@ export class Message {
 
   constructor(init: MessageInit = {}) {
     this.bubble = init.bubble ?? true;
-    this.sender = init.sender ?? null;
+    this.sender = init.sender ?? getActiveMessageSender();
     this.forwarded = init.forwarded ?? false;
+    this.verbose = init.verbose ?? (this.constructor as MessageConstructor).verbose ?? false;
     this.noDispatchValue = init.noDispatch ?? (this.constructor as MessageConstructor).noDispatch ?? false;
   }
 
@@ -48,6 +55,10 @@ export class Message {
 
   get noDispatch(): boolean {
     return this.noDispatchValue;
+  }
+
+  get isForwarded(): boolean {
+    return this.forwarded;
   }
 
   stop(): void {
@@ -72,7 +83,7 @@ export class Message {
 
 export function messageHandlerNames(message: Message): string[] {
   const constructorName = message.constructor.name;
-  const namespace = ((message.constructor as MessageConstructor).namespace ?? "").trim();
+  const namespace = inferMessageNamespace(message);
   const legacyName = constructorName
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[-\s]+/g, "_")
@@ -90,6 +101,25 @@ export function messageHandlerNames(message: Message): string[] {
   // [LAW:one-source-of-truth] Handler name derivation comes from the message
   // class metadata so namespaced and plain messages share one resolution path.
   return namespace.length > 0
-    ? [`on${camelNamespace}${constructorName}`, `on_${snakeNamespace}_${legacyName}`]
+    ? [`on${camelNamespace}${constructorName}`, `on_${snakeNamespace}_${legacyName}`, `on${constructorName}`, `on_${legacyName}`]
     : [`on${constructorName}`, `on_${legacyName}`];
+}
+
+function getActiveMessageSender(): unknown {
+  try {
+    return getActiveMessagePump();
+  } catch {
+    return null;
+  }
+}
+
+function inferMessageNamespace(message: Message): string {
+  const explicitNamespace = ((message.constructor as MessageConstructor).namespace ?? "").trim();
+
+  if (explicitNamespace.length > 0) {
+    return explicitNamespace;
+  }
+
+  const senderTypeName = (message.sender as { typeName?: unknown } | null)?.typeName;
+  return typeof senderTypeName === "string" ? senderTypeName : "";
 }

@@ -93,6 +93,7 @@ export class WidgetNode {
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
+  lifecycleReady = false;
 
   constructor(init: WidgetNodeInit) {
     this.framework = init.framework;
@@ -166,8 +167,13 @@ export class WidgetNode {
   }
 
   setDisabled(value: boolean): void {
+    const wasDisabledEffective = this.isDisabledEffective;
     this.disabled = value;
     this.framework.refreshStyles(true);
+
+    if (!wasDisabledEffective && this.isDisabledEffective) {
+      this.framework.clearFocusWithin(this);
+    }
   }
 
   setLoading(value: boolean): void {
@@ -216,6 +222,12 @@ export class WidgetNode {
     let cumulativeScrollY = 0;
 
     for (const node of chain) {
+      // [LAW:one-source-of-truth] Child visibility is clipped by measured
+      // ancestor regions only; an unmeasured ancestor contributes no geometry.
+      if (node !== this && node.screenRegion.isEmpty) {
+        continue;
+      }
+
       const effectiveRegion = new Region(
         node.screenRegion.x - cumulativeScrollX,
         node.screenRegion.y - cumulativeScrollY,
@@ -270,8 +282,12 @@ export class WidgetNode {
     this.framework.focusWidget(this.nodeId);
   }
 
-  postMessage(message: Message): void {
-    this.framework.postMessage(this.nodeId, message);
+  get messageQueueSize(): number {
+    return this.framework.getMessageQueueSize(this.nodeId);
+  }
+
+  postMessage(message: Message): boolean {
+    return this.framework.postMessage(this.nodeId, message);
   }
 
   prevent<T>(messageType: MessageConstructor, callback: () => T): T;
@@ -279,6 +295,22 @@ export class WidgetNode {
   prevent<T>(messageTypes: MessageConstructor | MessageConstructor[], callback: () => T): T {
     const types = Array.isArray(messageTypes) ? messageTypes : [messageTypes];
     return this.framework.preventMessages(this.nodeId, types, callback);
+  }
+
+  disableMessages(...messageTypes: MessageConstructor[]): void {
+    this.framework.disableMessages(this.nodeId, messageTypes);
+  }
+
+  enableMessages(...messageTypes: MessageConstructor[]): void {
+    this.framework.enableMessages(this.nodeId, messageTypes);
+  }
+
+  markLifecycleReady(): void {
+    this.lifecycleReady = true;
+  }
+
+  markLifecyclePending(): void {
+    this.lifecycleReady = false;
   }
 
   updateScreenRegion(region: Region): void {
@@ -355,8 +387,8 @@ export class WidgetNode {
     return this.runWorker(work, options);
   }
 
-  createSignal<TValue>(): Signal<TValue> {
-    return this.framework.createSignal(this);
+  createSignal<TValue>(description = ""): Signal<TValue> {
+    return this.framework.createSignal(this, description);
   }
 
   setTimer(name: string, delayMs: number, callback: () => void): void {

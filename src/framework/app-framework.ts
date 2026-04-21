@@ -7,7 +7,10 @@ import {
   Blur,
   Callback,
   Click,
+  CloseMessages,
   Compose,
+  DescendantBlur,
+  DescendantFocus,
   Focus,
   Idle,
   Key,
@@ -15,12 +18,18 @@ import {
   Mount,
   MouseDown,
   MouseMove,
+  MouseScrollDown,
+  MouseScrollLeft,
+  MouseScrollRight,
+  MouseScrollUp,
   MouseUp,
   Paste,
+  Ready,
   Resize,
   ScreenResume,
   ScreenSuspend,
   ScrollEvent,
+  Timer,
   Unmount,
 } from "../events/events.js";
 import { Message, messageHandlerNames, type MessageConstructor } from "../events/message.js";
@@ -175,6 +184,7 @@ export interface BindingClash {
 
 type MessageSubscriber = (message: Message) => void;
 type AfterRefreshCallback = () => void;
+type LayoutReader = () => void;
 type DeferredCallback = {
   callback: () => void;
   prevention: PreventionSnapshot;
@@ -286,10 +296,6 @@ function parseStylesheetOrThrow(
   } catch (error) {
     throw new StylesheetError((error as Error).message, { cause: error as Error });
   }
-}
-
-function coerceWidgetNode(value: unknown): WidgetNode | null {
-  return value instanceof WidgetNode ? value : null;
 }
 
 function getMessageTypeDistance(message: Message, messageType: MessageConstructor): number | null {
@@ -439,12 +445,16 @@ export class TextualFramework {
   private readonly modeFactories = new Map<string, () => React.ReactElement>();
   private readonly installedScreens = new Map<string, ScreenFactoryRecord>();
   private readonly queue: QueuedMessage[] = [];
+  private readonly closedQueues = new Set<string | null>();
+  private readonly unmountingQueues = new Set<string>();
+  private readonly disabledMessageTypes = new Map<string | null, Set<MessageConstructor>>();
   private drainPromise: Promise<void> | null = null;
   private userStylesheets: ParsedStylesheet[] = [];
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
   private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
+  private readonly layoutReaders = new Map<string, LayoutReader>();
   private readonly nextCallbacks: DeferredCallback[] = [];
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
@@ -474,6 +484,8 @@ export class TextualFramework {
     typeName: "App",
   };
   private activePrevention: PreventionSnapshot = new Map();
+  private isClosing = false;
+  private readyMessagePosted = false;
   batchUpdateCount = 0;
   private pendingStyleRecalc = false;
   private pendingDrainAfterBatch = false;
@@ -521,11 +533,15 @@ export class TextualFramework {
       this,
       {
         queue: false,
+        closedQueues: false,
+        unmountingQueues: false,
+        disabledMessageTypes: false,
         drainPromise: false,
         widgetTypes: false,
         messageSubscribers: false,
         timers: false,
         afterRefreshCallbacks: false,
+        layoutReaders: false,
         nextCallbacks: false,
         afterRefreshRequester: false,
         signals: false,
@@ -748,7 +764,41 @@ export class TextualFramework {
 
   private isMessagePrevented(targetId: string | null, message: Message): boolean {
     const preventedTypes = this.activePrevention.get(targetId) ?? new Set<MessageConstructor>();
-    return Array.from(preventedTypes).some((messageType) => message instanceof messageType);
+    return preventedTypes.has(message.constructor as MessageConstructor);
+  }
+
+  disableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
+    const disabled = this.disabledMessageTypes.get(targetId) ?? new Set<MessageConstructor>();
+
+    for (const messageType of messageTypes) {
+      disabled.add(messageType);
+    }
+
+    // [LAW:single-enforcer] Long-lived message suppression is stored in the
+    // framework queue gate so every posting path shares exact-type matching.
+    this.disabledMessageTypes.set(targetId, disabled);
+  }
+
+  enableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
+    const disabled = this.disabledMessageTypes.get(targetId);
+
+    if (disabled === undefined) {
+      return;
+    }
+
+    for (const messageType of messageTypes) {
+      disabled.delete(messageType);
+    }
+
+    if (disabled.size === 0) {
+      this.disabledMessageTypes.delete(targetId);
+    }
+  }
+
+  private isMessageTypeDisabled(targetId: string | null, message: Message): boolean {
+    return (this.disabledMessageTypes.get(targetId) ?? new Set<MessageConstructor>()).has(
+      message.constructor as MessageConstructor,
+    );
   }
 
   startup(): void {
@@ -756,6 +806,8 @@ export class TextualFramework {
       return;
     }
 
+    this.isClosing = false;
+    this.closedQueues.delete(null);
     this.isRunning = true;
     this.signals.app_resume_signal.publish(undefined);
 
@@ -766,13 +818,20 @@ export class TextualFramework {
     if (this.focusedNodeId === null) {
       this.scheduleActiveScreenFocusResolution(true);
     }
+
+    if (!this.readyMessagePosted) {
+      this.readyMessagePosted = true;
+      this.emitBroadcast(new Ready());
+    }
   }
 
   shutdown(): void {
-    this.batchUpdateCount = Math.max(1, this.batchUpdateCount);
+    this.isClosing = true;
+    this.closeAllMessageQueues(false);
+    this.batchUpdateCount = 0;
     this.pendingStyleRecalc = false;
     this.pendingDrainAfterBatch = false;
-    this.queue.length = 0;
+    this.discardQueuedCallbacks();
     this.focusedNodeId = null;
     this.hoveredNodeId = null;
     this.workers.cancelAll();
@@ -787,6 +846,7 @@ export class TextualFramework {
     this.blurredFocusAddress = null;
     this.focusChangedWhileBlurred = false;
     this.isRunning = false;
+    this.emitBroadcast(new CloseMessages());
     this.signals.app_suspend_signal.publish(undefined);
   }
 
@@ -837,6 +897,8 @@ export class TextualFramework {
   }
 
   registerWidget(widget: WidgetNode): void {
+    this.closedQueues.delete(widget.nodeId);
+    this.unmountingQueues.delete(widget.nodeId);
     this.registry.register(widget);
 
     if (widget.autoFocus) {
@@ -848,12 +910,16 @@ export class TextualFramework {
     if (this.isRunning) {
       this.enqueueLifecycleMessages(widget);
     }
+
+    widget.markLifecycleReady();
   }
 
   notifyWillUnmount(widget: WidgetNode): void {
+    this.unmountingQueues.add(widget.nodeId);
     this.workers.cancelNode(widget.nodeId);
     this.clearNodeTimers(widget.nodeId);
     this.handleWidgetWillUnmount(widget);
+    this.closeMessageQueue(widget.nodeId);
 
     void this.dispatchQueuedMessage({
       targetId: null,
@@ -877,11 +943,33 @@ export class TextualFramework {
     for (const signal of this.signalRegistry) {
       signal.pruneNode(nodeId);
     }
+    this.disabledMessageTypes.delete(nodeId);
+    this.unmountingQueues.delete(nodeId);
+    this.closedQueues.add(nodeId);
     this.recalculateStyles();
   }
 
   focusWidget(nodeId: string | null): void {
     this.applyFocusChange(nodeId, { markBlurOverride: true });
+  }
+
+  clearFocusWithin(container: WidgetNode): void {
+    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
+
+    if (focused === undefined) {
+      return;
+    }
+
+    let current: WidgetNode | undefined = focused;
+
+    while (current !== undefined) {
+      if (current.nodeId === container.nodeId) {
+        this.focusWidget(null);
+        return;
+      }
+
+      current = current.parent;
+    }
   }
 
   getFocusChain(): WidgetNode[] {
@@ -1172,9 +1260,21 @@ export class TextualFramework {
     return this.queue.length;
   }
 
-  postMessage(targetId: string, message: Message): void {
-    if (this.isMessagePrevented(targetId, message)) {
-      return;
+  getMessageQueueSize(targetId: string | null): number {
+    return this.queue.filter((queued) => queued.targetId === targetId || queued.targetNode?.nodeId === targetId).length;
+  }
+
+  postMessage(targetId: string, message: Message): boolean {
+    const target = this.registry.get(targetId);
+
+    if (
+      target === undefined ||
+      this.closedQueues.has(targetId) ||
+      this.unmountingQueues.has(targetId) ||
+      this.isMessagePrevented(targetId, message) ||
+      this.isMessageTypeDisabled(targetId, message)
+    ) {
+      return false;
     }
 
     const replacementIndex = this.queue.findIndex(
@@ -1188,13 +1288,14 @@ export class TextualFramework {
     if (replacementIndex >= 0) {
       this.queue.splice(replacementIndex, 1, {
         targetId,
-        message: this.withSender(message, this.registry.get(targetId)),
+        message: this.withSender(message, target),
       });
     } else {
-      this.queue.push({ targetId, message: this.withSender(message, this.registry.get(targetId)) });
+      this.queue.push({ targetId, message: this.withSender(message, target) });
     }
 
     this.scheduleDrain();
+    return true;
   }
 
   dispatchMessage(message: Message): void {
@@ -1230,7 +1331,7 @@ export class TextualFramework {
       return;
     }
 
-    this.postToFocused(new Key(fullKey, normalized.character ?? "", meta));
+    this.postToFocused(new Key(fullKey, normalized.character, meta));
   }
 
   postClick(x: number, y: number, chain = 1): void {
@@ -1389,11 +1490,12 @@ export class TextualFramework {
     return this.registry.get(widget.nodeId) === widget;
   }
 
-  createSignal<TValue>(owner: WidgetNode): Signal<TValue> {
+  createSignal<TValue>(owner: WidgetNode, description = ""): Signal<TValue> {
     const signal = new Signal<TValue>(
       () => this.isNodeMounted(owner),
       (node) => this.isNodeMounted(node),
       (callback) => this.callLater(callback),
+      description,
     );
     this.signalRegistry.add(signal as Signal<unknown>);
     return signal;
@@ -1564,7 +1666,9 @@ export class TextualFramework {
     }
 
     try {
-      if (getActiveMessagePump() === this) {
+      const activePump = getActiveMessagePump();
+
+      if (activePump === this || (activePump instanceof WidgetNode && activePump.framework === this)) {
         throw new RuntimeError("callFromThread must be called from a foreign thread");
       }
     } catch (error) {
@@ -1638,6 +1742,17 @@ export class TextualFramework {
 
   recordDisplayPass(): void {
     this.displayCount += 1;
+    this.syncWidgetLayoutReaders();
+  }
+
+  registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {
+    this.layoutReaders.set(nodeId, reader);
+
+    return () => {
+      if (this.layoutReaders.get(nodeId) === reader) {
+        this.layoutReaders.delete(nodeId);
+      }
+    };
   }
 
   flushAfterRefreshCallbacks(): void {
@@ -1707,8 +1822,9 @@ export class TextualFramework {
     }
 
     const coordinates = resolved.targetNode === undefined ? { x: resolved.x, y: resolved.y } : resolved;
-    this.postMessage(dispatchTarget.nodeId, createMessage(coordinates.x, coordinates.y));
-    return dispatchTarget;
+    return this.postMessage(dispatchTarget.nodeId, createMessage(coordinates.x, coordinates.y))
+      ? dispatchTarget
+      : undefined;
   }
 
   private markPendingPointerClick(dispatchTarget: WidgetNode | undefined): void {
@@ -2268,6 +2384,50 @@ export class TextualFramework {
     this.scheduleDrain();
   }
 
+  private closeMessageQueue(targetId: string | null): void {
+    this.closedQueues.add(targetId);
+    // [LAW:one-source-of-truth] Queue closure owns pending-message pruning so
+    // unmount and shutdown do not each invent their own stale-message cleanup.
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const queued = this.queue[index];
+
+      const targetsClosedQueue =
+        targetId === null
+          ? queued?.targetId === null && queued.targetNode === undefined
+          : queued?.targetId === targetId || queued?.targetNode?.nodeId === targetId;
+
+      if (targetsClosedQueue) {
+        this.queue.splice(index, 1);
+      }
+    }
+  }
+
+  private closeAllMessageQueues(prune = true): void {
+    if (prune) {
+      this.closeMessageQueue(null);
+    } else {
+      this.closedQueues.add(null);
+    }
+
+    for (const widget of this.registry.list()) {
+      if (prune) {
+        this.closeMessageQueue(widget.nodeId);
+      } else {
+        this.closedQueues.add(widget.nodeId);
+      }
+    }
+  }
+
+  private discardQueuedCallbacks(): void {
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      if (this.queue[index]?.message instanceof Callback) {
+        this.queue.splice(index, 1);
+      }
+    }
+
+    this.nextCallbacks.length = 0;
+  }
+
   // ---- Action dispatch --------------------------------------------------
 
   private resolveActionTarget(
@@ -2383,7 +2543,7 @@ export class TextualFramework {
     this.handleBindingsClash(clashes, namespace);
   }
 
-  private notifyBindingsUpdated(): void {
+  notifyBindingsUpdated(): void {
     this.syncActiveBindingClashes();
     this.signals.bindings_updated_signal.publish(undefined);
   }
@@ -2608,8 +2768,21 @@ export class TextualFramework {
       }
 
       if (message instanceof Callback) {
+        if (this.isClosing) {
+          return;
+        }
+
         // [LAW:single-enforcer] Callback execution is attached to queued
         // message dispatch so deferred work follows the same lifecycle boundary.
+        message.invoke();
+        return;
+      }
+
+      if (message instanceof Timer) {
+        if (this.isClosing) {
+          return;
+        }
+
         message.invoke();
         return;
       }
@@ -2631,7 +2804,7 @@ export class TextualFramework {
         const matchingHandlers = this.resolveHandlers(handlers, message);
 
         for (const handler of matchingHandlers) {
-          await handler(message);
+          await runWithActiveMessagePump(currentNode, () => handler(message));
 
           // [LAW:single-enforcer] preventDefault semantics are enforced in the
           // dispatcher so every handler path shares the same local short-circuit.
@@ -2656,7 +2829,13 @@ export class TextualFramework {
           return;
         }
 
-        currentNode = currentNode.parentId === null ? undefined : this.registry.get(currentNode.parentId);
+        const parentNode = currentNode.parentId === null ? undefined : this.registry.get(currentNode.parentId);
+
+        if (parentNode !== undefined && parentNode === message.sender) {
+          return;
+        }
+
+        currentNode = parentNode;
       }
 
       if (message instanceof Key && !message.isPropagationStopped) {
@@ -2665,6 +2844,10 @@ export class TextualFramework {
         }
       }
     } finally {
+      if (message instanceof Mount && targetNode !== undefined) {
+        targetNode.markLifecycleReady();
+      }
+
       // [LAW:one-source-of-truth] Message observation is published from one
       // boundary so tests and tooling share the same dispatch transcript.
       for (const subscriber of this.messageSubscribers) {
@@ -2725,7 +2908,7 @@ export class TextualFramework {
 
     // [LAW:single-enforcer] Direct key-handler dispatch resolves aliases and
     // conflict detection in one place so widgets don't re-implement it.
-    const result = await handler.callable(message);
+    const result = await runWithActiveMessagePump(message.sender ?? this, () => handler.callable(message));
     return result !== false;
   }
 
@@ -2822,12 +3005,28 @@ export class TextualFramework {
     // [LAW:one-source-of-truth] Positional on() matching reads the one
     // declared selector attribute instead of guessing between sender/control.
     const messageAttributes = message as Message & Record<string, unknown>;
-    return coerceWidgetNode(messageAttributes[selectorAttribute]);
+    return this.resolveOnSelectorTarget(messageAttributes[selectorAttribute], selectorAttribute);
   }
 
   private getOnAttributeTarget(message: Message, attribute: string): WidgetNode | null {
     const messageAttributes = message as Message & Record<string, unknown>;
-    return coerceWidgetNode(messageAttributes[attribute]);
+    return this.resolveOnSelectorTarget(messageAttributes[attribute], attribute);
+  }
+
+  private resolveOnSelectorTarget(value: unknown, attribute: string): WidgetNode | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    if (!(value instanceof WidgetNode)) {
+      throw new Error(`Message selector attribute "${attribute}" is not a widget`);
+    }
+
+    if (this.registry.get(value.nodeId) !== value) {
+      throw new Error(`Message selector attribute "${attribute}" is not a registered widget`);
+    }
+
+    return value;
   }
 
   private getOnRegistrationGroupSignature(registration: OnHandlerRegistration): string {
@@ -2889,6 +3088,7 @@ export class TextualFramework {
       () => this.isRunning,
       (node) => this.isNodeMounted(node),
       (callback) => this.callLater(callback),
+      "framework",
     );
     this.signalRegistry.add(signal as Signal<unknown>);
     return signal;
@@ -2914,12 +3114,14 @@ export class TextualFramework {
 
     if (previousNode !== undefined) {
       this.enqueueDirectMessage(previousNode, new Blur({ bubble: false }));
+      this.enqueueDirectMessage(previousNode, new DescendantBlur());
     }
 
     const nextNode = nodeId === null ? undefined : this.registry.get(nodeId);
 
     if (nextNode !== undefined) {
       this.enqueueDirectMessage(nextNode, new Focus({ bubble: false }));
+      this.enqueueDirectMessage(nextNode, new DescendantFocus());
     }
 
     this.notifyBindingsUpdated();
@@ -2954,6 +3156,10 @@ export class TextualFramework {
   private scheduleActiveScreenFocusResolution(allowAutoFocus: boolean): void {
     this.callAfterRefresh(() => {
       if (this.isAppBlurred) {
+        return;
+      }
+
+      if (this.focusedNodeId !== null) {
         return;
       }
 
@@ -3088,7 +3294,11 @@ export class TextualFramework {
       delayMs,
       () => {
         if (this.isNodeMounted(node)) {
-          callback();
+          void this.dispatchQueuedMessage({
+            targetId: null,
+            targetNode: node,
+            message: this.withSender(new Timer(callback), node),
+          });
         }
       },
       repeating,
@@ -3121,6 +3331,14 @@ export class TextualFramework {
     }
 
     this.timers.clear();
+  }
+
+  private syncWidgetLayoutReaders(): void {
+    // [LAW:one-source-of-truth] Ink layout measurement is centralized here so
+    // stale sibling or ancestor geometry cannot become a second spatial truth.
+    for (const reader of this.layoutReaders.values()) {
+      reader();
+    }
   }
 
   private pauseAllTimers(): void {
@@ -3256,7 +3474,7 @@ function shouldSuppressAtNode(node: WidgetNode, message: Message): boolean {
   }
 
   if (node.isDisabledEffective) {
-    return isUserInputMessage(message) && !(message instanceof ScrollEvent);
+    return isUserInputMessage(message) && !isScrollInputMessage(message);
   }
 
   return false;
@@ -3269,6 +3487,19 @@ function isUserInputMessage(message: Message): boolean {
   if (message instanceof MouseUp) return true;
   if (message instanceof MouseMove) return true;
   if (message instanceof ScrollEvent) return true;
+  if (message instanceof MouseScrollUp) return true;
+  if (message instanceof MouseScrollDown) return true;
+  if (message instanceof MouseScrollLeft) return true;
+  if (message instanceof MouseScrollRight) return true;
+  return false;
+}
+
+function isScrollInputMessage(message: Message): boolean {
+  if (message instanceof ScrollEvent) return true;
+  if (message instanceof MouseScrollUp) return true;
+  if (message instanceof MouseScrollDown) return true;
+  if (message instanceof MouseScrollLeft) return true;
+  if (message instanceof MouseScrollRight) return true;
   return false;
 }
 

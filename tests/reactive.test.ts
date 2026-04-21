@@ -212,6 +212,72 @@ class ComputeConflictHost extends ReactiveHost {
   }
 }
 
+class SideEffectHost extends ReactiveHost {
+  static readonly definitions = {
+    active: reactive(false, {
+      toggleClass: "active",
+      layout: true,
+      repaint: true,
+      bindings: true,
+      recompose: true,
+    }),
+  };
+
+  readonly calls: string[] = [];
+
+  constructor() {
+    super();
+    this.initializeReactiveState(SideEffectHost.definitions);
+  }
+
+  toggleClass(className: string, enabled: boolean): void {
+    this.calls.push(`class:${className}:${enabled}`);
+  }
+
+  refresh(repaint: boolean, layout: boolean, recompose: boolean): void {
+    this.calls.push(`refresh:${repaint}:${layout}:${recompose}`);
+  }
+
+  recompose(name: string): void {
+    this.calls.push(`recompose:${name}`);
+  }
+}
+
+class ParentHost extends ReactiveHost {
+  static readonly definitions = {
+    value: reactive("parent"),
+  };
+
+  constructor() {
+    super();
+    this.initializeReactiveState(ParentHost.definitions);
+  }
+}
+
+class ChildHost extends ReactiveHost {
+  static readonly definitions = {
+    value: reactive("child"),
+  };
+
+  constructor(parent: ReactiveHost | null = null) {
+    super();
+    this.setReactiveBindingParent(parent);
+    this.initializeReactiveState(ChildHost.definitions);
+  }
+}
+
+class PreInitAssignmentHost extends ReactiveHost {
+  static readonly definitions = {
+    value: reactive(1),
+  };
+
+  constructor() {
+    super();
+    (this as PreInitAssignmentHost & { value: number }).value = 2;
+    this.initializeReactiveState(PreInitAssignmentHost.definitions);
+  }
+}
+
 describe("reactive pipeline", () => {
   it("runs validator, store, watcher, and compute in order", () => {
     const host = new CounterHost();
@@ -393,5 +459,45 @@ describe("reactive pipeline", () => {
     expect(() => {
       (host as CounterHost & { double: number }).double = 99;
     }).toThrow(/read-only/);
+  });
+
+  it("runs reactive side effects on initialization, assignment, and mutateReactive", () => {
+    const host = new SideEffectHost();
+
+    expect(host.calls).toEqual([
+      "class:active:false",
+      "refresh:true:true:true",
+      "recompose:active",
+    ]);
+
+    host.calls.length = 0;
+    runInAction(() => {
+      host.active = true;
+    });
+    host.mutateReactive("active");
+
+    expect(host.calls).toEqual([
+      "class:active:true",
+      "refresh:true:true:true",
+      "recompose:active",
+      "class:active:true",
+      "refresh:true:true:true",
+      "recompose:active",
+    ]);
+  });
+
+  it("supports positional same-name dataBind and enforces ancestor ownership when declared", () => {
+    const parent = new ParentHost();
+    const child = new ChildHost(parent);
+
+    child.dataBind(reactiveSource(parent, "value"));
+
+    expect(child.value).toBe("parent");
+    expect(() => child.dataBind(reactiveSource(child, "value"))).toThrow(ReactiveError);
+    expect(() => new ChildHost(parent).dataBind(reactiveSource(new ParentHost(), "value"))).toThrow(ReactiveError);
+  });
+
+  it("fails fast on reactive assignment before initialization", () => {
+    expect(() => new PreInitAssignmentHost()).toThrow(ReactiveError);
   });
 });

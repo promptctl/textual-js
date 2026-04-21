@@ -7,7 +7,8 @@ export class SignalError extends Error {}
 export type SignalCallback<TValue> = (value: TValue) => void;
 
 interface SignalSubscriber<TValue> {
-  node: WidgetNode;
+  nodeId: string;
+  nodeRef: WeakRef<WidgetNode>;
   callbacks: Array<{
     callback: SignalCallback<TValue>;
     immediate: boolean;
@@ -16,28 +17,65 @@ interface SignalSubscriber<TValue> {
 
 export class Signal<TValue> {
   private readonly subscribers = observable.map<string, SignalSubscriber<TValue>>();
+  readonly description: string;
+
+  constructor(owner: WidgetNode, description: string);
 
   constructor(
-    private readonly isOwnerMounted: () => boolean,
-    private readonly isNodeMounted: (node: WidgetNode) => boolean,
-    private readonly scheduleCallback: (callback: () => void) => void,
+    isOwnerMounted: () => boolean,
+    isNodeMounted: (node: WidgetNode) => boolean,
+    scheduleCallback: (callback: () => void) => void,
+    description?: string,
+  );
+
+  constructor(
+    ownerOrIsOwnerMounted: WidgetNode | (() => boolean),
+    isNodeMountedOrDescription: ((node: WidgetNode) => boolean) | string,
+    scheduleCallback?: (callback: () => void) => void,
+    description = "",
   ) {
+    const owner = ownerOrIsOwnerMounted instanceof Object && "framework" in ownerOrIsOwnerMounted
+      ? ownerOrIsOwnerMounted as WidgetNode
+      : null;
+
+    this.isOwnerMounted = owner === null
+      ? ownerOrIsOwnerMounted as () => boolean
+      : () => owner.framework.isNodeMounted(owner);
+    this.isNodeMounted = owner === null
+      ? isNodeMountedOrDescription as (node: WidgetNode) => boolean
+      : (node: WidgetNode) => owner.framework.isNodeMounted(node);
+    this.scheduleCallback = owner === null
+      ? scheduleCallback ?? ((callback) => callback())
+      : (callback) => owner.framework.callLater(callback);
+    this.description = owner === null ? description : isNodeMountedOrDescription as string;
+
     makeAutoObservable(
       this,
       {
         subscribers: false,
+        isOwnerMounted: false,
+        isNodeMounted: false,
+        scheduleCallback: false,
         toString: false,
       } as never,
       { autoBind: true },
     );
   }
 
+  private readonly isOwnerMounted: () => boolean;
+  private readonly isNodeMounted: (node: WidgetNode) => boolean;
+  private readonly scheduleCallback: (callback: () => void) => void;
+
   subscribe(node: WidgetNode, callback: SignalCallback<TValue>, immediate = false): () => void {
     if (!this.isNodeMounted(node)) {
       throw new SignalError(`Cannot subscribe unmounted widget "${node.nodeId}"`);
     }
 
-    const existing = this.subscribers.get(node.nodeId) ?? { node, callbacks: [] };
+    const existing = this.subscribers.get(node.nodeId) ?? {
+      nodeId: node.nodeId,
+      nodeRef: new WeakRef(node),
+      callbacks: [],
+    };
     runInAction(() => {
       existing.callbacks.push({ callback, immediate });
       this.subscribers.set(node.nodeId, existing);
@@ -76,7 +114,9 @@ export class Signal<TValue> {
     }
 
     for (const [nodeId, subscriber] of this.subscribers.entries()) {
-      if (!this.isNodeMounted(subscriber.node)) {
+      const node = subscriber.nodeRef.deref();
+
+      if (node === undefined || !this.isNodeMounted(node)) {
         this.subscribers.delete(nodeId);
         continue;
       }
@@ -84,7 +124,9 @@ export class Signal<TValue> {
       for (const entry of subscriber.callbacks) {
         const invoke = (): void => {
           try {
-            if (this.isNodeMounted(subscriber.node)) {
+            const currentNode = subscriber.nodeRef.deref();
+
+            if (currentNode !== undefined && this.isNodeMounted(currentNode)) {
               entry.callback(value);
             }
           } catch (error) {
@@ -102,6 +144,6 @@ export class Signal<TValue> {
   }
 
   toString(): string {
-    return `Signal(subscribers=${this.subscribers.size})`;
+    return `Signal(${this.description}, subscribers=${this.subscribers.size})`;
   }
 }

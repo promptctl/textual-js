@@ -49,7 +49,7 @@ export class WidgetRegistry {
       // [LAW:single-enforcer] Duplicate CSS ids are rejected only here so every
       // registration path shares one invariant boundary.
       if (existingNodeId !== undefined && existingNodeId !== widget.nodeId) {
-        throw new Error(`Duplicate widget id "${widget.id}"`);
+        throw new DuplicateIds(`Duplicate widget id "${widget.id}"`);
       }
 
       this.cssIds.set(widget.id, widget.nodeId);
@@ -180,3 +180,5 @@ export class WidgetRegistry {
     return this.list().find((entry) => entry.focusable) ?? this.list()[0];
   }
 }
+
+export class DuplicateIds extends Error {}

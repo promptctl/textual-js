@@ -49,6 +49,7 @@ export { DOMQuery, DeclarationError, NoMatches, TooManyMatches, WrongType, type 
 export { OnDecoratorError, on, type OnOptions } from "./on.js";
 export {
   WidgetRegistry,
+  DuplicateIds,
   type WidgetActionCallback,
   type WidgetActions,
   type WidgetCheckAction,

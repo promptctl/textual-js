@@ -125,11 +125,17 @@ function isAsyncWatcher(watcher: (...args: unknown[]) => unknown): boolean {
 export abstract class ReactiveHost {
   private readonly reactiveBoxes = new Map<string, IObservableValue<unknown>>();
   private readonly computedValues = new Map<string, IComputedValue<unknown>>();
-  private readonly externalWatchers = new Map<string, Set<ReactiveWatcher<unknown>>>();
+  private readonly externalWatchers = new Map<string, Map<ReactiveWatcher<unknown>, ReactiveHost>>();
   private readonly reactiveDefinitions = new Map<string, ReactiveDefinition<unknown>>();
+  private reactiveBindingParent: ReactiveHost | null = null;
+  private readonly bindingCleanups = new Set<() => void>();
   private readonly silentReactiveNames = new Set<string>();
   private silentMutationDepth = 0;
   private initialized = false;
+
+  constructor() {
+    this.installPreInitializationGuards(this.collectReactiveDefinitions({}));
+  }
 
   protected initializeReactiveState(definitions: ReactiveDefinitions): void {
     if (this.initialized) {
@@ -139,6 +145,12 @@ export abstract class ReactiveHost {
     const pendingInitNotifications: Array<{ name: string; value: unknown }> = [];
 
     for (const [name, definition] of this.collectReactiveDefinitions(definitions).entries()) {
+      const propertyDescriptor = Object.getOwnPropertyDescriptor(this, name);
+
+      if (propertyDescriptor !== undefined && propertyDescriptor.set === undefined) {
+        throw new ReactiveError(`Reactive "${name}" was assigned before reactive initialization completed`);
+      }
+
       this.reactiveDefinitions.set(name, definition);
       const initialValue = this.applyValidators(name, this.resolveDefaultValue(definition.defaultValue));
       const box = observable.box(initialValue, {
@@ -170,7 +182,7 @@ export abstract class ReactiveHost {
           return;
         }
 
-        this.notifyWatchers(name, change.oldValue, change.newValue);
+        this.runReactiveSideEffects(name, change.oldValue, change.newValue);
       });
 
       if (definition.options.init) {
@@ -182,8 +194,20 @@ export abstract class ReactiveHost {
     this.initialized = true;
 
     for (const notification of pendingInitNotifications) {
-      this.notifyWatchers(notification.name, notification.value, notification.value);
+      this.runReactiveSideEffects(notification.name, notification.value, notification.value);
     }
+  }
+
+  setReactiveBindingParent(parent: ReactiveHost | null): void {
+    this.reactiveBindingParent = parent;
+  }
+
+  disposeReactiveBindings(): void {
+    for (const cleanup of this.bindingCleanups) {
+      cleanup();
+    }
+
+    this.bindingCleanups.clear();
   }
 
   watch<T>(name: string, callback: ReactiveWatcher<T>, options?: ReactiveWatchOptions): () => void;
@@ -206,17 +230,26 @@ export abstract class ReactiveHost {
       throw new ReactiveError("watch requires a reactive name and callback");
     }
 
-    return target.addExternalWatcher(name, callback, watchOptions);
+    return target.addExternalWatcher(name, callback, watchOptions, this);
   }
 
-  dataBind(bindings: Record<string, ReactiveBindingSource<unknown> | unknown>): () => void {
+  dataBind(...sources: ReactiveBindingSource<unknown>[]): () => void;
+  dataBind(bindings: Record<string, ReactiveBindingSource<unknown> | unknown>): () => void;
+  dataBind(
+    bindingsOrSource: Record<string, ReactiveBindingSource<unknown> | unknown> | ReactiveBindingSource<unknown>,
+    ...additionalSources: ReactiveBindingSource<unknown>[]
+  ): () => void {
     const unsubscribeCallbacks: Array<() => void> = [];
+    const bindingEntries = isReactiveBindingSource(bindingsOrSource)
+      ? [bindingsOrSource, ...additionalSources].map((source) => [source.name, source] as const)
+      : Object.entries(bindingsOrSource);
 
-    for (const [targetName, source] of Object.entries(bindings)) {
+    for (const [targetName, source] of bindingEntries) {
       this.assertWritableReactive(targetName);
 
       if (isReactiveBindingSource(source)) {
         source.host.assertReadableReactive(source.name);
+        this.assertBindingSourceAllowed(source);
 
         // [LAW:one-source-of-truth] Cross-host bindings subscribe to the source
         // host's reactive stream directly, so synchronization derives from the
@@ -227,22 +260,33 @@ export abstract class ReactiveHost {
         continue;
       }
 
-      this.applyBoundValue(targetName, source);
+      this.scheduleReactiveDelivery(() => {
+        this.applyBoundValue(targetName, source);
+      });
     }
 
-    return () => {
+    const cleanup = () => {
       for (const unsubscribe of unsubscribeCallbacks) {
         unsubscribe();
       }
+      this.bindingCleanups.delete(cleanup);
     };
+
+    this.bindingCleanups.add(cleanup);
+    return cleanup;
   }
 
-  private addExternalWatcher<T>(name: string, callback: ReactiveWatcher<T>, options: ReactiveWatchOptions = {}): () => void {
+  private addExternalWatcher<T>(
+    name: string,
+    callback: ReactiveWatcher<T>,
+    options: ReactiveWatchOptions = {},
+    owner: ReactiveHost = this,
+  ): () => void {
     this.assertReadableReactive(name);
-    const watchers = this.externalWatchers.get(name) ?? new Set<ReactiveWatcher<unknown>>();
+    const watchers = this.externalWatchers.get(name) ?? new Map<ReactiveWatcher<unknown>, ReactiveHost>();
     const sizeBefore = watchers.size;
 
-    watchers.add(callback as ReactiveWatcher<unknown>);
+    watchers.set(callback as ReactiveWatcher<unknown>, owner);
     this.externalWatchers.set(name, watchers);
 
     if (options.init && watchers.size > sizeBefore) {
@@ -278,7 +322,7 @@ export abstract class ReactiveHost {
 
   mutateReactive(name: string): void {
     const currentValue = this.readReactiveValue(name);
-    this.notifyWatchers(name, currentValue, currentValue);
+    this.runReactiveSideEffects(name, currentValue, currentValue);
   }
 
   private applyBoundValue(name: string, value: unknown): void {
@@ -316,7 +360,7 @@ export abstract class ReactiveHost {
             return;
           }
 
-          this.notifyWatchers(name, previousValue, nextValue);
+          this.runReactiveSideEffects(name, previousValue, nextValue);
         },
       );
     }
@@ -409,10 +453,20 @@ export abstract class ReactiveHost {
     return publicValidator === undefined ? validatedPrivate : publicValidator(validatedPrivate);
   }
 
+  private runReactiveSideEffects(name: string, oldValue: unknown, newValue: unknown): void {
+    const definition = this.reactiveDefinitions.get(name);
+
+    this.notifyWatchers(name, oldValue, newValue);
+
+    if (definition !== undefined) {
+      this.applyReactiveOptions(name, definition.options, newValue);
+    }
+  }
+
   private notifyWatchers(name: string, oldValue: unknown, newValue: unknown): void {
     const privateWatcher = findNamedMethod(this, candidateMethodNames("_watch", name));
     const publicWatcher = findNamedMethod(this, candidateMethodNames("watch", name));
-    const externalWatchers = this.externalWatchers.get(name) ?? new Set<ReactiveWatcher<unknown>>();
+    const externalWatchers = this.externalWatchers.get(name) ?? new Map<ReactiveWatcher<unknown>, ReactiveHost>();
 
     // [LAW:single-enforcer] MobX observation is the single boundary that invokes
     // watchers, so ordering stays centralized and doesn't drift across callsites.
@@ -422,8 +476,124 @@ export abstract class ReactiveHost {
       }
     }
 
-    for (const watcher of externalWatchers) {
+    for (const [watcher, owner] of externalWatchers) {
+      if (!owner.isReactiveOwnerMounted()) {
+        externalWatchers.delete(watcher);
+        continue;
+      }
+
       this.dispatchWatcher(watcher as (...args: unknown[]) => unknown, oldValue, newValue);
+    }
+  }
+
+  private applyReactiveOptions(name: string, options: Required<ReactiveOptions>, newValue: unknown): void {
+    if (options.toggleClass !== null) {
+      this.toggleReactiveClass(options.toggleClass, Boolean(newValue));
+    }
+
+    if (options.repaint || options.layout || options.recompose) {
+      this.refreshReactive(options.repaint, options.layout, options.recompose);
+    }
+
+    if (options.bindings) {
+      this.refreshReactiveBindings();
+    }
+
+    if (options.recompose) {
+      this.recomposeReactiveChildren(name);
+    }
+  }
+
+  protected refreshReactive(repaint: boolean, layout: boolean, recompose: boolean): void {
+    const refresh = (this as { refresh?: (repaint?: boolean, layout?: boolean, recompose?: boolean) => void }).refresh;
+    refresh?.call(this, repaint, layout, recompose);
+  }
+
+  protected refreshReactiveBindings(): void {
+    const framework = (this as { framework?: { notifyBindingsUpdated?: () => void } }).framework;
+    framework?.notifyBindingsUpdated?.();
+  }
+
+  protected toggleReactiveClass(className: string, enabled: boolean): void {
+    const toggleClass = (this as { toggleClass?: (className: string, enabled: boolean) => void }).toggleClass;
+    toggleClass?.call(this, className, enabled);
+  }
+
+  protected recomposeReactiveChildren(name: string): void {
+    const recompose = (this as { recompose?: (name: string) => void }).recompose;
+    recompose?.call(this, name);
+  }
+
+  protected isReactiveOwnerMounted(): boolean {
+    const mounted = (this as { isMounted?: boolean }).isMounted;
+
+    if (typeof mounted === "boolean") {
+      return mounted;
+    }
+
+    const maybeWidget = this as {
+      framework?: { isNodeMounted?: (node: unknown) => boolean };
+      nodeId?: string;
+    };
+
+    if (maybeWidget.framework?.isNodeMounted !== undefined && typeof maybeWidget.nodeId === "string") {
+      return maybeWidget.framework.isNodeMounted(this);
+    }
+
+    return true;
+  }
+
+  private scheduleReactiveDelivery(callback: () => void): void {
+    const framework = (this as { framework?: { callLater?: (callback: () => void) => void } }).framework;
+
+    if (framework?.callLater !== undefined) {
+      framework.callLater(callback);
+      return;
+    }
+
+    queueMicrotask(callback);
+  }
+
+  private assertBindingSourceAllowed(source: ReactiveBindingSource<unknown>): void {
+    const ancestors = this.getReactiveAncestorHosts();
+
+    if (ancestors.length === 0) {
+      return;
+    }
+
+    if (source.host === this || source.host.constructor === this.constructor || !ancestors.includes(source.host)) {
+      throw new ReactiveError(`Reactive binding source "${source.name}" must come from an ancestor`);
+    }
+  }
+
+  private getReactiveAncestorHosts(): ReactiveHost[] {
+    const ancestors: ReactiveHost[] = [];
+    let current = this.reactiveBindingParent;
+
+    while (current !== null) {
+      ancestors.push(current);
+      current = current.reactiveBindingParent;
+    }
+
+    return ancestors;
+  }
+
+  private installPreInitializationGuards(definitions: Map<string, ReactiveDefinition<unknown>>): void {
+    for (const name of definitions.keys()) {
+      if (Object.prototype.hasOwnProperty.call(this, name)) {
+        continue;
+      }
+
+      Object.defineProperty(this, name, {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          throw new ReactiveError(`Reactive "${name}" was read before reactive initialization completed`);
+        },
+        set: () => {
+          throw new ReactiveError(`Reactive "${name}" was assigned before reactive initialization completed`);
+        },
+      });
     }
   }
 

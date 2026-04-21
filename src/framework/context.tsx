@@ -77,8 +77,9 @@ export interface UseWidgetOptions {
 export interface UseWidgetResult {
   nodeId: string;
   isFocused: boolean;
+  lifecycleReady: boolean;
   focus: () => void;
-  postMessage: (message: Message) => void;
+  postMessage: (message: Message) => boolean;
   handle: WidgetNode;
 }
 
@@ -103,6 +104,7 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const handlersRef = useRef(options.handlers) as MutableRefObject<WidgetHandlers | undefined>;
   const actionsRef = useRef(options.actions) as MutableRefObject<WidgetActions | undefined>;
   const bindingsRef = useRef<Binding[]>(makeBindings(options.bindings ?? []));
+  const [lifecycleReady, setLifecycleReady] = useState(false);
   const widgetRef = useRef<WidgetNode>(
     new WidgetNode({
       framework,
@@ -130,10 +132,13 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   useLayoutEffect(() => {
     framework.registerWidgetType(options.typeName, options.defaultCss);
     widgetRef.current.parentId = parentId;
+    widgetRef.current.markLifecyclePending();
     widgetRef.current.replaceClasses(classes);
     framework.registerWidget(widgetRef.current);
+    setLifecycleReady(true);
 
     return () => {
+      setLifecycleReady(false);
       framework.notifyWillUnmount(widgetRef.current);
       framework.unregisterWidget(widgetRef.current.nodeId);
     };
@@ -145,13 +150,13 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
     parentId,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (widgetRef.current.disabled !== (options.disabled ?? false)) {
       widgetRef.current.setDisabled(options.disabled ?? false);
     }
   }, [options.disabled]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (widgetRef.current.loading !== (options.loading ?? false)) {
       widgetRef.current.setLoading(options.loading ?? false);
     }
@@ -164,11 +169,12 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   return {
     nodeId: widgetRef.current.nodeId,
     isFocused: framework.focusedNodeId === widgetRef.current.nodeId,
+    lifecycleReady,
     focus: () => {
       framework.focusWidget(widgetRef.current.nodeId);
     },
     postMessage: (message: Message) => {
-      framework.postMessage(widgetRef.current.nodeId, message);
+      return framework.postMessage(widgetRef.current.nodeId, message);
     },
     handle: widgetRef.current,
   };
@@ -299,28 +305,31 @@ export function WidgetHost({
     tooltip,
   });
 
-  return <WidgetScope widget={widget.handle}>{children}</WidgetScope>;
+  return <WidgetScope widget={widget.handle}>{widget.lifecycleReady ? children : null}</WidgetScope>;
 }
 
 export interface WidgetScopeProps extends PropsWithChildren {
   widget: WidgetNode;
 }
 
-export function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
+export const WidgetScope = observer(function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
   const layoutRef = useRef<DOMElement>(null);
 
   useLayoutEffect(() => {
-    const layoutNode = layoutRef.current;
-
-    if (layoutNode === null) {
-      return;
-    }
-
     // [LAW:one-source-of-truth] Widget screen regions are derived from the Ink
     // layout node at one seam so Pilot and any future spatial tooling read the
     // same measured rectangle instead of maintaining parallel geometry.
-    widget.updateScreenRegion(measureWidgetRegion(layoutNode));
-  });
+    const reader = () => {
+      const layoutNode = layoutRef.current;
+
+      if (layoutNode !== null) {
+        widget.updateScreenRegion(measureWidgetRegion(layoutNode));
+      }
+    };
+
+    reader();
+    return widget.framework.registerLayoutReader(widget.nodeId, reader);
+  }, [widget]);
 
   return (
     <CurrentWidgetContext.Provider value={widget}>
@@ -331,7 +340,7 @@ export function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.E
       </ParentWidgetContext.Provider>
     </CurrentWidgetContext.Provider>
   );
-}
+});
 
 function measureWidgetRegion(node: DOMElement): Region {
   const size = measureElement(node);
@@ -396,7 +405,7 @@ export function useBindings(widget?: WidgetNode): ActiveBinding[] {
     });
   }, [bindingWidget, framework]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return framework.signals.bindings_updated_signal.subscribe(bindingWidget, () => {
       setVersion((version) => version + 1);
     });

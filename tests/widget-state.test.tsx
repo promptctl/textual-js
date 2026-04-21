@@ -94,6 +94,44 @@ describe("widget disabled state", () => {
     instance.cleanup();
   });
 
+  it("clears focus when a focused descendant becomes disabled by an ancestor", async () => {
+    const framework = new TextualFramework();
+    let setDisabled!: (value: boolean) => void;
+
+    function Harness(): React.JSX.Element {
+      const [disabled, updateDisabled] = React.useState(false);
+      setDisabled = updateDisabled;
+
+      return (
+        <WidgetHost typeName="Container" id="container" disabled={disabled}>
+          <WidgetHost typeName="Leaf" id="leaf" focusable>
+            <Text>leaf</Text>
+          </WidgetHost>
+        </WidgetHost>
+      );
+    }
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <Harness />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+    const leaf = framework.registry.getByCssId("leaf")!;
+    framework.focusWidget(leaf.nodeId);
+    expect(framework.focusedNodeId).toBe(leaf.nodeId);
+
+    setDisabled(true);
+    await Promise.resolve();
+    await framework.whenIdle();
+
+    expect(framework.focusedNodeId).toBeNull();
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("consumes pointer hits on disabled widgets without falling through", async () => {
     const received: string[] = [];
 
