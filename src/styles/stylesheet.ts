@@ -221,6 +221,7 @@ const KNOWN_PROPERTIES = new Set([
   "scrollbar-size-vertical",
   "link-style",
   "link-style-hover",
+  "pointer",
   "transition",
   "hatch",
   "overlay",
@@ -228,6 +229,39 @@ const KNOWN_PROPERTIES = new Set([
   "layout",
   "scrollbar-gutter",
 ]);
+
+const POINTER_VALUES = [
+  "default",
+  "pointer",
+  "text",
+  "crosshair",
+  "help",
+  "wait",
+  "progress",
+  "move",
+  "grab",
+  "grabbing",
+  "cell",
+  "vertical-text",
+  "alias",
+  "copy",
+  "no-drop",
+  "not-allowed",
+  "n-resize",
+  "s-resize",
+  "e-resize",
+  "w-resize",
+  "ne-resize",
+  "nw-resize",
+  "se-resize",
+  "sw-resize",
+  "ew-resize",
+  "ns-resize",
+  "nesw-resize",
+  "nwse-resize",
+  "zoom-in",
+  "zoom-out",
+] as const;
 
 const KNOWN_PSEUDO_CLASSES = new Set([
   "blur",
@@ -1404,6 +1438,10 @@ function parseValue(property: string, rawValue: string): unknown {
     return parseStringEnum(property, rawValue, ["ellipsis", "fold"] as const);
   }
 
+  if (property === "pointer") {
+    return parseStringEnum(property, rawValue, POINTER_VALUES);
+  }
+
   if (property === "dock") {
     return parseStringEnum(property, rawValue, ["top", "bottom", "left", "right"] as const);
   }
@@ -1879,6 +1917,7 @@ const BUILT_IN_INITIAL_VALUES: Record<string, string> = {
   "link-style-hover": "none",
   "text-wrap": "wrap",
   "text-align": "left",
+  pointer: "default",
   "overflow-x": "auto",
   "overflow-y": "auto",
   "align-horizontal": "left",

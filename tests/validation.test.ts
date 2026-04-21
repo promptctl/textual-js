@@ -186,6 +186,21 @@ describe("custom failure descriptions", () => {
     expect(validator.validate("x").failureDescriptions).toEqual(["from describe_failure"]);
   });
 
+  it("keeps constructor failureDescription ahead of describe_failure and inline descriptions", () => {
+    class CustomValidator extends Validator<string> {
+      validate(value: string): ValidationResult {
+        return this.failure("invalid", value, "inline");
+      }
+
+      protected override describe_failure(): string {
+        return "from describe_failure";
+      }
+    }
+
+    const validator = new CustomValidator("from constructor");
+    expect(validator.validate("x").failureDescriptions).toEqual(["from constructor"]);
+  });
+
   it("allows Content failure descriptions", () => {
     const validator = new NumberValidator({
       failureDescription: Content.styled("Styled error", "bold red"),
@@ -307,7 +322,10 @@ describe("Input validation integration", () => {
       hasClass: (name: string) => boolean;
     };
 
+    input.valid_empty = false;
+
     expect(input.hasClass("-valid")).toBe(false);
+    expect(input.hasClass("-invalid")).toBe(true);
 
     input.valid_empty = true;
 

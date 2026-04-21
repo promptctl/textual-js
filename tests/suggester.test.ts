@@ -5,6 +5,7 @@ import {
   Input,
   InputChanged,
   SuggestFromList,
+  SuggestionController,
   SuggestionReady,
   Suggester,
   runTest,
@@ -92,6 +93,33 @@ describe("Suggester base", () => {
     expect(suggester.use_cache).toBe(true);
     expect(suggester.case_sensitive).toBe(false);
     expect(await suggester.lookup("Hello")).toBe("hello!");
+  });
+
+  it("posts SuggestionReady on every successful lookup, including cache hits", async () => {
+    let callCount = 0;
+
+    class CountingSuggester extends Suggester {
+      protected override getSuggestion(value: string): string | null {
+        callCount += 1;
+        return `suggestion-for-${value}`;
+      }
+    }
+
+    const controller = new SuggestionController(new CountingSuggester());
+    const messages: SuggestionReady[] = [];
+
+    await controller.update("hello", (message) => {
+      messages.push(message);
+    });
+    await controller.update("hello", (message) => {
+      messages.push(message);
+    });
+
+    expect(callCount).toBe(1);
+    expect(messages.map((message) => [message.value, message.suggestion])).toEqual([
+      ["hello", "suggestion-for-hello"],
+      ["hello", "suggestion-for-hello"],
+    ]);
   });
 });
 

@@ -8,6 +8,7 @@ import {
   Hide,
   MountError,
   NoMatches,
+  TooManyMatches,
   Offset,
   Show,
   Size,
@@ -92,6 +93,50 @@ describe("public Widget base surface", () => {
     expect(parent.children.toArray().map((widget) => widget.id)).toEqual(["first", "second"]);
 
     expect(() => parent.get_child_by_id("missing")).toThrow(NoMatches);
+  });
+
+  it("mount_all accepts iterables and preserves mount placement/error contracts", () => {
+    const framework = new TextualFramework();
+    const mountedParent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
+    const detachedParent = createNode(framework, { nodeId: "detached", id: "detached", typeName: "Parent" });
+    const existing = createNode(framework, { nodeId: "existing", id: "existing", typeName: "Leaf" });
+    const first = createNode(framework, { nodeId: "first", id: "first", typeName: "Leaf" });
+    const second = createNode(framework, { nodeId: "second", id: "second", typeName: "Leaf" });
+
+    function* widgets(): Iterable<WidgetNode> {
+      yield first;
+      yield second;
+    }
+
+    framework.registerWidget(mountedParent);
+    mountedParent.mount(existing);
+
+    expect(mountedParent.mount_all(widgets(), { before: "#existing" })).toEqual([first, second]);
+    expect(mountedParent.children.toArray().map((widget) => widget.id)).toEqual(["first", "second", "existing"]);
+    expect(() => detachedParent.mount_all([createNode(framework, { nodeId: "late", id: "late" })])).toThrow(MountError);
+    expect(() => mountedParent.mount_all([], { before: 0, after: 0 })).toThrow(MountError);
+  });
+
+  it("resolves _find_mount_point for indices, selectors, widget references, and spec error cases", () => {
+    const framework = new TextualFramework();
+    const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
+    const alpha = createNode(framework, { nodeId: "alpha", id: "alpha", typeName: "Alpha" });
+    const beta = createNode(framework, { nodeId: "beta", id: "beta", typeName: "Beta" });
+    const duplicateA = createNode(framework, { nodeId: "duplicate-a", id: "duplicate-a", typeName: "Duplicate" });
+    const duplicateB = createNode(framework, { nodeId: "duplicate-b", id: "duplicate-b", typeName: "Duplicate" });
+    const orphan = createNode(framework, { nodeId: "orphan", id: "orphan", typeName: "Leaf" });
+
+    framework.registerWidget(parent);
+    parent.mount(alpha, beta, duplicateA, duplicateB);
+
+    expect(parent._find_mount_point(2)).toEqual([parent, 2]);
+    expect(parent._find_mount_point(-1)).toEqual([parent, 3]);
+    expect(parent._find_mount_point(beta)).toEqual([parent, 1]);
+    expect(parent._find_mount_point("Beta")).toEqual([parent, 1]);
+    expect(parent._find_mount_point("#alpha")).toEqual([parent, 0]);
+    expect(() => parent._find_mount_point("#missing")).toThrow(NoMatches);
+    expect(() => parent._find_mount_point("Duplicate")).toThrow(TooManyMatches);
+    expect(() => parent._find_mount_point(orphan)).toThrow(MountError);
   });
 
   it("exposes pseudo helpers, automatic state classes, loading overlay, and render helpers", () => {
@@ -226,6 +271,48 @@ describe("Stage 4 focus and visibility policy", () => {
 
     expect(received).toEqual(["move"]);
     session.unmount();
+  });
+
+  it("traps focus to a subtree only when focus is already inside it and restores the full chain on release", async () => {
+    const framework = new TextualFramework();
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost typeName="Dialog" id="dialog">
+          <WidgetHost typeName="Input" id="dialog-first" focusable>
+            <Text>dialog first</Text>
+          </WidgetHost>
+          <WidgetHost typeName="Input" id="dialog-second" focusable>
+            <Text>dialog second</Text>
+          </WidgetHost>
+        </WidgetHost>
+        <WidgetHost typeName="Input" id="outside" focusable>
+          <Text>outside</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const dialog = framework.registry.getByCssId("dialog")!;
+    const dialogFirst = framework.registry.getByCssId("dialog-first")!;
+    const outside = framework.registry.getByCssId("outside")!;
+    const fullChain = framework.getFocusChain().map((widget) => widget.id);
+
+    framework.focusWidget(outside.nodeId);
+    dialog.trap_focus();
+    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(fullChain);
+
+    framework.focusWidget(dialogFirst.nodeId);
+    dialog.trap_focus();
+    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(["dialog-first", "dialog-second"]);
+    expect(framework.focusNext()?.id).toBe("dialog-second");
+    expect(framework.focusNext()?.id).toBe("dialog-first");
+
+    dialog.trap_focus(false);
+    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(fullChain);
+
+    instance.unmount();
+    instance.cleanup();
   });
 });
 

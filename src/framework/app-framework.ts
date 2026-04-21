@@ -2373,7 +2373,9 @@ export class TextualFramework {
     const hoveredChanged = this.hoveredNodeId !== nextHoveredNodeId;
 
     this.lastPointerLocation = pointer;
-    this.pointerShape = targetNode?.focusable === true ? "pointer" : "default";
+    // [LAW:one-source-of-truth] The hovered widget's resolved pointer rule is
+    // the canonical cursor-shape source; the app-level pointerShape derives from it.
+    this.pointerShape = targetNode?.resolvedStyles.getRule<PointerShape>("pointer") ?? "default";
 
     if (hoveredChanged) {
       this.hoveredNodeId = nextHoveredNodeId;

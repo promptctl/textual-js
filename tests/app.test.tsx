@@ -9,7 +9,9 @@ import {
   AppFocus,
   Color,
   Message,
+  Region,
   SuspendNotSupported,
+  WorkerCancelled,
   _get_environ_bool,
   _get_environ_int,
   _get_environ_port,
@@ -82,6 +84,25 @@ async function settleApp(framework: TextualFramework): Promise<void> {
   await framework.whenIdle();
   await new Promise((resolve) => setTimeout(resolve, 0));
   await framework.whenIdle();
+}
+
+function createDetachedWidget(framework: TextualFramework, options: Partial<ConstructorParameters<typeof WidgetNode>[0]> = {}): WidgetNode {
+  return new WidgetNode({
+    framework,
+    nodeId: options.nodeId ?? `widget-${Math.random()}`,
+    parentId: options.parentId ?? null,
+    id: options.id,
+    classes: options.classes ?? [],
+    typeName: options.typeName ?? "DetachedWidget",
+    handlersRef: options.handlersRef ?? { current: undefined },
+    actionsRef: options.actionsRef ?? { current: undefined },
+    bindingsRef: options.bindingsRef ?? { current: [] },
+    focusable: options.focusable ?? false,
+    autoFocus: options.autoFocus ?? false,
+    disabled: options.disabled ?? false,
+    loading: options.loading ?? false,
+    tooltip: options.tooltip ?? null,
+  });
 }
 
 describe("TextualApp and widget registry", () => {
@@ -260,6 +281,148 @@ describe("TextualApp and widget registry", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("allows loading before mount and exposes the loading cover after registration", () => {
+    const framework = new TextualFramework();
+    const widget = createDetachedWidget(framework, { id: "loading-before-mount" });
+
+    expect(() => {
+      widget.setLoading(true);
+    }).not.toThrow();
+
+    framework.registerWidget(widget);
+
+    expect(widget.loading).toBe(true);
+    expect(widget.hasClass("-loading")).toBe(true);
+    expect(widget._cover_widget).not.toBeNull();
+  });
+
+  it("disables scrollbar availability when loading is true", () => {
+    const framework = new TextualFramework();
+    const widget = createDetachedWidget(framework, { id: "scroll-shell" });
+    framework.registerWidget(widget);
+
+    widget.updateScreenRegion(new Region(0, 0, 8, 3));
+    widget.setVirtualSize(20, 10);
+
+    expect(widget.showVerticalScrollbar).toBe(true);
+    expect(widget.showHorizontalScrollbar).toBe(true);
+    expect(widget.allowVerticalScroll).toBe(true);
+    expect(widget.allowHorizontalScroll).toBe(true);
+
+    widget.setLoading(true);
+
+    expect(widget.showVerticalScrollbar).toBe(true);
+    expect(widget.showHorizontalScrollbar).toBe(true);
+    expect(widget.allowVerticalScroll).toBe(false);
+    expect(widget.allowHorizontalScroll).toBe(false);
+  });
+
+  it("does not render widget children until the mount lifecycle has completed", async () => {
+    const framework = new TextualFramework();
+    const events: string[] = [];
+    let resolveMount!: () => void;
+    const mountGate = new Promise<void>((resolve) => {
+      resolveMount = resolve;
+    });
+
+    function DelayedMountHarness(): React.JSX.Element {
+      return (
+        <WidgetHost
+          typeName="DelayedMountHarness"
+          handlers={{
+            onMount: async () => {
+              events.push("mount:start");
+              await mountGate;
+              events.push("mount:end");
+            },
+          }}
+        >
+          <RenderProbe events={events} />
+        </WidgetHost>
+      );
+    }
+
+    function RenderProbe(props: { events: string[] }): React.JSX.Element {
+      props.events.push("child:render");
+      return <Text>ready</Text>;
+    }
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <DelayedMountHarness />
+      </TextualApp>,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toEqual(["mount:start"]);
+    expect(instance.lastFrame()).not.toContain("ready");
+
+    resolveMount();
+    await settleApp(framework);
+
+    expect(events).toEqual(["mount:start", "mount:end", "child:render"]);
+    expect(instance.lastFrame()).toContain("ready");
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("shuts down without deadlocking during teardown with live workers, timers, and nested widgets", async () => {
+    const framework = new TextualFramework();
+
+    function TeardownHarness(): React.JSX.Element {
+      return (
+        <WidgetHost typeName="Outer" id="outer">
+          <WidgetHost
+            typeName="Inner"
+            id="inner"
+            handlers={{
+              onMount: (message) => {
+                const widget = message.sender as WidgetNode;
+                const signal = widget.createSignal<string>("teardown");
+                signal.subscribe(widget, () => undefined, true);
+                widget.setInterval("heartbeat", 60_000, () => undefined);
+                widget.runWorker(async (abortSignal) => {
+                  await new Promise<void>((_resolve, reject) => {
+                    abortSignal.addEventListener("abort", () => {
+                      reject(new WorkerCancelled("cancelled"));
+                    });
+                  });
+                }, { name: "teardown-worker" });
+              },
+            }}
+          >
+            <Text>busy</Text>
+          </WidgetHost>
+        </WidgetHost>
+      );
+    }
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <TeardownHarness />
+      </TextualApp>,
+    );
+
+    await settleApp(framework);
+
+    framework.shutdown();
+    instance.unmount();
+    instance.cleanup();
+
+    await Promise.race([
+      framework.whenIdle(),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => {
+          reject(new Error("shutdown deadlocked"));
+        }, 100);
+      }),
+    ]);
+
+    expect(framework.isRunning).toBe(false);
   });
 
   it("preserves explicit focus changes made while the app is blurred", async () => {
