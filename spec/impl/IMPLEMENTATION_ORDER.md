@@ -60,7 +60,7 @@ Deliverables:
 - `runTest()` and `Pilot`
 - deterministic test bootstrapping
 - explicit terminal input/output seam
-- initial conformance ledger seeded from `spec/spec-src/99-source-coverage-matrix.md`
+- initial conformance ledger seeded from `spec/spec-src/99-source-coverage-matrix.md`: `spec/impl/STAGE_0_CONFORMANCE_LEDGER.md`
 
 Behavioral scope for shared spec-tests files:
 
