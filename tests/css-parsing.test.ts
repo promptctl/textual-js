@@ -1,16 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  Color,
   Scalar,
+  Stylesheet,
   StylesheetParseError,
+  TokenError,
   Unit,
   generateTcss,
-  normalizeColor,
+  is_id_selector,
   parseScalar,
   parseSelectorList,
   parseTcss,
+  substitute_references,
+  tokenizeTcss,
   UnresolvedVariableError,
 } from "../src/index.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 describe("TCSS parsing", () => {
   it("parses and serializes a stylesheet through css-tree", () => {
@@ -60,7 +68,7 @@ describe("TCSS parsing", () => {
     );
 
     expect(stylesheet.flatSource).toContain("Button { color:tomato; }");
-    expect(stylesheet.rules[0]?.declarations[0]?.value).toBe(normalizeColor("tomato"));
+    expect(stylesheet.rules[0]?.declarations[0]?.value).toEqual(Color.parse("tomato"));
   });
 
   it("parses selectors and specificity for type, class, id, pseudo, and combinators", () => {
@@ -100,8 +108,8 @@ describe("TCSS parsing", () => {
       origin: "user",
     });
 
-    expect(stylesheet.rules[0]?.declarations[0]?.value).toBe(normalizeColor("rebeccapurple"));
-    expect(stylesheet.rules[0]?.declarations[1]?.value).toBe(normalizeColor("rgba(2, 3, 4, 2)"));
+    expect(stylesheet.rules[0]?.declarations[0]?.value).toEqual(Color.parse("rebeccapurple"));
+    expect(stylesheet.rules[0]?.declarations[1]?.value).toEqual(Color.parse("rgba(2, 3, 4, 2)"));
   });
 
   it("canonicalizes Stage 2 declaration values at parse time", () => {
@@ -152,7 +160,7 @@ describe("TCSS parsing", () => {
     ]);
     expect(declarations.get("grid-size")).toEqual([3, 4]);
     expect(declarations.get("align")).toEqual({ horizontal: "center", vertical: "middle" });
-    expect(declarations.get("scrollbar-color")).toBe(normalizeColor("chartreuse"));
+    expect(declarations.get("scrollbar-color")).toEqual(Color.parse("chartreuse"));
   });
 
   it("keeps important and declaration order metadata at the parser boundary", () => {
@@ -165,13 +173,46 @@ describe("TCSS parsing", () => {
     expect(stylesheet.rules[0]?.declarations[0]).toMatchObject({
       property: "color",
       important: true,
-      value: normalizeColor("red"),
+      value: Color.parse("red"),
     });
     expect(stylesheet.rules[0]?.declarations[1]).toMatchObject({
       property: "color",
       important: false,
-      value: normalizeColor("blue"),
+      value: Color.parse("blue"),
     });
+  });
+
+  it("exports token streams and substitutes variables with provenance", () => {
+    const tokens = tokenizeTcss("$pad: 2 4;\n.card { padding: $pad; }");
+    const substituted = substitute_references(tokens);
+    const numbers = substituted.filter((token) => token.name === "number");
+
+    expect(tokens.some((token) => token.name === "variable_name" && token.value === "$pad:")).toBe(true);
+    expect(numbers.map((token) => token.value)).toEqual(["2", "4"]);
+    expect(numbers.every((token) => token.referenced_by?.name === "$pad")).toBe(true);
+  });
+
+  it("validates selector utilities and pseudo-class suggestions", () => {
+    expect(is_id_selector("#foo")).toBe(true);
+    expect(is_id_selector("#5foo")).toBe(false);
+    expect(() => tokenizeTcss("Button:foucs { color: red; }")).toThrow(TokenError);
+    expect(() => parseTcss("Button:foucs { color: red; }", { origin: "user" })).toThrow(/focus/);
+  });
+
+  it("parses transitions and Stylesheet file sources", () => {
+    const stylesheet = parseTcss("Button { transition: width 1200ms in_out_cubic 0.5s; }", { origin: "user" });
+    const transition = stylesheet.rules[0]?.declarations[0]?.value;
+    const directory = mkdtempSync(join(tmpdir(), "textual-js-css-"));
+    const path = join(directory, "mega.tcss");
+
+    writeFileSync(path, ".---we-made-it-to-the-end--- { color: red; }");
+
+    const loaded = Stylesheet.read(path);
+    loaded.parse();
+
+    expect(transition).toEqual([{ property: "width", duration: 1.2, easing: "in_out_cubic", delay: 0.5 }]);
+    expect(loaded.rules[0]?.selectors[0]?.raw).toBe(".---we-made-it-to-the-end---");
+    expect(() => parseTcss("Button { transition: width 1s not_real; }", { origin: "user" })).toThrow(/easing/);
   });
 
   it("canonicalizes nested selector expansion before cascade consumption", () => {
@@ -214,7 +255,8 @@ describe("TCSS parsing", () => {
 
   it("raises explicit parse errors for malformed TCSS and declaration values", () => {
     expect(() => parseTcss("Button { color: $missing; }", { origin: "user" })).toThrow(UnresolvedVariableError);
-    expect(() => parseTcss("Button { colr: red; }", { origin: "user" })).toThrow(StylesheetParseError);
+    expect(() => parseTcss("Button { colr: red; }", { origin: "user" })).toThrow(/color/);
+    expect(() => parseTcss("Button { color: blu; }", { origin: "user" })).toThrow(/blue/);
     expect(() => parseTcss("Button { width: 10px; }", { origin: "user" })).toThrow(StylesheetParseError);
     expect(() => parseTcss("Button { text-align: sideways; }", { origin: "user" })).toThrow(StylesheetParseError);
     expect(() => parseTcss("Selector {", { origin: "user" })).toThrow(StylesheetParseError);

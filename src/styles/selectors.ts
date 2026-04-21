@@ -28,8 +28,26 @@ export interface ParsedSelector {
 
 export class InvalidQueryFormat extends Error {}
 
-const TEXTUAL_IDENTIFIER = /^-?[A-Za-z_][A-Za-z0-9_-]*$/;
+const TEXTUAL_IDENTIFIER = /^-*[A-Za-z_][A-Za-z0-9_-]*$/;
 const TEXTUAL_TYPE_NAME = /^[A-Z][A-Za-z0-9-]*$/;
+const KNOWN_PSEUDO_CLASSES = new Set([
+  "blur",
+  "can-focus",
+  "dark",
+  "disabled",
+  "enabled",
+  "empty",
+  "even",
+  "first-child",
+  "first-of-type",
+  "focus",
+  "focus-within",
+  "hover",
+  "last-child",
+  "last-of-type",
+  "light",
+  "odd",
+]);
 
 function validateIdentifier(name: string, selectorText: string): void {
   if (!TEXTUAL_IDENTIFIER.test(name)) {
@@ -43,6 +61,46 @@ function validateTypeName(name: string, selectorText: string): void {
   }
 }
 
+function closestPseudoClass(name: string): string | undefined {
+  const distance = (left: string, right: string): number => {
+    const previous = Array.from({ length: right.length + 1 }, (_value, index) => index);
+
+    for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+      const current = [leftIndex + 1];
+
+      for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+        const substitutionCost = left[leftIndex] === right[rightIndex] ? 0 : 1;
+        current.push(
+          Math.min(
+            current[rightIndex]! + 1,
+            previous[rightIndex + 1]! + 1,
+            previous[rightIndex]! + substitutionCost,
+          ),
+        );
+      }
+
+      previous.splice(0, previous.length, ...current);
+    }
+
+    return previous[right.length]!;
+  };
+  const scored = [...KNOWN_PSEUDO_CLASSES]
+    .map((candidate) => ({ candidate, score: distance(name, candidate) }))
+    .sort((left, right) => left.score - right.score || left.candidate.localeCompare(right.candidate));
+  const best = scored[0];
+  return best !== undefined && best.score <= Math.max(2, Math.floor(name.length / 3)) ? best.candidate : undefined;
+}
+
+function validatePseudoClass(name: string): void {
+  if (KNOWN_PSEUDO_CLASSES.has(name)) {
+    return;
+  }
+
+  const suggestion = closestPseudoClass(name);
+  const suffix = suggestion === undefined ? "" : `; did you mean "${suggestion}"?`;
+  throw new InvalidQueryFormat(`unknown pseudo-class '${name}'${suffix}`);
+}
+
 function compareSpecificity(left: SelectorSpecificity, right: SelectorSpecificity): number {
   return left.ids - right.ids || left.classes - right.classes || left.types - right.types;
 }
@@ -50,6 +108,12 @@ function compareSpecificity(left: SelectorSpecificity, right: SelectorSpecificit
 export function compareSelectorSpecificity(left: SelectorSpecificity, right: SelectorSpecificity): number {
   return compareSpecificity(left, right);
 }
+
+export function isIdSelector(selectorText: string): boolean {
+  return /^#[A-Za-z_][A-Za-z0-9_-]*$/.test(selectorText.trim());
+}
+
+export const is_id_selector = isIdSelector;
 
 export function parseSelectorList(selectorText: string): ParsedSelector[] {
   try {
@@ -103,6 +167,7 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
         }
 
         if (child.type === "PseudoClassSelector") {
+          validatePseudoClass(child.name ?? "");
           specificity.classes += 1;
           currentSegment.selectors.push({ type: "pseudo", name: child.name ?? "" });
           continue;
@@ -125,6 +190,10 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
 
     return selectors;
   } catch (error) {
+    if (error instanceof InvalidQueryFormat) {
+      throw error;
+    }
+
     throw new InvalidQueryFormat(`Invalid selector "${selectorText}"`, { cause: error });
   }
 }

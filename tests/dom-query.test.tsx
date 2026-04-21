@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BadIdentifier,
+  Color,
   InvalidQueryFormat,
   NoMatches,
   TextualApp,
@@ -146,7 +147,7 @@ describe("DOM query API", () => {
 
     root.query("#one").setStyles("background: red;");
     await framework.whenIdle();
-    expect((framework.registry.getByCssId("one") as WidgetNode).resolvedStyles.getRule("background")).toBe("#ff0000");
+    expect((framework.registry.getByCssId("one") as WidgetNode).resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
 
     expect(root.query(".item").focus()?.id).toBe("two");
     expect(framework.focusedNodeId).toBe(two.nodeId);

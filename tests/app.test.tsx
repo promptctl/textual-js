@@ -7,12 +7,12 @@ import {
   Click,
   AppBlur,
   AppFocus,
+  Color,
   Message,
   SuspendNotSupported,
   _get_environ_bool,
   _get_environ_int,
   _get_environ_port,
-  normalizeColor,
   runTest,
   TextualApp,
   TextualFramework,
@@ -151,7 +151,7 @@ describe("TextualApp and widget registry", () => {
 
     await framework.whenIdle();
 
-    expect(framework.registry.getByCssId("styled-label")?.resolvedStyles.getRule("color")).toBe(normalizeColor("red"));
+    expect(framework.registry.getByCssId("styled-label")?.resolvedStyles.getRule("color")).toEqual(Color.parse("red"));
 
     instance.unmount();
     instance.cleanup();

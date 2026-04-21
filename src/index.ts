@@ -71,6 +71,9 @@ export {
 export { clamp, Offset, Region, Size, Spacing } from "./geometry/index.js";
 export {
   Content,
+  Segment,
+  Style,
+  StyledText,
   Strip,
   type ContentFromTextOptions,
   type ContentInput,
@@ -219,6 +222,7 @@ export {
   Color,
   ColorParseError,
   Gradient,
+  lab_to_rgb,
   Scalar,
   StyleValueError,
   StylesheetParseError,
@@ -232,6 +236,7 @@ export {
   parseScalar,
   parseSelectorList,
   parseTcss,
+  rgb_to_lab,
   renderBorderLabel,
   renderBorderRow,
   rgbToLab,
@@ -254,6 +259,17 @@ export {
   type OverflowValue,
   type ScrollbarGutterValue,
   type TextStyleValue,
+  Stylesheet,
+  Token,
+  TokenError,
+  colorToInkValue,
+  isIdSelector,
+  is_id_selector,
+  normalizeStyleAssignment,
+  substituteReferences,
+  substitute_references,
+  tokenizeTcss,
+  tokenize_tcss,
 } from "./styles/index.js";
 export {
   FunctionValidator,

@@ -8,6 +8,7 @@ import { runInAction } from "mobx";
 
 import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetResult } from "../framework/context.js";
+import { colorToInkValue } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { SwitchModel, SwitchChanged } from "./switch.js";
 
@@ -115,10 +116,10 @@ export const Switch = observer(function Switch({
   const styles = useStyles(widget.handle);
   const width = readNumericBoxValue(styles.box.width) ?? 10;
   const innerWidth = Math.max(4, width - 2);
-  const background = (styles.getRule("background") as string | undefined) ?? (model.value ? "#1e1e1e" : "#272727");
+  const background = colorToInkValue(styles.getRule("background") as never) ?? (model.value ? "#1e1e1e" : "#272727");
   const border =
     (styles.customProperties.get("--switch-border") as string | undefined)
-    ?? (styles.getRule("color") as string | undefined)
+    ?? colorToInkValue(styles.getRule("color") as never)
     ?? "#191919";
   const accent = (styles.customProperties.get("--switch-accent") as string | undefined) ?? (model.value ? "#a1a1a1" : "#2d2d2d");
   const knob = (styles.customProperties.get("--switch-knob") as string | undefined) ?? "#e0e0e0";

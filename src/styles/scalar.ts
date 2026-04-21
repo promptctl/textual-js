@@ -22,6 +22,15 @@ export class Scalar {
     return new Scalar(value, unit, percentUnit);
   }
 
+  copy_with({
+    value = this.value,
+    unit = this.unit,
+    percent_unit = this.percentUnit,
+    percentUnit = percent_unit,
+  }: Partial<{ value: number; unit: Unit; percent_unit: Unit; percentUnit: Unit }>): Scalar {
+    return new Scalar(value, unit, percentUnit);
+  }
+
   equals(other: Scalar): boolean {
     return this.value === other.value && this.unit === other.unit && this.percentUnit === other.percentUnit;
   }
@@ -109,7 +118,7 @@ export function normalizeScalar(input: string | number | Scalar, axis: ScalarAxi
   return scalar;
 }
 
-export function scalarToInkValue(value: Scalar, viewport: ScalarViewport): number | string {
+export function scalarToInkValue(value: Scalar, viewport: ScalarViewport, fractionBasis = 1): number | string {
   if (value.unit === Unit.CELLS) {
     return value.value;
   }
@@ -119,7 +128,9 @@ export function scalarToInkValue(value: Scalar, viewport: ScalarViewport): numbe
   }
 
   if (value.unit === Unit.FRACTION) {
-    return `${value.value}fr`;
+    // [LAW:one-way-deps] The Ink bridge emits concrete cell counts; grid
+    // fraction semantics are resolved before values cross into Ink props.
+    return Math.round(value.value * fractionBasis);
   }
 
   if (value.unit === Unit.WIDTH) {

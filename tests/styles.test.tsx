@@ -5,10 +5,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   Key,
+  Color,
+  colorToInkValue,
   normalizeColor,
+  normalizeStyleAssignment,
+  Scalar,
   Size,
   TextualApp,
   TextualFramework,
+  Unit,
   WidgetNode,
   WidgetScope,
   useStyles,
@@ -33,7 +38,7 @@ const StyledLabel = observer(function StyledLabel(props: {
   });
   const styles = useStyles(widget.handle);
   const styleVersion = styles.version;
-  const background = String(styles.rules.get("background") ?? "none");
+  const background = colorToInkValue(styles.rules.get("background") as Color | string | undefined) ?? "none";
   props.onRender?.(`${background}@${styleVersion}`);
 
   return (
@@ -119,8 +124,8 @@ describe("styles and useStyles", () => {
 
     const styled = framework.registry.getByCssId("styled") as WidgetNode;
 
-    expect(styled.resolvedStyles.getRule("background")).toBe(normalizeColor("yellow"));
-    expect(styled.resolvedStyles.getRule("color")).toBe(normalizeColor("white"));
+    expect(styled.resolvedStyles.getRule("background")).toEqual(Color.parse("yellow"));
+    expect(styled.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
     expect(styled.resolvedStyles.box.paddingLeft).toBe(2);
     expect(styled.resolvedStyles.box.paddingTop).toBe(1);
     expect(styled.resolvedStyles.box.borderStyle).toBe("round");
@@ -168,7 +173,7 @@ describe("styles and useStyles", () => {
 
     const dynamic = framework.registry.getByCssId("dynamic") as WidgetNode;
 
-    expect(dynamic.resolvedStyles.getRule("background")).toBe(normalizeColor("tomato"));
+    expect(dynamic.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
     expect(instance.lastFrame()).toContain("dynamic:");
 
     dynamic.addClass("active");
@@ -176,7 +181,7 @@ describe("styles and useStyles", () => {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(dynamic.resolvedStyles.getRule("background")).toBe(normalizeColor("rebeccapurple"));
+    expect(dynamic.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
     expect(renders.some((entry) => entry.startsWith(`${normalizeColor("rebeccapurple")}@`))).toBe(true);
 
     instance.unmount();
@@ -205,7 +210,7 @@ describe("styles and useStyles", () => {
 
     const widget = framework.registry.getByCssId("self-scoped") as WidgetNode;
 
-    expect(widget.resolvedStyles.getRule("background")).toBe(normalizeColor("orange"));
+    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("orange"));
 
     instance.unmount();
     instance.cleanup();
@@ -239,12 +244,12 @@ describe("styles and useStyles", () => {
 
     const widget = framework.registry.getByCssId("inline") as WidgetNode;
 
-    expect(widget.resolvedStyles.getRule("background")).toBe(normalizeColor("rebeccapurple"));
+    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
 
     widget.setInlineStyle("background", "green");
     await framework.whenIdle();
 
-    expect(widget.resolvedStyles.getRule("background")).toBe(normalizeColor("green"));
+    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("green"));
 
     instance.unmount();
     instance.cleanup();
@@ -282,7 +287,7 @@ describe("styles and useStyles", () => {
 
     const widget = framework.registry.getByCssId("cascade") as WidgetNode;
 
-    expect(widget.resolvedStyles.getRule("border-left")).toEqual({ style: "round", color: normalizeColor("green") });
+    expect(widget.resolvedStyles.getRule("border-left")).toEqual({ style: "round", color: Color.parse("green") });
     expect(widget.resolvedStyles.box.borderColor).toBe(normalizeColor("green"));
     expect(widget.resolvedStyles.box.paddingRight).toBe(20);
     expect(widget.resolvedStyles.box.paddingLeft).toBe(40);
@@ -330,13 +335,13 @@ describe("styles and useStyles", () => {
     const root = framework.registry.getByCssId("styled-root") as WidgetNode;
     const child = framework.registry.getByCssId("initial") as WidgetNode;
 
-    expect(child.resolvedStyles.getRule("color")).toBe(normalizeColor("magenta"));
-    expect(child.resolvedStyles.getRule("background")).toBe(normalizeColor("tomato"));
+    expect(child.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
+    expect(child.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
 
     root.setInlineStyle("--accent", "rebeccapurple");
     await framework.whenIdle();
 
-    expect(child.resolvedStyles.getRule("background")).toBe(normalizeColor("rebeccapurple"));
+    expect(child.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
 
     instance.unmount();
     instance.cleanup();
@@ -374,9 +379,9 @@ describe("styles and useStyles", () => {
     const first = framework.registry.getByCssId("first-pseudo") as WidgetNode;
     const last = framework.registry.getByCssId("last-pseudo") as WidgetNode;
 
-    expect(first.resolvedStyles.getRule("background")).toBe(normalizeColor("red"));
-    expect(last.resolvedStyles.getRule("color")).toBe(normalizeColor("blue"));
-    expect(first.resolvedStyles.getRule("border")).toEqual({ style: "round", color: normalizeColor("green") });
+    expect(first.resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
+    expect(last.resolvedStyles.getRule("color")).toEqual(Color.parse("blue"));
+    expect(first.resolvedStyles.getRule("border")).toEqual({ style: "round", color: Color.parse("green") });
 
     instance.unmount();
     instance.cleanup();
@@ -499,6 +504,35 @@ describe("styles and useStyles", () => {
     expect(widget.resolvedStyles.text.inverse).toBe(true);
     expect(widget.resolvedStyles.text.wrap).toBe("truncate-end");
     expect(widget.resolvedStyles.text.dimColor).toBe(true);
+    expect(widget.resolvedStyles.style.bold).toBe(true);
+    expect(widget.resolvedStyles.components).toBeDefined();
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("normalizes programmatic style assignments through the public styles surface", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <StyledLabel id="programmatic" label="programmatic" />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("programmatic") as WidgetNode;
+    widget.styles.width = "25%";
+    widget.styles.grid_columns = [new Scalar(1, Unit.FRACTION, Unit.PERCENT), new Scalar(50, Unit.PERCENT, Unit.PERCENT)];
+    await framework.whenIdle();
+
+    expect(widget.resolvedStyles.getRule("width")).toEqual(new Scalar(25, Unit.WIDTH, Unit.WIDTH));
+    expect(widget.resolvedStyles.getRule("grid-columns")).toEqual([
+      new Scalar(1, Unit.FRACTION, Unit.WIDTH),
+      new Scalar(50, Unit.WIDTH, Unit.WIDTH),
+    ]);
+    expect(() => normalizeStyleAssignment("width", {} as never)).toThrow();
 
     instance.unmount();
     instance.cleanup();

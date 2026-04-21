@@ -6,9 +6,11 @@ describe("css scalars", () => {
   it("copies scalars without mutating the source", () => {
     const source = new Scalar(10, Unit.PERCENT, Unit.WIDTH);
     const copy = source.copyWith({ value: 25, unit: Unit.WIDTH });
+    const snakeCopy = source.copy_with({ value: 30, percent_unit: Unit.HEIGHT });
 
     expect(source.equals(new Scalar(10, Unit.PERCENT, Unit.WIDTH))).toBe(true);
     expect(copy.equals(new Scalar(25, Unit.WIDTH, Unit.WIDTH))).toBe(true);
+    expect(snakeCopy.equals(new Scalar(30, Unit.PERCENT, Unit.HEIGHT))).toBe(true);
   });
 
   it("parses axis-aware scalar units", () => {
@@ -24,7 +26,8 @@ describe("css scalars", () => {
     expect(scalarToInkValue(new Scalar(12, Unit.CELLS, Unit.WIDTH), { width: 200, height: 80 })).toBe(12);
     expect(scalarToInkValue(new Scalar(50, Unit.WIDTH, Unit.WIDTH), { width: 200, height: 80 })).toBe(100);
     expect(scalarToInkValue(new Scalar(25, Unit.HEIGHT, Unit.HEIGHT), { width: 200, height: 80 })).toBe(20);
-    expect(scalarToInkValue(new Scalar(2, Unit.FRACTION, Unit.WIDTH), { width: 200, height: 80 })).toBe("2fr");
+    expect(scalarToInkValue(new Scalar(2, Unit.FRACTION, Unit.WIDTH), { width: 200, height: 80 })).toBe(2);
+    expect(scalarToInkValue(new Scalar(2, Unit.FRACTION, Unit.WIDTH), { width: 200, height: 80 }, 12)).toBe(24);
     expect(scalarToInkValue(new Scalar(50, Unit.PERCENT, Unit.WIDTH), { width: 200, height: 80 })).toBe("50%");
     expect(scalarToInkValue(new Scalar(0, Unit.AUTO, Unit.WIDTH), { width: 200, height: 80 })).toBe("auto");
   });

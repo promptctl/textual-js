@@ -1,3 +1,5 @@
+import { Color as RichColor } from "rich-js";
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -351,6 +353,47 @@ function gammaCompress(value: number): number {
   return value > 0.0031308 ? 1.055 * value ** (1 / 2.4) - 0.055 : 12.92 * value;
 }
 
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_value, index) => index);
+
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    const current = [leftIndex + 1];
+
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex] === right[rightIndex] ? 0 : 1;
+      current.push(
+        Math.min(
+          current[rightIndex]! + 1,
+          previous[rightIndex + 1]! + 1,
+          previous[rightIndex]! + substitutionCost,
+        ),
+      );
+    }
+
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[right.length]!;
+}
+
+export function suggestColorName(input: string): string | undefined {
+  const normalized = input.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  const candidates = Object.keys(CSS_NAMED_COLORS);
+  const scored = candidates
+    .map((candidate) => ({ candidate, score: editDistance(normalized, candidate) }))
+    .sort((left, right) => left.score - right.score || left.candidate.localeCompare(right.candidate));
+  const best = scored[0];
+
+  return best !== undefined && best.score <= Math.max(2, Math.floor(normalized.length / 3)) ? best.candidate : undefined;
+}
+
+function colorParseMessage(input: string): string {
+  const suggestion = /^[A-Za-z][A-Za-z\s_-]*$/.test(input) ? suggestColorName(input) : undefined;
+  const suffix = suggestion === undefined ? "" : `. Did you mean "${suggestion}"?`;
+
+  return `Invalid color "${input}"${suffix}`;
+}
+
 export class Color {
   readonly red: number;
   readonly green: number;
@@ -448,7 +491,7 @@ export class Color {
       return new Color(red, green, blue, clampAlpha(Number(hslaMatch[4])));
     }
 
-    throw new ColorParseError(`Invalid color "${input}"`);
+    throw new ColorParseError(colorParseMessage(input));
   }
 
   static fromHsl(hue: number, saturation: number, lightness: number): Color {
@@ -469,6 +512,23 @@ export class Color {
 
   static automatic(percentage?: number): Color {
     return new Color(0, 0, 0, 1, { auto: true, automaticPercentage: percentage });
+  }
+
+  static fromRichColor(color: RichColor): Color {
+    const triplet = color.getTruecolor();
+    return new Color(triplet.red, triplet.green, triplet.blue);
+  }
+
+  static from_hsl(hue: number, saturation: number, lightness: number): Color {
+    return Color.fromHsl(hue, saturation, lightness);
+  }
+
+  static from_hsv(hue: number, saturation: number, value: number): Color {
+    return Color.fromHsv(hue, saturation, value);
+  }
+
+  static from_rich_color(color: RichColor): Color {
+    return Color.fromRichColor(color);
   }
 
   get rgb(): [number, number, number] {
@@ -522,6 +582,19 @@ export class Color {
     return this.ansi === undefined && this.alpha === 0;
   }
 
+  get is_transparent(): boolean {
+    return this.isTransparent;
+  }
+
+  get richColor(): RichColor {
+    const [red, green, blue] = this.rgb;
+    return RichColor.fromRgb(red, green, blue);
+  }
+
+  get rich_color(): RichColor {
+    return this.richColor;
+  }
+
   get clamped(): Color {
     return new Color(clampByte(this.red), clampByte(this.green), clampByte(this.blue), clampAlpha(this.alpha), {
       ansi: this.ansi,
@@ -550,6 +623,39 @@ export class Color {
 
   multiplyAlpha(factor: number): Color {
     return this.withAlpha(this.alpha * factor);
+  }
+
+  with_alpha(alpha: number): Color {
+    return this.withAlpha(alpha);
+  }
+
+  multiply_alpha(factor: number): Color {
+    return this.multiplyAlpha(factor);
+  }
+
+  get luminance(): number {
+    const [red, green, blue] = this.normalized.map(gammaExpand) as [number, number, number];
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  }
+
+  contrastRatio(other: Color): number {
+    const lighter = Math.max(this.luminance, other.luminance);
+    const darker = Math.min(this.luminance, other.luminance);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  contrast_ratio(other: Color): number {
+    return this.contrastRatio(other);
+  }
+
+  getContrastText(alpha = 0.95): Color {
+    const white = new Color(255, 255, 255, alpha);
+    const black = new Color(0, 0, 0, alpha);
+    return this.contrastRatio(white) >= this.contrastRatio(black) ? white : black;
+  }
+
+  get_contrast_text(alpha = 0.95): Color {
+    return this.getContrastText(alpha);
   }
 
   blend(other: Color, factor: number): Color {
@@ -623,10 +729,26 @@ export function labToRgb(lab: Lab): Color {
   return new Color(red, green, blue).clamped;
 }
 
+export const rgb_to_lab = rgbToLab;
+export const lab_to_rgb = labToRgb;
+
+export interface GradientOptions {
+  quality?: number;
+}
+
 export class Gradient {
   readonly stops: Array<{ position: number; color: Color }>;
+  readonly quality: number;
+  private readonly samples: Color[];
 
-  constructor(...stops: Array<[number, Color | string]>) {
+  constructor(...entries: Array<[number, Color | string] | GradientOptions>) {
+    const lastEntry = entries[entries.length - 1];
+    const options =
+      Array.isArray(lastEntry) || lastEntry === undefined
+        ? {}
+        : (entries.pop() as GradientOptions);
+    const stops = entries as Array<[number, Color | string]>;
+
     if (stops.length < 2) {
       throw new Error("Gradient requires at least two stops");
     }
@@ -640,6 +762,12 @@ export class Gradient {
     }
 
     this.stops = parsedStops;
+    this.quality = Math.max(2, Math.floor(options.quality ?? 100));
+    // [LAW:one-source-of-truth] Gradient samples are derived from validated stops;
+    // callers never provide or mutate a second interpolation table.
+    this.samples = Array.from({ length: this.quality }, (_value, index) =>
+      this.interpolate(index / (this.quality - 1)),
+    );
   }
 
   static fromColors(...colors: Array<Color | string>): Gradient {
@@ -651,7 +779,11 @@ export class Gradient {
     return new Gradient(...colors.map((color, index) => [index / divisor, color] as [number, Color | string]));
   }
 
-  getColor(position: number): Color {
+  static from_colors(...colors: Array<Color | string>): Gradient {
+    return Gradient.fromColors(...colors);
+  }
+
+  private interpolate(position: number): Color {
     const clampedPosition = clamp(position, 0, 1);
 
     for (let index = 1; index < this.stops.length; index += 1) {
@@ -670,6 +802,22 @@ export class Gradient {
     }
 
     return this.stops[this.stops.length - 1]!.color;
+  }
+
+  getColor(position: number): Color {
+    const clampedPosition = clamp(position, 0, 1);
+    const exactStop = this.stops.find((stop) => stop.position === clampedPosition);
+
+    if (exactStop !== undefined) {
+      return exactStop.color;
+    }
+
+    const index = Math.round(clampedPosition * (this.samples.length - 1));
+    return this.samples[index] ?? this.stops[this.stops.length - 1]!.color;
+  }
+
+  get_color(position: number): Color {
+    return this.getColor(position);
   }
 }
 

@@ -11,6 +11,7 @@ import {
   type ContentInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { colorToInkValue } from "../styles/index.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
@@ -151,9 +152,9 @@ function readButtonPalette(
   const defaults = DEFAULT_BUTTON_PALETTES[variant];
   const hasBackgroundRule = styles.hasRule("background");
   const background = hasBackgroundRule
-    ? normalizePaintColor(styles.getRule("background") as string | undefined)
+    ? normalizePaintColor(colorToInkValue(styles.getRule("background") as never))
     : defaults.background;
-  const foreground = (styles.getRule("color") as string | undefined) ?? defaults.foreground;
+  const foreground = colorToInkValue(styles.getRule("color") as never) ?? defaults.foreground;
   const top = (styles.customProperties.get("--button-top") as string | undefined)
     ?? (background === defaults.background ? defaults.top : mixColor(background ?? "#272727", "#ffffff", 0.2))
     ?? defaults.top;

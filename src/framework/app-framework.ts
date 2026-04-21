@@ -1,4 +1,5 @@
 import React from "react";
+import { existsSync, readFileSync } from "node:fs";
 import { makeAutoObservable, runInAction } from "mobx";
 
 import {
@@ -235,6 +236,7 @@ export interface AppDriver {
 export interface TextualFrameworkOptions {
   driver?: AppDriver;
   env?: EnvironmentMap;
+  cssPath?: string | readonly string[];
 }
 
 export type SimpleCommand =
@@ -450,6 +452,7 @@ export class TextualFramework {
   private readonly disabledMessageTypes = new Map<string | null, Set<MessageConstructor>>();
   private drainPromise: Promise<void> | null = null;
   private userStylesheets: ParsedStylesheet[] = [];
+  private cssPath: string[] = [];
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
   private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
@@ -514,6 +517,7 @@ export class TextualFramework {
     // means that phantom is the single anchor preventing an empty default stack.
     this.modeStacks.set(DEFAULT_MODE, [createImplicitEntry()]);
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
+    this.cssPath = typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
     this.appActions = {
       action_focus_next: () => {
         this.focusNext();
@@ -1027,6 +1031,38 @@ export class TextualFramework {
   setUserStylesheet(source: string): void {
     this.userStylesheets = source.trim().length === 0 ? [] : [parseStylesheetOrThrow(source, { origin: "user" })];
     this.recalculateStyles();
+  }
+
+  setCssPath(path: string | readonly string[]): void {
+    this.cssPath = typeof path === "string" ? [path] : [...path];
+    this._on_css_change();
+  }
+
+  _on_css_change(): void {
+    const missing = this.cssPath.some((path) => !existsSync(path));
+
+    if (missing) {
+      return;
+    }
+
+    let stylesheets: ParsedStylesheet[];
+
+    try {
+      stylesheets = this.cssPath.map((path) => {
+        return parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" });
+      });
+    } catch {
+      return;
+    }
+
+    // [LAW:one-source-of-truth] CSS_PATH files are parsed into the same
+    // userStylesheets list consumed by cascade resolution and hot reload.
+    this.userStylesheets = stylesheets;
+    this.recalculateStyles();
+  }
+
+  _onCssChange(): void {
+    this._on_css_change();
   }
 
   registerTheme(theme: ThemeDefinition): ActiveTheme {

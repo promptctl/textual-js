@@ -6,11 +6,11 @@ import { render } from "ink-testing-library";
 import {
   Notification,
   Notifications,
+  Color,
   TextualApp,
   TextualFramework,
   WidgetNode,
   WidgetScope,
-  normalizeColor,
   useWidget,
 } from "../src/index.js";
 
@@ -133,13 +133,13 @@ describe("notifications and themes", () => {
 
     expect(framework.notifications.length).toBe(2);
     expect(framework.notifications.list().map((entry) => entry.message)).toEqual(["from-app", "from-widget"]);
-    expect(widget.resolvedStyles.getRule("background")).toBe(defaultPrimary);
-    expect(widget.resolvedStyles.getRule("color")).toBe(normalizeColor(framework.activeTheme.foreground));
+    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse(defaultPrimary));
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse(framework.activeTheme.foreground));
 
     framework.setTheme("dark");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(widget.resolvedStyles.getRule("background")).toBe(framework.activeTheme.primary);
+    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse(framework.activeTheme.primary));
     expect(observedThemes).toEqual(["dark"]);
 
     framework.dismissNotification(framework.notifications.list()[0]!.identity);

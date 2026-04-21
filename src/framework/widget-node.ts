@@ -10,6 +10,7 @@ import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
+import { normalizeStyleAssignment, type StyleAssignmentValue } from "../styles/stylesheet.js";
 import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
 import type { AnimationLevel, TextualFramework } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
@@ -82,6 +83,7 @@ export class WidgetNode {
   readonly pseudoClasses = observable.map<string, boolean>();
   readonly inlineStyles = observable.map<string, string>();
   readonly resolvedStyles = new ResolvedStyles();
+  readonly styles: Record<string, StyleAssignmentValue | null | undefined>;
   screenRegion = Region.EMPTY;
   scrollOffsetX = 0;
   scrollOffsetY = 0;
@@ -109,6 +111,20 @@ export class WidgetNode {
     this.disabled = init.disabled;
     this.loading = init.loading;
     this.tooltip = init.tooltip;
+    this.styles = new Proxy(
+      {},
+      {
+        set: (_target, property, value: StyleAssignmentValue | null | undefined) => {
+          const styleName = String(property).replace(/_/g, "-").replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+          this.setInlineStyle(styleName, value);
+          return true;
+        },
+        get: (_target, property) => {
+          const styleName = String(property).replace(/_/g, "-").replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+          return this.inlineStyles.get(styleName);
+        },
+      },
+    ) as Record<string, StyleAssignmentValue | null | undefined>;
 
     if (init.id !== undefined) {
       validateCssIdentifier(init.id, "id");
@@ -134,6 +150,7 @@ export class WidgetNode {
         typeName: false,
         focusable: false,
         autoFocus: false,
+        styles: false,
       },
       { autoBind: true },
     );
@@ -598,18 +615,20 @@ export class WidgetNode {
     return this.pseudoClasses.get(name) ?? false;
   }
 
-  setInlineStyle(name: string, value: string | number | null | undefined): void {
+  setInlineStyle(name: string, value: StyleAssignmentValue | null | undefined): void {
     if (value === null || value === undefined) {
       this.inlineStyles.delete(name);
       this.framework.refreshStyles(true);
       return;
     }
 
-    this.inlineStyles.set(name, `${value}`);
+    // [LAW:single-enforcer] Programmatic style assignment normalizes at the
+    // same style boundary as TCSS parsing before the cascade stores anything.
+    this.inlineStyles.set(name, normalizeStyleAssignment(name, value));
     this.framework.refreshStyles(true);
   }
 
-  setInlineStyles(styles: Record<string, string | number | null | undefined>): void {
+  setInlineStyles(styles: Record<string, StyleAssignmentValue | null | undefined>): void {
     for (const [name, value] of Object.entries(styles)) {
       this.setInlineStyle(name, value);
     }

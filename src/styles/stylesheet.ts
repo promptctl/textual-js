@@ -1,8 +1,9 @@
 import * as csstree from "css-tree";
+import { readFileSync } from "node:fs";
 
 import { Spacing } from "../geometry/index.js";
-import { normalizeColor } from "./color.js";
-import { parseScalar, Scalar, scalarToInkValue, StyleValueError } from "./scalar.js";
+import { Color } from "./color.js";
+import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, scalarToInkValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
 import type { TextualFramework } from "../framework/app-framework.js";
@@ -48,6 +49,52 @@ export interface CascadeValue {
 }
 
 export class StylesheetParseError extends Error {}
+
+export interface SourceLocation {
+  row: number;
+  column: number;
+}
+
+export interface ReferencedBy {
+  name: string;
+  location: SourceLocation;
+  length: number;
+  code: string;
+}
+
+export class Token {
+  readonly read_from: readonly [string, string];
+  readonly referenced_by?: ReferencedBy;
+
+  constructor(
+    readonly name: string,
+    readonly value: string,
+    readFrom: readonly [string, string],
+    readonly code: string,
+    readonly location: SourceLocation,
+    referencedBy?: ReferencedBy,
+  ) {
+    this.read_from = readFrom;
+    this.referenced_by = referencedBy;
+  }
+
+  get readFrom(): readonly [string, string] {
+    return this.read_from;
+  }
+
+  withReference(reference: ReferencedBy): Token {
+    return new Token(this.name, this.value, this.read_from, this.code, this.location, reference);
+  }
+}
+
+export class TokenError extends Error {
+  constructor(
+    message: string,
+    readonly start?: SourceLocation,
+  ) {
+    super(message);
+  }
+}
 
 export interface OffsetValue {
   x: Scalar;
@@ -180,6 +227,59 @@ const KNOWN_PROPERTIES = new Set([
   "scrollbar-gutter",
 ]);
 
+const KNOWN_PSEUDO_CLASSES = new Set([
+  "blur",
+  "can-focus",
+  "dark",
+  "disabled",
+  "enabled",
+  "empty",
+  "even",
+  "first-child",
+  "first-of-type",
+  "focus",
+  "focus-within",
+  "hover",
+  "last-child",
+  "last-of-type",
+  "light",
+  "odd",
+]);
+
+function bestSuggestion(input: string, candidates: Iterable<string>): string | undefined {
+  const normalized = input.trim().toLowerCase().replaceAll("_", "-");
+  const distance = (left: string, right: string): number => {
+    const previous = Array.from({ length: right.length + 1 }, (_value, index) => index);
+
+    for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+      const current = [leftIndex + 1];
+
+      for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+        const substitutionCost = left[leftIndex] === right[rightIndex] ? 0 : 1;
+        current.push(
+          Math.min(
+            current[rightIndex]! + 1,
+            previous[rightIndex + 1]! + 1,
+            previous[rightIndex]! + substitutionCost,
+          ),
+        );
+      }
+
+      previous.splice(0, previous.length, ...current);
+    }
+
+    return previous[right.length]!;
+  };
+  const scored = [...candidates]
+    .map((candidate) => ({ candidate, score: distance(normalized, candidate) }))
+    .sort((left, right) => left.score - right.score || left.candidate.localeCompare(right.candidate));
+  const best = scored[0];
+
+  return best !== undefined && normalized.length > 2 && best.score <= Math.max(2, Math.floor(normalized.length / 3))
+    ? best.candidate
+    : undefined;
+}
+
 interface CssToken {
   type: string;
   value: string;
@@ -200,6 +300,265 @@ const tokenizeCss = csstree as typeof csstree & {
   tokenNames: Record<number, string>;
   tokenize: (source: string, callback: (type: number, start: number, end: number) => void) => void;
 };
+
+function indexToLocation(source: string, index: number): SourceLocation {
+  const prefix = source.slice(0, index);
+  const lines = prefix.split("\n");
+  return {
+    row: lines.length,
+    column: lines[lines.length - 1]!.length + 1,
+  };
+}
+
+function pushToken(
+  tokens: Token[],
+  source: string,
+  readFrom: readonly [string, string],
+  name: string,
+  start: number,
+  end: number,
+): void {
+  tokens.push(new Token(name, source.slice(start, end), readFrom, source, indexToLocation(source, start)));
+}
+
+function tokenNameForBareValue(value: string): string {
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:fr|vh|vw|h|w|%)$/.test(value)) {
+    return "scalar";
+  }
+
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)$/.test(value)) {
+    return "duration";
+  }
+
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) {
+    return "number";
+  }
+
+  return "token";
+}
+
+export function tokenizeTcss(source: string, readFrom: readonly [string, string] = ["<string>", ""]): Token[] {
+  const tokens: Token[] = [];
+  let index = 0;
+  let inDeclarationBlock = false;
+
+  while (index < source.length) {
+    const character = source[index]!;
+    const next = source[index + 1];
+
+    if (character === "/" && next === "*") {
+      const close = source.indexOf("*/", index + 2);
+      index = close === -1 ? source.length : close + 2;
+      continue;
+    }
+
+    if (character === "#" && (index === 0 || /\s/.test(source[index - 1]!))) {
+      const lineEnd = source.indexOf("\n", index);
+      index = lineEnd === -1 ? source.length : lineEnd;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /\s/.test(source[index]!)) {
+        index += 1;
+      }
+      pushToken(tokens, source, readFrom, "whitespace", start, index);
+      continue;
+    }
+
+    if (character === "$") {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_-]/.test(source[index]!)) {
+        index += 1;
+      }
+      const nameEnd = index;
+      const afterName = source[index];
+
+      if (afterName === ":") {
+        index += 1;
+        pushToken(tokens, source, readFrom, "variable_name", start, index);
+        continue;
+      }
+
+      if (nameEnd > start + 1) {
+        pushToken(tokens, source, readFrom, "variable_ref", start, nameEnd);
+        continue;
+      }
+
+      throw new TokenError("invalid variable reference", indexToLocation(source, start));
+    }
+
+    if (character === ".") {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_-]/.test(source[index]!)) {
+        index += 1;
+      }
+      pushToken(tokens, source, readFrom, "selector_start_class", start, index);
+      continue;
+    }
+
+    if (character === "#") {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_-]/.test(source[index]!)) {
+        index += 1;
+      }
+      pushToken(tokens, source, readFrom, "selector_start_id", start, index);
+      continue;
+    }
+
+    if (character === "*") {
+      pushToken(tokens, source, readFrom, "selector_start_universal", index, index + 1);
+      index += 1;
+      continue;
+    }
+
+    if (character === "{") {
+      inDeclarationBlock = true;
+      pushToken(tokens, source, readFrom, "declaration_set_start", index, index + 1);
+      index += 1;
+      continue;
+    }
+
+    if (character === "}") {
+      inDeclarationBlock = false;
+      pushToken(tokens, source, readFrom, "declaration_set_end", index, index + 1);
+      index += 1;
+      continue;
+    }
+
+    if (character === ";") {
+      pushToken(tokens, source, readFrom, inDeclarationBlock ? "declaration_end" : "variable_value_end", index, index + 1);
+      index += 1;
+      continue;
+    }
+
+    if (character === ":" && !inDeclarationBlock) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_-]/.test(source[index]!)) {
+        index += 1;
+      }
+      const pseudoName = source.slice(start + 1, index);
+
+      if (!KNOWN_PSEUDO_CLASSES.has(pseudoName)) {
+        const suggestion = bestSuggestion(pseudoName, KNOWN_PSEUDO_CLASSES);
+        const suffix = suggestion === undefined ? "" : `; did you mean "${suggestion}"?`;
+        throw new TokenError(`unknown pseudo-class '${pseudoName}'${suffix}`, indexToLocation(source, start));
+      }
+
+      pushToken(tokens, source, readFrom, "token", start, index);
+      continue;
+    }
+
+    if (/[A-Za-z0-9_-]/.test(character)) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_.%-]/.test(source[index]!)) {
+        index += 1;
+      }
+      const value = source.slice(start, index);
+      const nextNonWhitespace = source.slice(index).match(/^\s*:/);
+      const name = nextNonWhitespace !== null && inDeclarationBlock ? "declaration_name" : tokenNameForBareValue(value);
+      const end = name === "declaration_name" ? index + nextNonWhitespace![0].length : index;
+
+      if (name === "declaration_name") {
+        index = end;
+      }
+
+      pushToken(tokens, source, readFrom, name, start, index);
+      continue;
+    }
+
+    if (character === "@" && tokens.some((token) => token.name === "variable_name")) {
+      throw new TokenError("invalid variable value", indexToLocation(source, index));
+    }
+
+    pushToken(tokens, source, readFrom, "token", index, index + 1);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+export const tokenize_tcss = tokenizeTcss;
+
+export function substituteReferences(tokens: readonly Token[]): Token[] {
+  const definitions = new Map<string, Token[]>();
+  const output: Token[] = [];
+  let index = 0;
+
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+
+    if (token.name !== "variable_name") {
+      output.push(token);
+      index += 1;
+      continue;
+    }
+
+    const variableName = token.value.slice(1, -1);
+    const valueTokens: Token[] = [];
+    index += 1;
+
+    while (index < tokens.length) {
+      const valueToken = tokens[index]!;
+
+      if (valueToken.name === "variable_value_end" || valueToken.name === "declaration_set_start") {
+        index += valueToken.name === "variable_value_end" ? 1 : 0;
+        break;
+      }
+
+      valueTokens.push(valueToken);
+      index += 1;
+    }
+
+    definitions.set(
+      variableName,
+      valueTokens.filter((valueToken, valueIndex) => valueIndex > 0 || valueToken.name !== "whitespace"),
+    );
+  }
+
+  const expand = (token: Token, reference: ReferencedBy, seen: ReadonlySet<string>): Token[] => {
+    const variableName = token.value.slice(1);
+    const definition = definitions.get(variableName);
+
+    if (definition === undefined) {
+      throw new UnresolvedVariableError(`Unknown variable $${variableName}`);
+    }
+
+    if (seen.has(variableName)) {
+      throw new UnresolvedVariableError(`Circular variable reference $${variableName}`);
+    }
+
+    const nextSeen = new Set(seen).add(variableName);
+    return definition.flatMap((definedToken) =>
+      definedToken.name === "variable_ref"
+        ? expand(definedToken, reference, nextSeen)
+        : [definedToken.withReference(reference)],
+    );
+  };
+
+  return output.flatMap((token) => {
+    if (token.name !== "variable_ref") {
+      return [token];
+    }
+
+    const reference: ReferencedBy = {
+      name: token.value,
+      location: token.location,
+      length: token.value.length,
+      code: token.code,
+    };
+    return expand(token, reference, new Set());
+  });
+}
+
+export const substitute_references = substituteReferences;
 
 function tokenizeSource(source: string): CssToken[] {
   const tokens: CssToken[] = [];
@@ -691,7 +1050,7 @@ function parseBorder(rawValue: string): BorderValue {
   }
 
   const normalizedColor =
-    color === undefined || color.startsWith("var(") ? color : normalizeColor(color);
+    color === undefined || color.startsWith("var(") ? color : Color.parse(color);
 
   return {
     style: style === "none" || style === "hidden" ? "" : style,
@@ -852,9 +1211,97 @@ function parseStringEnum<TValue extends string>(property: string, rawValue: stri
   return trimmed;
 }
 
+export interface TransitionValue {
+  property: string;
+  duration: number;
+  easing: string;
+  delay: number;
+}
+
+const EASING_NAMES = new Set([
+  "linear",
+  "in_sine",
+  "out_sine",
+  "in_out_sine",
+  "in_quad",
+  "out_quad",
+  "in_out_quad",
+  "in_cubic",
+  "out_cubic",
+  "in_out_cubic",
+  "in_out_cubic",
+  "in_quart",
+  "out_quart",
+  "in_out_quart",
+  "in_quint",
+  "out_quint",
+  "in_out_quint",
+  "in_expo",
+  "out_expo",
+  "in_out_expo",
+  "in_circ",
+  "out_circ",
+  "in_out_circ",
+  "in_back",
+  "out_back",
+  "in_out_back",
+  "in_bounce",
+  "out_bounce",
+  "in_out_bounce",
+  "in_elastic",
+  "out_elastic",
+  "in_out_elastic",
+]);
+
+function parseDurationSeconds(rawValue: string): number {
+  const trimmed = rawValue.trim();
+  const match = trimmed.match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(ms|s)?$/);
+
+  if (match === null) {
+    throw new StyleValueError(`Invalid duration "${rawValue}"`);
+  }
+
+  const value = Number(match[1]);
+  return match[2] === "ms" ? value / 1000 : value;
+}
+
+function parseTransition(rawValue: string): TransitionValue[] {
+  const parts = rawValue.trim().split(/\s*,\s*/).filter(Boolean);
+
+  if (parts.length === 0) {
+    throw new StyleValueError(`Invalid transition "${rawValue}"`);
+  }
+
+  return parts.map((part) => {
+    const [property, duration, easing = "linear", delay = "0", extra] = part.split(/\s+/);
+
+    if (property === undefined || duration === undefined || extra !== undefined) {
+      throw new StyleValueError(`Invalid transition "${rawValue}"`);
+    }
+
+    if (!EASING_NAMES.has(easing)) {
+      throw new StyleValueError(`Invalid transition easing "${easing}"`);
+    }
+
+    return {
+      property,
+      duration: parseDurationSeconds(duration),
+      easing,
+      delay: parseDurationSeconds(delay),
+    };
+  });
+}
+
+function propertySuggestionMessage(property: string): string {
+  const normalized = property.replaceAll("_", "-");
+  const suggestion = bestSuggestion(normalized, KNOWN_PROPERTIES);
+  const suffix = suggestion === undefined ? "" : `. Did you mean "${suggestion}"?`;
+  return `Invalid CSS property "${normalized}"${suffix}`;
+}
+
 function parseValue(property: string, rawValue: string): unknown {
   if (!property.startsWith("--") && !KNOWN_PROPERTIES.has(property)) {
-    throw new StylesheetParseError(`Invalid CSS property "${property}"`);
+    throw new StylesheetParseError(propertySuggestionMessage(property));
   }
 
   if (rawValue.trim() === "initial") {
@@ -880,7 +1327,7 @@ function parseValue(property: string, rawValue: string): unknown {
 
   if (COLOR_PROPERTIES.has(property)) {
     const trimmed = rawValue.trim();
-    return trimmed.startsWith("var(") ? trimmed : normalizeColor(trimmed);
+    return trimmed.startsWith("var(") ? trimmed : Color.parse(trimmed);
   }
 
   if (property === "display") {
@@ -1011,11 +1458,58 @@ function parseValue(property: string, rawValue: string): unknown {
     return parseStringEnum(property, rawValue, ["vertical", "horizontal", "grid", "stream"] as const);
   }
 
+  if (property === "transition") {
+    return parseTransition(rawValue);
+  }
+
   if (property.startsWith("--")) {
     return rawValue.trim();
   }
 
   return rawValue.trim();
+}
+
+export type StyleAssignmentValue = string | number | Scalar | Color | readonly Scalar[];
+
+export function normalizeStyleAssignment(property: string, value: StyleAssignmentValue): string {
+  if (DIMENSION_PROPERTIES.has(property)) {
+    const axis = WIDTH_AXIS_PROPERTIES.has(property) ? "width" : "height";
+    return scalarToRawValue(normalizeScalar(value as string | number | Scalar, axis));
+  }
+
+  if (property === "offset-x" || property === "grid-gutter-horizontal") {
+    return scalarToRawValue(normalizeScalar(value as string | number | Scalar, "width"));
+  }
+
+  if (property === "offset-y" || property === "grid-gutter-vertical") {
+    return scalarToRawValue(normalizeScalar(value as string | number | Scalar, "height"));
+  }
+
+  const scalarListAxis = SCALAR_LIST_PROPERTIES.get(property);
+
+  if (scalarListAxis !== undefined) {
+    const values = Array.isArray(value) ? value : String(value).trim().split(/\s+/).map((part) => parseScalar(part, scalarListAxis));
+    return values
+      .map((part) => {
+        const scalar = normalizeScalar(part, scalarListAxis);
+        return scalarToRawValue(
+          scalar.unit === Unit.FRACTION
+            ? scalar.copyWith({ percentUnit: axisToPercentUnit(scalarListAxis) })
+            : scalar,
+        );
+      })
+      .join(" ");
+  }
+
+  if (COLOR_PROPERTIES.has(property) && value instanceof Color) {
+    return value.css;
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    return `${value}`;
+  }
+
+  throw new StyleValueError(`Invalid style value for "${property}"`);
 }
 
 export function parseTcss(source: string, options: ParseStylesheetOptions): ParsedStylesheet {
@@ -1037,7 +1531,8 @@ export function parseTcss(source: string, options: ParseStylesheetOptions): Pars
     try {
       selectors = parseSelectorList(csstree.generate(ruleNode.prelude));
     } catch (error) {
-      throw new StylesheetParseError(`Invalid selector "${csstree.generate(ruleNode.prelude)}"`, {
+      const cause = error as Error;
+      throw new StylesheetParseError(`Invalid selector "${csstree.generate(ruleNode.prelude)}": ${cause.message}`, {
         cause: error as Error,
       });
     }
@@ -1055,6 +1550,9 @@ export function parseTcss(source: string, options: ParseStylesheetOptions): Pars
         value = parseValue(declarationNode.property, rawValue);
       } catch (error) {
         const cause = error as Error;
+        if (cause instanceof StylesheetParseError) {
+          throw cause;
+        }
         throw new StylesheetParseError(`Invalid value for "${declarationNode.property}": ${cause.message}`, {
           cause,
         });
@@ -1088,6 +1586,60 @@ export function parseTcss(source: string, options: ParseStylesheetOptions): Pars
 
 export function generateTcss(ast: csstree.CssNode): string {
   return csstree.generate(ast);
+}
+
+export interface StylesheetSource {
+  path: string | null;
+  source: string;
+  origin: StylesheetOrigin;
+}
+
+export class Stylesheet {
+  readonly sources: StylesheetSource[] = [];
+  rules: ParsedRule[] = [];
+  parsed: ParsedStylesheet[] = [];
+  errors: Error[] = [];
+
+  addSource(source: string, options: ParseStylesheetOptions & { path?: string | null }): void {
+    this.sources.push({
+      path: options.path ?? null,
+      source,
+      origin: options.origin,
+    });
+  }
+
+  parse(): void {
+    const parsed = this.sources.map((source) =>
+      parseTcss(source.source, {
+        origin: source.origin,
+      }),
+    );
+    // [LAW:dataflow-not-control-flow] Reparse computes the complete next
+    // stylesheet snapshot first; storage is replaced only by that value.
+    this.parsed = parsed;
+    this.rules = parsed.flatMap((stylesheet) => stylesheet.rules);
+    this.errors = [];
+  }
+
+  reparse(): boolean {
+    try {
+      this.parse();
+      return true;
+    } catch (error) {
+      this.errors = [error as Error];
+      return false;
+    }
+  }
+
+  read(path: string, options: ParseStylesheetOptions = { origin: "user" }): void {
+    this.addSource(readFileSync(path, "utf8"), { ...options, path });
+  }
+
+  static read(path: string, options: ParseStylesheetOptions = { origin: "user" }): Stylesheet {
+    const stylesheet = new Stylesheet();
+    stylesheet.read(path, options);
+    return stylesheet;
+  }
 }
 
 function expandedDeclarationEntries(declaration: ParsedDeclaration): ParsedDeclaration[] {
@@ -1347,13 +1899,25 @@ function mapVerticalAlign(value: AlignValue["vertical"]): "flex-start" | "center
   return value === "middle" ? "center" : value === "bottom" ? "flex-end" : "flex-start";
 }
 
+export function colorToInkValue(value: Color | string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value instanceof Color) {
+    return value.alpha === 1 ? value.hex6.toLowerCase() : value.css;
+  }
+
+  return value;
+}
+
 function rulesToInk(
   rules: ResolvedRuleMap,
   viewport: {
     width: number;
     height: number;
   },
-): Pick<ResolvedInkStyles, "box" | "text"> {
+): Pick<ResolvedInkStyles, "box" | "text" | "style" | "components"> {
   const box: Record<string, unknown> = {};
   const text: Record<string, unknown> = {};
   const borderTop = rules["border-top"] as BorderValue | undefined;
@@ -1369,7 +1933,7 @@ function rulesToInk(
     box.borderStyle = border.style === "" ? undefined : border.style;
 
     if (border.color !== undefined) {
-      box.borderColor = border.color;
+      box.borderColor = colorToInkValue(border.color);
     }
   }
 
@@ -1408,13 +1972,14 @@ function rulesToInk(
     }
 
     if (property === "background") {
-      box.backgroundColor = value;
-      text.backgroundColor = value;
+      const color = colorToInkValue(value as Color | string);
+      box.backgroundColor = color;
+      text.backgroundColor = color;
       continue;
     }
 
     if (property === "color") {
-      text.color = value;
+      text.color = colorToInkValue(value as Color | string);
       continue;
     }
 
@@ -1456,6 +2021,10 @@ function rulesToInk(
   return {
     box,
     text,
+    // [LAW:one-source-of-truth] Rich/content style data is derived from the
+    // same resolved rule map that feeds Ink props; no component owns a fork.
+    style: { ...text },
+    components: {},
   };
 }
 
@@ -1593,6 +2162,7 @@ export function resolveStylesForWidget(
     rules[property] = parseValue(property, resolvedRawValue);
   }
 
+  resolveAutomaticColorRules(rules);
   deriveCompoundRules(rules);
 
   return {
@@ -1600,6 +2170,20 @@ export function resolveStylesForWidget(
     rules,
     customProperties,
   };
+}
+
+function resolveAutomaticColorRules(rules: ResolvedRuleMap): void {
+  const background = rules["background"] instanceof Color ? rules["background"] : Color.parse("transparent");
+
+  // [LAW:dataflow-not-control-flow] Color auto-resolution is a deterministic
+  // pass over all resolved rules; non-auto colors flow through unchanged.
+  for (const [property, value] of Object.entries(rules)) {
+    const resolvedValue =
+      value instanceof Color && value.isAutomatic && (property === "color" || property === "tint")
+        ? background.add(value)
+        : value;
+    rules[property] = resolvedValue;
+  }
 }
 
 function deriveCompoundRules(rules: ResolvedRuleMap): void {
@@ -1692,12 +2276,18 @@ function borderFromEdges(rules: ResolvedRuleMap, prefix: "border" | "outline"): 
 
   if (values.every((value) => isBorderValue(value))) {
     const [first] = values as BorderValue[];
-    const allEqual = (values as BorderValue[]).every((value) => value.style === first.style && value.color === first.color);
+    const allEqual = (values as BorderValue[]).every((value) => borderValueEquals(value, first));
 
     return allEqual ? first : undefined;
   }
 
   return undefined;
+}
+
+function borderValueEquals(left: BorderValue, right: BorderValue): boolean {
+  const leftColor = colorToInkValue(left.color);
+  const rightColor = colorToInkValue(right.color);
+  return left.style === right.style && leftColor === rightColor;
 }
 
 function isBorderValue(value: unknown): value is BorderValue {

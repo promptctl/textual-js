@@ -18,3 +18,4 @@ export {
   type VisualMeasurement,
   type VisualizeOptions,
 } from "./visual.js";
+export { RichText as StyledText, Segment, Style } from "rich-js";

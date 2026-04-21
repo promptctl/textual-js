@@ -21,6 +21,7 @@ export interface TextualAppProps extends PropsWithChildren {
   onReady?: (framework: TextualFramework) => void;
   css?: string;
   stylesheet?: string;
+  cssPath?: string | readonly string[];
   theme?: string;
   bindings?: BindingDeclaration[];
   keymap?: KeymapInput;
@@ -171,6 +172,7 @@ export const TextualApp = observer(function TextualApp({
   onReady,
   css,
   stylesheet,
+  cssPath,
   theme,
   bindings,
   keymap,
@@ -190,6 +192,12 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedFramework.setUserStylesheet(css ?? stylesheet ?? "");
   }, [css, ownedFramework, stylesheet]);
+
+  useLayoutEffect(() => {
+    if (cssPath !== undefined) {
+      ownedFramework.setCssPath(cssPath);
+    }
+  }, [cssPath, ownedFramework]);
 
   useLayoutEffect(() => {
     ownedFramework.setTheme(theme ?? "default");

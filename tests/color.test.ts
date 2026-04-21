@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { Color, ColorParseError, Gradient, labToRgb, normalizeColor, rgbToLab } from "../src/index.js";
+import { Color as RichColor } from "rich-js";
+
+import { Color, ColorParseError, Gradient, lab_to_rgb, labToRgb, normalizeColor, rgb_to_lab, rgbToLab } from "../src/index.js";
 
 describe("color normalization", () => {
   it("normalizes named colors and hex colors", () => {
@@ -47,19 +49,37 @@ describe("color normalization", () => {
     expect(source.monochrome.alpha).toBe(0.75);
     expect(source.inverse.rgb).toEqual([223, 191, 127]);
     expect(source.withAlpha(2).alpha).toBe(1);
+    expect(source.with_alpha(0.25).alpha).toBe(0.25);
     expect(source.multiplyAlpha(0.5).alpha).toBe(0.375);
+    expect(source.multiply_alpha(0.5).alpha).toBe(0.375);
+    expect(Color.from_hsl(source.hsl.h, source.hsl.s, source.hsl.l).rgb).toEqual(source.rgb);
+    expect(Color.from_hsv(source.hsv.h, source.hsv.s, source.hsv.v).rgb).toEqual(source.rgb);
+    expect(lab_to_rgb(rgb_to_lab(source)).rgb[0]).toBeCloseTo(source.rgb[0], 0);
     expect(new Color(10, 20, 30).tint(new Color(110, 120, 130, 0.5)).rgb).toEqual([60, 70, 80]);
     expect(new Color(10, 20, 30).add(new Color(110, 120, 130, 0.5)).rgb).toEqual([60, 70, 80]);
     expect(new Color(10, 20, 30).lighten(1).rgb).toEqual([255, 255, 255]);
     expect(new Color(10, 20, 30).darken(1).rgb).toEqual([0, 0, 0]);
+    expect(new Color(10, 20, 30).get_contrast_text().hex6).toBe("#FFFFFF");
+    expect(new Color(250, 250, 250).getContrastText().hex6).toBe("#000000");
+    expect(new Color(0, 0, 0, 0).is_transparent).toBe(true);
+  });
+
+  it("bridges rich-js colors without creating a second color model", () => {
+    const source = RichColor.fromRgb(10, 20, 30);
+    const color = Color.from_rich_color(source);
+
+    expect(color.rgb).toEqual([10, 20, 30]);
+    expect(color.rich_color.getTruecolor().rgb).toBe("rgb(10,20,30)");
   });
 
   it("samples validated gradients", () => {
     const gradient = new Gradient([0, "black"], [0.5, "red"], [1, "white"]);
 
     expect(gradient.getColor(-1).hex6).toBe("#000000");
-    expect(gradient.getColor(0.5).hex6).toBe("#FF0000");
+    expect(gradient.get_color(0.5).hex6).toBe("#FF0000");
     expect(gradient.getColor(2).hex6).toBe("#FFFFFF");
+    expect(Gradient.from_colors("black", "white").getColor(1).hex6).toBe("#FFFFFF");
+    expect(new Gradient([0, "black"], [1, "white"], { quality: 3 }).getColor(0.5).hex6).toBe("#808080");
     expect(() => new Gradient([0.2, "red"], [1, "blue"])).toThrow(/start/);
     expect(() => Gradient.fromColors("red")).toThrow(/at least two/);
   });
@@ -68,5 +88,6 @@ describe("color normalization", () => {
     expect(() => Color.parse("ansi_dark_cyan")).toThrow(ColorParseError);
     expect(() => Color.parse("#12")).toThrow(ColorParseError);
     expect(() => normalizeColor("not-a-color")).toThrow(ColorParseError);
+    expect(() => Color.parse("chartruse")).toThrow(/chartreuse/);
   });
 });

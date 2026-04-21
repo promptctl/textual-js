@@ -1,9 +1,10 @@
 import { makeAutoObservable, observable } from "mobx";
 import type { BoxProps, TextProps } from "ink";
+import type { Color } from "./color.js";
 
 export interface BorderValue {
   style: string;
-  color?: string;
+  color?: string | Color;
 }
 
 export interface ResolvedRuleMap {
@@ -13,6 +14,8 @@ export interface ResolvedRuleMap {
 export interface ResolvedInkStyles {
   box: Partial<BoxProps>;
   text: Partial<TextProps>;
+  style: Record<string, unknown>;
+  components: Record<string, ResolvedRuleMap>;
   rules: ResolvedRuleMap;
   customProperties: Record<string, string>;
 }
@@ -20,6 +23,8 @@ export interface ResolvedInkStyles {
 export class ResolvedStyles {
   box: Partial<BoxProps> = {};
   text: Partial<TextProps> = {};
+  style: Record<string, unknown> = {};
+  components = observable.map<string, ResolvedRuleMap>();
   readonly rules = observable.map<string, unknown>();
   readonly customProperties = observable.map<string, string>();
   version = 0;
@@ -30,6 +35,7 @@ export class ResolvedStyles {
       this,
       {
         rules: false,
+        components: false,
         customProperties: false,
         hasRule: false,
         getRule: false,
@@ -43,6 +49,8 @@ export class ResolvedStyles {
   update(nextStyles: ResolvedInkStyles): void {
     this.box = nextStyles.box;
     this.text = nextStyles.text;
+    this.style = nextStyles.style;
+    this.components.replace(Object.entries(nextStyles.components));
     this.rules.replace(Object.entries(nextStyles.rules));
     this.customProperties.replace(Object.entries(nextStyles.customProperties));
     this.version += 1;

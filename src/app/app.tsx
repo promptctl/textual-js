@@ -21,6 +21,7 @@ export interface AppOptions {
   subTitle?: unknown;
   sub_title?: unknown;
   css?: string;
+  cssPath?: string | readonly string[];
   stylesheet?: string;
   theme?: string;
   bindings?: BindingDeclaration[];
@@ -41,6 +42,7 @@ export interface AppTestSession<Result> extends Omit<TestSession, "app" | "resul
 
 interface StoredAppOptions {
   css?: string;
+  cssPath?: string | readonly string[];
   stylesheet?: string;
   theme?: string;
   bindings?: BindingDeclaration[];
@@ -62,6 +64,7 @@ export class App<Result = unknown> {
     this.framework = options.framework ?? new TextualFramework();
     this.appOptions = {
       css: options.css,
+      cssPath: options.cssPath,
       stylesheet: options.stylesheet,
       theme: options.theme,
       bindings: options.bindings,
@@ -89,6 +92,7 @@ export class App<Result = unknown> {
       <TextualApp
         framework={this.framework}
         css={this.appOptions.css}
+        cssPath={this.appOptions.cssPath}
         stylesheet={this.appOptions.stylesheet}
         theme={this.appOptions.theme}
         bindings={this.appOptions.bindings}
