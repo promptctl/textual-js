@@ -22,10 +22,96 @@ export interface WidgetIdentity {
   typeName: string;
 }
 
+export class NodeList implements Iterable<WidgetNode> {
+  private readonly items = observable.array<WidgetNode>([]);
+
+  constructor() {
+    makeAutoObservable(
+      this,
+      {
+        items: false,
+      } as never,
+      { autoBind: true },
+    );
+  }
+
+  [Symbol.iterator](): Iterator<WidgetNode> {
+    return this.items[Symbol.iterator]();
+  }
+
+  get length(): number {
+    return this.items.length;
+  }
+
+  get isEmpty(): boolean {
+    return this.items.length === 0;
+  }
+
+  at(index: number): WidgetNode | undefined {
+    return this.items[index];
+  }
+
+  slice(start?: number, end?: number): WidgetNode[] {
+    return this.items.slice(start, end);
+  }
+
+  index(widget: WidgetNode): number {
+    const index = this.items.indexOf(widget);
+
+    if (index === -1) {
+      throw new Error("Node is not present in NodeList");
+    }
+
+    return index;
+  }
+
+  has(widget: WidgetNode): boolean {
+    return this.items.includes(widget);
+  }
+
+  toArray(): WidgetNode[] {
+    return [...this.items];
+  }
+
+  __length_hint__(): number {
+    return this.items.length;
+  }
+
+  _append(widget: WidgetNode): void {
+    if (!this.items.includes(widget)) {
+      this.items.push(widget);
+    }
+  }
+
+  _insert(index: number, widget: WidgetNode): void {
+    const existingIndex = this.items.indexOf(widget);
+
+    if (existingIndex !== -1) {
+      this.items.splice(existingIndex, 1);
+    }
+
+    this.items.splice(Math.max(0, index), 0, widget);
+  }
+
+  _remove(widget: WidgetNode): void {
+    const index = this.items.indexOf(widget);
+
+    if (index !== -1) {
+      this.items.splice(index, 1);
+    }
+  }
+
+  _clear(): void {
+    this.items.clear();
+  }
+}
+
 export class WidgetRegistry {
   private readonly entries = observable.map<string, WidgetNode>();
   private readonly cssIds = observable.map<string, string>();
   private readonly order = observable.array<string>([]);
+  private readonly childrenByParent = observable.map<string, NodeList>();
+  private readonly rootChildren = new NodeList();
   version = 0;
 
   constructor() {
@@ -35,14 +121,34 @@ export class WidgetRegistry {
         entries: false,
         cssIds: false,
         order: false,
+        childrenByParent: false,
+        rootChildren: false,
       } as never,
       { autoBind: true },
     );
   }
 
+  private childList(parentId: string | null): NodeList {
+    if (parentId === null) {
+      return this.rootChildren;
+    }
+
+    const existing = this.childrenByParent.get(parentId);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const created = new NodeList();
+    this.childrenByParent.set(parentId, created);
+    return created;
+  }
+
   // [LAW:one-source-of-truth] WidgetNode is the canonical identity object for a
   // mounted widget. The registry only indexes those nodes; it doesn't mirror them.
   register(widget: WidgetNode): void {
+    const previous = this.entries.get(widget.nodeId);
+
     if (widget.id !== undefined) {
       const existingNodeId = this.cssIds.get(widget.id);
 
@@ -59,7 +165,12 @@ export class WidgetRegistry {
       this.order.push(widget.nodeId);
     }
 
+    if (previous !== undefined && previous.parentId !== widget.parentId) {
+      this.childList(previous.parentId)._remove(previous);
+    }
+
     this.entries.set(widget.nodeId, widget);
+    this.childList(widget.parentId)._append(widget);
     this.version += 1;
   }
 
@@ -71,6 +182,9 @@ export class WidgetRegistry {
     }
 
     this.entries.delete(nodeId);
+    if (widget !== undefined) {
+      this.childList(widget.parentId)._remove(widget);
+    }
 
     const index = this.order.indexOf(nodeId);
 
@@ -100,8 +214,12 @@ export class WidgetRegistry {
       .filter((widget): widget is WidgetNode => widget !== undefined);
   }
 
+  getChildNodeList(parentId: string | null): NodeList {
+    return this.childList(parentId);
+  }
+
   getChildren(parentId: string | null): WidgetNode[] {
-    return this.list().filter((widget) => widget.parentId === parentId);
+    return this.childList(parentId).toArray();
   }
 
   getDescendants(nodeId: string): WidgetNode[] {

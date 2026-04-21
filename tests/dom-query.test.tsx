@@ -33,6 +33,30 @@ function QueryLabel(props: { id?: string; classes?: string; text: string; focusa
   );
 }
 
+class View {}
+
+class SubView extends View {}
+
+function TypedBase(props: { id: string; children?: React.ReactNode }): React.JSX.Element {
+  const widget = useWidget({
+    id: props.id,
+    typeName: "TypedBase",
+    typeToken: View,
+  });
+
+  return <WidgetScope widget={widget.handle}>{props.children}</WidgetScope>;
+}
+
+function TypedDerived(props: { id: string; children?: React.ReactNode }): React.JSX.Element {
+  const widget = useWidget({
+    id: props.id,
+    typeName: "TypedDerived",
+    typeToken: SubView,
+  });
+
+  return <WidgetScope widget={widget.handle}>{props.children}</WidgetScope>;
+}
+
 const QueryContainer = observer(function QueryContainer(props: {
   id?: string;
   classes?: string;
@@ -155,6 +179,31 @@ describe("DOM query API", () => {
     expect(framework.focusedNodeId).toBeNull();
 
     expect(() => root.addClass("bad class")).toThrow(BadIdentifier);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("matches type selectors through ancestry and supports queryExactlyOne(type)", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <TypedBase id="typed-root">
+          <QueryContainer id="typed-container">
+            <TypedDerived id="typed-child" />
+          </QueryContainer>
+        </TypedBase>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const rootHandle = framework.registry.getByCssId("typed-root") as WidgetNode;
+
+    expect(rootHandle.query("View").results().map((widget) => widget.id)).toContain("typed-child");
+    expect(rootHandle.query("TypedBase").results().map((widget) => widget.id)).toContain("typed-child");
+    expect(rootHandle.queryExactlyOne(View).id).toBe("typed-child");
 
     instance.unmount();
     instance.cleanup();

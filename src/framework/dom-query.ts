@@ -20,7 +20,8 @@ export function matchesQueryTypeConstraint(widget: WidgetNode, typeConstraint: Q
     return true;
   }
 
-  return typeof typeConstraint === "string" ? widget.matchesType(typeConstraint) : widget instanceof typeConstraint;
+  const resolvedTypeName = widget.framework.resolveWidgetTypeName(typeConstraint as string | Function);
+  return widget.matchesType(resolvedTypeName);
 }
 
 export function ensureQueryType(widget: WidgetNode, typeConstraint: QueryTypeConstraint | undefined): WidgetNode {
@@ -32,6 +33,7 @@ export function ensureQueryType(widget: WidgetNode, typeConstraint: QueryTypeCon
 }
 
 export class DOMQuery implements Iterable<WidgetNode> {
+  private static readonly simpleCache = new Map<string, ParsedSelector[][]>();
   private readonly selectorFilters: ParsedSelector[][];
   private readonly selectorExcludes: ParsedSelector[][];
   private readonly resultsComputed: IComputedValue<WidgetNode[]>;
@@ -94,7 +96,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
   }
 
   onlyOne(typeConstraint?: QueryTypeConstraint): WidgetNode {
-    const matches = this.results();
+    const matches = this.results(typeConstraint);
 
     if (matches.length === 0) {
       throw new NoMatches("Query returned no matches");
@@ -104,15 +106,15 @@ export class DOMQuery implements Iterable<WidgetNode> {
       throw new TooManyMatches("Query returned more than one match");
     }
 
-    return ensureQueryType(matches[0]!, typeConstraint);
+    return matches[0]!;
   }
 
   filter(selectorText: string): DOMQuery {
-    return new DOMQuery(this.framework, this.root, this.mode, [...this.selectorFilters, parseSelectorList(selectorText)], this.selectorExcludes);
+    return new DOMQuery(this.framework, this.root, this.mode, [...this.selectorFilters, DOMQuery.parseSelectors(selectorText)], this.selectorExcludes);
   }
 
   exclude(selectorText: string): DOMQuery {
-    return new DOMQuery(this.framework, this.root, this.mode, this.selectorFilters, [...this.selectorExcludes, parseSelectorList(selectorText)]);
+    return new DOMQuery(this.framework, this.root, this.mode, this.selectorFilters, [...this.selectorExcludes, DOMQuery.parseSelectors(selectorText)]);
   }
 
   results(typeConstraint?: QueryTypeConstraint): WidgetNode[] {
@@ -210,6 +212,23 @@ export class DOMQuery implements Iterable<WidgetNode> {
       );
       return passesFilters && !excluded;
     });
+  }
+
+  private static parseSelectors(selectorText: string): ParsedSelector[] {
+    const trimmed = selectorText.trim();
+    const cached = DOMQuery.simpleCache.get(trimmed);
+
+    if (cached !== undefined) {
+      return cached[0] ?? [];
+    }
+
+    const parsed = parseSelectorList(trimmed);
+
+    if (!/[ >+~,:]/.test(trimmed)) {
+      DOMQuery.simpleCache.set(trimmed, [parsed]);
+    }
+
+    return parsed;
   }
 }
 

@@ -25,9 +25,11 @@ export {
   keyToCharacter,
   normalizeKeyName,
   type RegisterWidgetOptions,
+  type RegisterWidgetTypeOptions,
   type ScreenDescriptor,
   type ScreenEntry,
   type ScreenOptions,
+  type WidgetTypeMetadata,
 } from "./app-framework.js";
 export {
   StylesReader,
@@ -49,6 +51,7 @@ export { DOMQuery, DeclarationError, NoMatches, TooManyMatches, WrongType, type 
 export { OnDecoratorError, on, type OnOptions } from "./on.js";
 export {
   WidgetRegistry,
+  NodeList,
   DuplicateIds,
   type WidgetActionCallback,
   type WidgetActions,

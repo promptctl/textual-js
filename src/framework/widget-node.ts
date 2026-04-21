@@ -10,10 +10,11 @@ import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
-import { normalizeStyleAssignment, type StyleAssignmentValue } from "../styles/stylesheet.js";
+import { type StyleAssignmentValue } from "../styles/stylesheet.js";
+import { createStylesProxy, RenderStyles, Styles } from "../styles/styles.js";
 import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
 import type { AnimationLevel, TextualFramework } from "./app-framework.js";
-import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
+import { NodeList, type WidgetActions, type WidgetHandlers } from "./widget-registry.js";
 
 export interface WidgetNodeInit {
   framework: TextualFramework;
@@ -30,6 +31,8 @@ export interface WidgetNodeInit {
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
+  borderTitle?: string | null;
+  borderSubtitle?: string | null;
 }
 
 export class BadIdentifier extends Error {}
@@ -79,11 +82,12 @@ export class WidgetNode {
   readonly bindingsRef: { current: Binding[] };
   readonly focusable: boolean;
   readonly autoFocus: boolean;
-  readonly classes = observable.set<string>();
+  private readonly classNames = observable.set<string>();
   readonly pseudoClasses = observable.map<string, boolean>();
-  readonly inlineStyles = observable.map<string, string>();
   readonly resolvedStyles = new ResolvedStyles();
-  readonly styles: Record<string, StyleAssignmentValue | null | undefined>;
+  readonly inlineStyles: Styles;
+  readonly styles: Styles;
+  readonly renderStyles: RenderStyles;
   screenRegion = Region.EMPTY;
   scrollOffsetX = 0;
   scrollOffsetY = 0;
@@ -95,6 +99,8 @@ export class WidgetNode {
   disabled: boolean;
   loading: boolean;
   tooltip: VisualInput | null;
+  borderTitle: string | null;
+  borderSubtitle: string | null;
   lifecycleReady = false;
 
   constructor(init: WidgetNodeInit) {
@@ -111,20 +117,15 @@ export class WidgetNode {
     this.disabled = init.disabled;
     this.loading = init.loading;
     this.tooltip = init.tooltip;
-    this.styles = new Proxy(
-      {},
-      {
-        set: (_target, property, value: StyleAssignmentValue | null | undefined) => {
-          const styleName = String(property).replace(/_/g, "-").replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-          this.setInlineStyle(styleName, value);
-          return true;
-        },
-        get: (_target, property) => {
-          const styleName = String(property).replace(/_/g, "-").replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-          return this.inlineStyles.get(styleName);
-        },
-      },
-    ) as Record<string, StyleAssignmentValue | null | undefined>;
+    this.inlineStyles = createStylesProxy(
+      new Styles(() => {
+        this.framework.refreshStyles(true);
+      }),
+    );
+    this.styles = this.inlineStyles;
+    this.renderStyles = new RenderStyles(this, this.resolvedStyles, this.inlineStyles);
+    this.borderTitle = init.borderTitle ?? null;
+    this.borderSubtitle = init.borderSubtitle ?? null;
 
     if (init.id !== undefined) {
       validateCssIdentifier(init.id, "id");
@@ -133,7 +134,7 @@ export class WidgetNode {
     runInAction(() => {
       for (const className of init.classes) {
         validateCssIdentifier(className, "class");
-        this.classes.add(className);
+        this.classNames.add(className);
       }
     });
 
@@ -151,9 +152,19 @@ export class WidgetNode {
         focusable: false,
         autoFocus: false,
         styles: false,
+        inlineStyles: false,
+        renderStyles: false,
       },
       { autoBind: true },
     );
+  }
+
+  get classes(): ReadonlySet<string> {
+    return this.classNames;
+  }
+
+  set classes(value: string | string[]) {
+    this.setClasses(value);
   }
 
   get actions(): WidgetActions | undefined {
@@ -271,8 +282,46 @@ export class WidgetNode {
     return (this.resolvedStyles.getRule("display") as "block" | "none" | undefined) ?? "block";
   }
 
+  set display(value: boolean | "block" | "none") {
+    this.setDisplay(value);
+  }
+
   get visibility(): "visible" | "hidden" {
     return (this.resolvedStyles.getRule("visibility") as "visible" | "hidden" | undefined) ?? "visible";
+  }
+
+  get visible(): boolean {
+    return this.isVisible;
+  }
+
+  set visible(value: boolean | "visible" | "hidden") {
+    this.setVisible(value);
+  }
+
+  get border_title(): string | null {
+    return this.borderTitle;
+  }
+
+  set border_title(value: string | null) {
+    this.borderTitle = value;
+    this.framework.refreshStyles(true);
+  }
+
+  get border_subtitle(): string | null {
+    return this.borderSubtitle;
+  }
+
+  set border_subtitle(value: string | null) {
+    this.borderSubtitle = value;
+    this.framework.refreshStyles(true);
+  }
+
+  get children(): NodeList {
+    return this.framework.registry.getChildNodeList(this.nodeId);
+  }
+
+  get isEmpty(): boolean {
+    return this.children.isEmpty;
   }
 
   get isDisplayed(): boolean {
@@ -445,20 +494,20 @@ export class WidgetNode {
   }
 
   matchesType(typeName: string): boolean {
-    return this.typeName === typeName;
+    return this.framework.widgetMatchesType(this.typeName, typeName);
   }
 
   hasClass(className: string): boolean {
-    return this.classes.has(className);
+    return this.classNames.has(className);
   }
 
   replaceClasses(nextClasses: string[]): void {
     runInAction(() => {
-      this.classes.clear();
+      this.classNames.clear();
 
       for (const className of nextClasses) {
         validateCssIdentifier(className, "class");
-        this.classes.add(className);
+        this.classNames.add(className);
       }
     });
   }
@@ -470,8 +519,8 @@ export class WidgetNode {
       for (const className of classNames) {
         validateCssIdentifier(className, "class");
 
-        if (!this.classes.has(className)) {
-          this.classes.add(className);
+        if (!this.classNames.has(className)) {
+          this.classNames.add(className);
           changed = true;
         }
       }
@@ -487,7 +536,7 @@ export class WidgetNode {
       for (const className of classNames) {
         validateCssIdentifier(className, "class");
 
-        if (this.classes.delete(className)) {
+        if (this.classNames.delete(className)) {
           changed = true;
         }
       }
@@ -498,14 +547,14 @@ export class WidgetNode {
 
   toggleClass(className: string, force?: boolean): void {
     validateCssIdentifier(className, "class");
-    const shouldHaveClass = force ?? !this.classes.has(className);
-    const hadClass = this.classes.has(className);
+    const shouldHaveClass = force ?? !this.classNames.has(className);
+    const hadClass = this.classNames.has(className);
 
     runInAction(() => {
       if (shouldHaveClass) {
-        this.classes.add(className);
+        this.classNames.add(className);
       } else {
-        this.classes.delete(className);
+        this.classNames.delete(className);
       }
     });
 
@@ -514,17 +563,17 @@ export class WidgetNode {
 
   setClasses(classes: string | string[]): void {
     const nextClasses = normalizeClassInput(classes);
-    const currentClasses = Array.from(this.classes);
+    const currentClasses = Array.from(this.classNames);
     const same =
       currentClasses.length === nextClasses.length &&
       currentClasses.every((className, index) => className === nextClasses[index]);
 
     runInAction(() => {
-      this.classes.clear();
+      this.classNames.clear();
 
       for (const className of nextClasses) {
         validateCssIdentifier(className, "class");
-        this.classes.add(className);
+        this.classNames.add(className);
       }
     });
 
@@ -616,16 +665,9 @@ export class WidgetNode {
   }
 
   setInlineStyle(name: string, value: StyleAssignmentValue | null | undefined): void {
-    if (value === null || value === undefined) {
-      this.inlineStyles.delete(name);
-      this.framework.refreshStyles(true);
-      return;
-    }
-
     // [LAW:single-enforcer] Programmatic style assignment normalizes at the
     // same style boundary as TCSS parsing before the cascade stores anything.
-    this.inlineStyles.set(name, normalizeStyleAssignment(name, value));
-    this.framework.refreshStyles(true);
+    this.inlineStyles.setRule(name, value);
   }
 
   setInlineStyles(styles: Record<string, StyleAssignmentValue | null | undefined>): void {
@@ -670,8 +712,12 @@ export class WidgetNode {
     return new DOMQuery(this.framework, this, "descendants").filter(selectorText).first(typeConstraint);
   }
 
-  queryExactlyOne(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode {
-    const results = this.query(selectorText).results();
+  queryExactlyOne(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode;
+  queryExactlyOne(typeConstraint: QueryTypeConstraint): WidgetNode;
+  queryExactlyOne(selectorOrType: string | QueryTypeConstraint, typeConstraint?: QueryTypeConstraint): WidgetNode {
+    const selectorText = typeof selectorOrType === "string" ? selectorOrType : "*";
+    const effectiveTypeConstraint = typeof selectorOrType === "string" ? typeConstraint : selectorOrType;
+    const results = this.query(selectorText).results(effectiveTypeConstraint);
 
     if (results.length === 0) {
       throw new NoMatches(`No widgets matched "${selectorText}"`);
@@ -681,7 +727,11 @@ export class WidgetNode {
       throw new TooManyMatches(`More than one widget matched "${selectorText}"`);
     }
 
-    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).onlyOne(typeConstraint);
+    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).onlyOne(effectiveTypeConstraint);
+  }
+
+  query_exactly_one(typeConstraint: QueryTypeConstraint): WidgetNode {
+    return this.queryExactlyOne(typeConstraint);
   }
 
   queryAncestor(selectorText: string, typeConstraint?: QueryTypeConstraint): WidgetNode {

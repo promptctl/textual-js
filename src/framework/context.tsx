@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { Box, Transform, measureElement, type DOMElement } from "ink";
 import { observer } from "mobx-react-lite";
+import { runInAction } from "mobx";
 import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
@@ -63,15 +64,24 @@ export interface UseWidgetOptions {
   id?: string;
   classes?: string | string[];
   typeName: string;
+  baseTypeNames?: string[];
+  scopedCss?: string;
   handlers?: WidgetHandlers;
   actions?: WidgetActions;
   bindings?: BindingDeclaration[];
   focusable?: boolean;
   autoFocus?: boolean;
   defaultCss?: string;
+  componentClasses?: string[];
+  inheritCss?: boolean;
+  inheritBindings?: boolean;
+  inheritComponentClasses?: boolean;
   disabled?: boolean;
   loading?: boolean;
   tooltip?: VisualInput | null;
+  borderTitle?: string | null;
+  borderSubtitle?: string | null;
+  typeToken?: Function;
 }
 
 export interface UseWidgetResult {
@@ -121,6 +131,8 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       disabled: options.disabled ?? false,
       loading: options.loading ?? false,
       tooltip: options.tooltip ?? null,
+      borderTitle: options.borderTitle ?? null,
+      borderSubtitle: options.borderSubtitle ?? null,
     }),
   );
   handlersRef.current = options.handlers;
@@ -130,10 +142,28 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const classesKey = classes.join(" ");
 
   useLayoutEffect(() => {
-    framework.registerWidgetType(options.typeName, options.defaultCss);
+    framework.registerWidgetType(options.typeName, {
+      defaultCss: options.defaultCss,
+      scopedCss: options.scopedCss,
+      baseTypeNames: options.baseTypeNames,
+      bindings: bindingsRef.current,
+      inheritCss: options.inheritCss,
+      inheritBindings: options.inheritBindings,
+      componentClasses: options.componentClasses,
+      inheritComponentClasses: options.inheritComponentClasses,
+      borderTitle: options.borderTitle,
+      borderSubtitle: options.borderSubtitle,
+      typeToken: options.typeToken,
+    });
+    const typeMetadata = framework.getWidgetTypeMetadata(options.typeName);
+    bindingsRef.current = typeMetadata.bindings;
     widgetRef.current.parentId = parentId;
     widgetRef.current.markLifecyclePending();
     widgetRef.current.replaceClasses(classes);
+    runInAction(() => {
+      widgetRef.current.borderTitle = options.borderTitle ?? typeMetadata.borderTitle;
+      widgetRef.current.borderSubtitle = options.borderSubtitle ?? typeMetadata.borderSubtitle;
+    });
     framework.registerWidget(widgetRef.current);
     setLifecycleReady(true);
 
@@ -146,7 +176,16 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
     classesKey,
     framework,
     options.defaultCss,
+    options.scopedCss,
     options.typeName,
+    options.baseTypeNames,
+    options.inheritCss,
+    options.inheritBindings,
+    options.inheritComponentClasses,
+    options.componentClasses,
+    options.borderTitle,
+    options.borderSubtitle,
+    options.typeToken,
     parentId,
   ]);
 
@@ -184,15 +223,24 @@ export interface WidgetHostProps extends PropsWithChildren {
   id?: string;
   classes?: string | string[];
   typeName: string;
+  baseTypeNames?: string[];
+  scopedCss?: string;
   handlers?: WidgetHandlers;
   actions?: WidgetActions;
   bindings?: BindingDeclaration[];
   focusable?: boolean;
   autoFocus?: boolean;
   defaultCss?: string;
+  componentClasses?: string[];
+  inheritCss?: boolean;
+  inheritBindings?: boolean;
+  inheritComponentClasses?: boolean;
   disabled?: boolean;
   loading?: boolean;
   tooltip?: VisualInput | null;
+  borderTitle?: string | null;
+  borderSubtitle?: string | null;
+  typeToken?: Function;
 }
 
 function readAnsiSequenceEnd(output: string, startIndex: number): number {
@@ -280,29 +328,47 @@ export function WidgetHost({
   id,
   classes,
   typeName,
+  baseTypeNames,
+  scopedCss,
   handlers,
   actions,
   bindings,
   focusable,
   autoFocus,
   defaultCss,
+  componentClasses,
+  inheritCss,
+  inheritBindings,
+  inheritComponentClasses,
   disabled,
   loading,
   tooltip,
+  borderTitle,
+  borderSubtitle,
+  typeToken,
 }: WidgetHostProps): React.JSX.Element {
   const widget = useWidget({
     id,
     classes,
     typeName,
+    baseTypeNames,
+    scopedCss,
     handlers,
     actions,
     bindings,
     focusable,
     autoFocus,
     defaultCss,
+    componentClasses,
+    inheritCss,
+    inheritBindings,
+    inheritComponentClasses,
     disabled,
     loading,
     tooltip,
+    borderTitle,
+    borderSubtitle,
+    typeToken,
   });
 
   return <WidgetScope widget={widget.handle}>{widget.lifecycleReady ? children : null}</WidgetScope>;

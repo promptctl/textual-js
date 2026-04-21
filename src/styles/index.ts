@@ -1,4 +1,6 @@
 export { ResolvedStyles, type BorderValue, type ResolvedInkStyles, type ResolvedRuleMap } from "./resolved-styles.js";
+export { RenderStyles, Styles, createStylesProxy } from "./styles.js";
+export { StylesCache } from "./styles-cache.js";
 export {
   combineBorderQuads,
   renderBorderLabel,
@@ -33,10 +35,14 @@ export {
 } from "./scalar.js";
 export {
   generateTcss,
+  align_help_text,
+  color_property_help_text,
   colorToInkValue,
   normalizeStyleAssignment,
   parseTcss,
   resolveStylesForWidget,
+  scalar_help_text,
+  spacing_invalid_value_help_text,
   Stylesheet,
   StylesheetParseError,
   Token,
@@ -53,6 +59,7 @@ export {
   type StyleAssignmentValue,
   type StylesheetSource,
   type Token as TokenType,
+  UnexpectedEnd,
   UnresolvedVariableError,
   type AlignValue,
   type OffsetValue,

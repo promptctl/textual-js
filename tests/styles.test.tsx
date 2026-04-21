@@ -9,11 +9,13 @@ import {
   colorToInkValue,
   normalizeColor,
   normalizeStyleAssignment,
+  Styles,
   Scalar,
   Size,
   TextualApp,
   TextualFramework,
   Unit,
+  WidgetHost,
   WidgetNode,
   WidgetScope,
   useStyles,
@@ -81,6 +83,28 @@ const VisibilityLabel = observer(function VisibilityLabel(props: {
     <WidgetScope widget={widget.handle}>
       <Text>{props.label}</Text>
     </WidgetScope>
+  );
+});
+
+class StyleBase {}
+
+class StyleDerived extends StyleBase {}
+
+const DerivedStyledLabel = observer(function DerivedStyledLabel(props: {
+  id: string;
+  label: string;
+}): React.JSX.Element {
+  const widget = useWidget({
+    id: props.id,
+    typeName: "DerivedStyledLabel",
+    typeToken: StyleDerived,
+  });
+  const styles = useStyles(widget.handle);
+
+  return (
+    <Box {...styles.box}>
+      <Text {...styles.text}>{props.label}</Text>
+    </Box>
   );
 });
 
@@ -211,6 +235,115 @@ describe("styles and useStyles", () => {
     const widget = framework.registry.getByCssId("self-scoped") as WidgetNode;
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("orange"));
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("treats widget.styles as a first-class Styles surface and supports class assignment properties", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <StyledLabel id="styles-surface" label="styles" />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("styles-surface") as WidgetNode;
+    const inlineStyles = widget.styles as Styles;
+
+    inlineStyles.set_rule("background", "red");
+    (widget as WidgetNode & { classes: string }).classes = "alpha beta";
+    await framework.whenIdle();
+
+    expect(inlineStyles.has_rule("background")).toBe(true);
+    expect(inlineStyles.get_rules()).toMatchObject({ background: "red" });
+    expect(widget.hasClass("alpha")).toBe(true);
+    expect(widget.hasClass("beta")).toBe(true);
+
+    inlineStyles.clear_rule("background");
+    inlineStyles.merge_rules({ color: "white" });
+    await framework.whenIdle();
+
+    expect(inlineStyles.has_rule("background")).toBe(false);
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("lets user CSS beat DEFAULT_CSS important declarations and walks inherited initial defaults", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        stylesheet={`
+          DerivedStyledLabel {
+            color: initial;
+            background: green;
+          }
+        `}
+      >
+        <WidgetHost
+          id="base-default"
+          typeName="BaseStyledLabel"
+          typeToken={StyleBase}
+          defaultCss={`
+            BaseStyledLabel {
+              color: magenta;
+              background: red !important;
+            }
+          `}
+        >
+          <DerivedStyledLabel id="derived-default" label="derived" />
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const derived = framework.registry.getByCssId("derived-default") as WidgetNode;
+
+    expect(derived.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
+    expect(derived.resolvedStyles.getRule("background")).toEqual(Color.parse("green"));
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("scopes DEFAULT_CSS by first selector token instead of raw prefix text", async () => {
+    const framework = new TextualFramework();
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          id="button-scope"
+          typeName="Button"
+          defaultCss={`
+            ButtonGroup {
+              background: red;
+            }
+
+            .active {
+              color: white;
+            }
+          `}
+          classes="active"
+        >
+          <Text>scope</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const widget = framework.registry.getByCssId("button-scope") as WidgetNode;
+
+    expect(widget.resolvedStyles.getRule("background")).toBeUndefined();
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
 
     instance.unmount();
     instance.cleanup();

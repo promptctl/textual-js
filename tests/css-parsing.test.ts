@@ -262,6 +262,6 @@ describe("TCSS parsing", () => {
     expect(() => parseTcss("Selector {", { origin: "user" })).toThrow(StylesheetParseError);
     expect(() => parseTcss("Selector{ Foo {", { origin: "user" })).toThrow(StylesheetParseError);
     expect(() => parseTcss("&.foo { color: red; }", { origin: "user" })).toThrow(StylesheetParseError);
-    expect(() => parseTcss("& { color: red; }", { origin: "user" })).toThrow(StylesheetParseError);
+    expect(() => parseTcss("& { color: red; }", { origin: "user" })).toThrow(TokenError);
   });
 });

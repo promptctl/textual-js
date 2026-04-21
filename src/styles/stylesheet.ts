@@ -49,6 +49,7 @@ export interface CascadeValue {
 }
 
 export class StylesheetParseError extends Error {}
+export class UnexpectedEnd extends StylesheetParseError {}
 
 export interface SourceLocation {
   row: number;
@@ -721,6 +722,15 @@ function resolveVariables(variables: Map<string, string>): Map<string, string> {
   return resolved;
 }
 
+function sourceLocationFromIndex(source: string, index: number): SourceLocation {
+  const prefix = source.slice(0, index);
+  const lines = prefix.split("\n");
+  return {
+    row: lines.length,
+    column: (lines.at(-1)?.length ?? 0) + 1,
+  };
+}
+
 function substituteVariableReferences(
   source: string,
   variables: Map<string, string>,
@@ -808,8 +818,11 @@ function scopeSelectors(selectors: string[], scopeTypeName?: string): string[] {
 
   return selectors.map((selector) => {
     const trimmed = selector.trim();
+    const firstSelector = parseSelectorList(trimmed)[0]?.segments[0]?.selectors.find(
+      (candidate) => candidate.type !== "universal" && candidate.type !== "pseudo",
+    );
 
-    if (trimmed.startsWith(scopeTypeName)) {
+    if (firstSelector?.type === "type" && firstSelector.name === scopeTypeName) {
       return trimmed;
     }
 
@@ -889,6 +902,10 @@ function readSourceRules(source: string): SourceRule[] {
     const selectorStart = findSelectorStart(source, openBrace);
     const selectorText = source.slice(selectorStart, openBrace).trim();
     const closeBrace = findMatchingBrace(source, openBrace);
+
+    if (selectorText === "&" || selectorText === ">" || selectorText === "{") {
+      throw new TokenError(`Invalid nested selector "${selectorText}"`, sourceLocationFromIndex(source, selectorStart));
+    }
 
     if (selectorText.length > 0) {
       rules.push({
@@ -1008,7 +1025,23 @@ function findMatchingBrace(source: string, openBrace: number): number {
     index += 1;
   }
 
-  throw new StylesheetParseError("Unclosed CSS block");
+  throw new UnexpectedEnd("Unclosed CSS block");
+}
+
+export function spacing_invalid_value_help_text(property = "padding"): string {
+  return `Expected ${property} values like "1", "1 2", "1 2 3", or "1 2 3 4".`;
+}
+
+export function scalar_help_text(property = "width"): string {
+  return `Expected ${property} to be a scalar such as 10, 50%, or 1fr.`;
+}
+
+export function color_property_help_text(property = "color"): string {
+  return `Expected ${property} to be a named color, hex color, rgb()/rgba(), or auto.`;
+}
+
+export function align_help_text(property = "align"): string {
+  return `Expected ${property} values like "left top", "center middle", or "right bottom".`;
 }
 
 function parseSpacing(rawValue: string): Spacing {
@@ -1811,8 +1844,8 @@ function scalarToRawValue(value: Scalar): string {
 
 function compareCascade(left: CascadeValue, right: CascadeValue): number {
   return (
-    Number(left.important) - Number(right.important) ||
     left.originWeight - right.originWeight ||
+    Number(left.important) - Number(right.important) ||
     compareSelectorSpecificity(left.specificity, right.specificity) ||
     left.order - right.order
   );
@@ -1917,6 +1950,7 @@ function rulesToInk(
     width: number;
     height: number;
   },
+  componentClasses: string[] = [],
 ): Pick<ResolvedInkStyles, "box" | "text" | "style" | "components"> {
   const box: Record<string, unknown> = {};
   const text: Record<string, unknown> = {};
@@ -2024,7 +2058,7 @@ function rulesToInk(
     // [LAW:one-source-of-truth] Rich/content style data is derived from the
     // same resolved rule map that feeds Ink props; no component owns a fork.
     style: { ...text },
-    components: {},
+    components: Object.fromEntries(componentClasses.map((className) => [className, { ...rules }])),
   };
 }
 
@@ -2032,10 +2066,12 @@ export function resolveStylesForWidget(
   framework: TextualFramework,
   widget: WidgetNode,
   parentCustomProperties: Record<string, string>,
+  inheritedTextStyle?: unknown,
 ): ResolvedInkStyles {
   const candidatesByProperty = new Map<string, CascadeValue[]>();
   const customProperties = { ...parentCustomProperties };
   const stylesheets = framework.getActiveStylesheetsFor(widget.typeName);
+  const defaultStylesheets = framework.getWidgetTypeMetadata(widget.typeName).defaultStylesheets;
   let cascadeOrder = 0;
 
   const addCandidate = (candidate: CascadeValue): void => {
@@ -2105,9 +2141,17 @@ export function resolveStylesForWidget(
       continue;
     }
 
-    const defaultFallback = [...sortedCandidates]
-      .reverse()
-      .find((candidate) => candidate.originWeight === 0 && candidate.rawValue.trim() !== "initial");
+    const defaultFallback = defaultStylesheets
+      .flatMap((stylesheet) =>
+        stylesheet.rules.flatMap((rule) =>
+          rule.selectors.some((selector) => matchesSelector(framework, widget, selector))
+            ? rule.declarations
+                .flatMap((declaration) => expandedDeclarationEntries(declaration))
+                .filter((candidate) => candidate.property === property && candidate.rawValue.trim() !== "initial")
+            : [],
+        ),
+      )
+      .at(-1);
     const fallbackRawValue = winner.originWeight > 0 ? defaultFallback?.rawValue : undefined;
     const builtInRawValue = fallbackRawValue ?? builtInInitialRawValue(property);
 
@@ -2164,9 +2208,12 @@ export function resolveStylesForWidget(
 
   resolveAutomaticColorRules(rules);
   deriveCompoundRules(rules);
+  if (rules["text-style"] === undefined && inheritedTextStyle !== undefined) {
+    rules["text-style"] = inheritedTextStyle;
+  }
 
   return {
-    ...rulesToInk(rules, framework.terminalSize),
+    ...rulesToInk(rules, framework.terminalSize, framework.getWidgetTypeMetadata(widget.typeName).componentClasses),
     rules,
     customProperties,
   };

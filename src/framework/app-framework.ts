@@ -1,5 +1,5 @@
 import React from "react";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { makeAutoObservable, runInAction } from "mobx";
 
 import {
@@ -112,6 +112,20 @@ export interface RegisterWidgetOptions {
   loading?: boolean;
 }
 
+export interface RegisterWidgetTypeOptions {
+  defaultCss?: string;
+  scopedCss?: string;
+  baseTypeNames?: string[];
+  bindings?: Binding[];
+  inheritCss?: boolean;
+  inheritBindings?: boolean;
+  componentClasses?: string[];
+  inheritComponentClasses?: boolean;
+  borderTitle?: string | null;
+  borderSubtitle?: string | null;
+  typeToken?: Function;
+}
+
 interface QueuedMessage {
   targetId: string | null;
   targetNode?: WidgetNode;
@@ -119,8 +133,30 @@ interface QueuedMessage {
 }
 
 interface WidgetTypeState {
+  typeName: string;
   defaultCss?: string;
+  scopedCss?: string;
+  baseTypeNames: string[];
+  bindings: Binding[];
+  inheritCss: boolean;
+  inheritBindings: boolean;
+  componentClasses: string[];
+  inheritComponentClasses: boolean;
+  borderTitle: string | null;
+  borderSubtitle: string | null;
+  typeToken?: Function;
   defaultStylesheet?: ParsedStylesheet;
+  scopedStylesheet?: ParsedStylesheet;
+}
+
+export interface WidgetTypeMetadata {
+  typeName: string;
+  typeHierarchy: string[];
+  defaultStylesheets: ParsedStylesheet[];
+  bindings: Binding[];
+  componentClasses: string[];
+  borderTitle: string | null;
+  borderSubtitle: string | null;
 }
 
 interface ScreenFactoryRecord {
@@ -152,6 +188,9 @@ export interface ScreenOptions {
   bindings?: BindingDeclaration[];
   actions?: WidgetActions;
   autoFocus?: string | null;
+  css?: string;
+  cssPath?: string | readonly string[];
+  scopedCss?: boolean;
 }
 
 export interface ScreenEntry {
@@ -161,6 +200,10 @@ export interface ScreenEntry {
   bindings: Binding[];
   actions: WidgetActions | undefined;
   autoFocus: string | null;
+  css: string | null;
+  cssPath: string[];
+  scopedCss: boolean;
+  stylesheets: ParsedStylesheet[];
   implicit: boolean;
   savedFocusNodeId: string | null;
   commandProviders: ReadonlySet<ProviderConstructor>;
@@ -454,6 +497,9 @@ export class TextualFramework {
   private userStylesheets: ParsedStylesheet[] = [];
   private cssPath: string[] = [];
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
+  private readonly widgetTypeMetadata = new Map<string, WidgetTypeMetadata>();
+  private readonly widgetTypeTokens = new Map<Function, string>();
+  private readonly cssWatchers = new Map<string, FSWatcher>();
   private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
@@ -542,6 +588,9 @@ export class TextualFramework {
         disabledMessageTypes: false,
         drainPromise: false,
         widgetTypes: false,
+        widgetTypeMetadata: false,
+        widgetTypeTokens: false,
+        cssWatchers: false,
         messageSubscribers: false,
         timers: false,
         afterRefreshCallbacks: false,
@@ -845,6 +894,10 @@ export class TextualFramework {
     this.lastPointerLocation = null;
     this.pendingPointerClick = null;
     this.lastClickChain = null;
+    for (const watcher of this.cssWatchers.values()) {
+      watcher.close();
+    }
+    this.cssWatchers.clear();
     this.nextCallbacks.length = 0;
     this.isAppBlurred = false;
     this.blurredFocusAddress = null;
@@ -860,13 +913,122 @@ export class TextualFramework {
     return result;
   }
 
-  registerWidgetType(typeName: string, defaultCss?: string): void {
-    const normalizedDefaultCss = normalizeCssSource(defaultCss);
+  private invalidateWidgetTypeMetadata(): void {
+    this.widgetTypeMetadata.clear();
+  }
+
+  private buildWidgetTypeMetadata(typeName: string, visiting = new Set<string>()): WidgetTypeMetadata {
+    const existing = this.widgetTypeMetadata.get(typeName);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    if (visiting.has(typeName)) {
+      throw new Error(`Circular widget type inheritance for "${typeName}"`);
+    }
+
+    visiting.add(typeName);
+    const state = this.widgetTypes.get(typeName) ?? {
+      typeName,
+      baseTypeNames: [],
+      bindings: [],
+      inheritCss: true,
+      inheritBindings: true,
+      componentClasses: [],
+      inheritComponentClasses: true,
+      borderTitle: null,
+      borderSubtitle: null,
+    };
+    const inheritedToken = state.typeToken === undefined ? undefined : Object.getPrototypeOf(state.typeToken);
+    const inferredBaseTypeName =
+      typeof inheritedToken?.name === "string" && inheritedToken.name.length > 0 && inheritedToken.name !== "Function"
+        ? this.widgetTypeTokens.get(inheritedToken) ?? inheritedToken.name
+        : undefined;
+    const baseTypeNames = [
+      ...new Set([...state.baseTypeNames, ...(inferredBaseTypeName === undefined ? [] : [inferredBaseTypeName])]),
+    ];
+    const baseMetadata = baseTypeNames.map((baseTypeName) => this.buildWidgetTypeMetadata(baseTypeName, visiting));
+    const inheritedCss = state.inheritCss ? baseMetadata.flatMap((metadata) => metadata.defaultStylesheets) : [];
+    const inheritedBindings = state.inheritBindings ? baseMetadata.flatMap((metadata) => metadata.bindings) : [];
+    const inheritedComponentClasses = state.inheritComponentClasses
+      ? baseMetadata.flatMap((metadata) => metadata.componentClasses)
+      : [];
+    const typeHierarchy = [
+      ...new Set([
+        ...baseMetadata.flatMap((metadata) => metadata.typeHierarchy),
+        ...(state.typeToken?.name === undefined || state.typeToken.name.length === 0 ? [] : [state.typeToken.name]),
+        typeName,
+      ]),
+    ];
+    const metadata: WidgetTypeMetadata = {
+      typeName,
+      typeHierarchy,
+      defaultStylesheets: [
+        ...inheritedCss,
+        ...(state.defaultStylesheet === undefined ? [] : [state.defaultStylesheet]),
+        ...(state.scopedStylesheet === undefined ? [] : [state.scopedStylesheet]),
+      ],
+      bindings: [...inheritedBindings, ...state.bindings],
+      componentClasses: [...new Set([...inheritedComponentClasses, ...state.componentClasses])],
+      borderTitle: state.borderTitle ?? baseMetadata.at(-1)?.borderTitle ?? null,
+      borderSubtitle: state.borderSubtitle ?? baseMetadata.at(-1)?.borderSubtitle ?? null,
+    };
+
+    visiting.delete(typeName);
+    this.widgetTypeMetadata.set(typeName, metadata);
+    return metadata;
+  }
+
+  getWidgetTypeMetadata(typeName: string): WidgetTypeMetadata {
+    return this.buildWidgetTypeMetadata(typeName);
+  }
+
+  widgetMatchesType(typeName: string, expectedTypeName: string): boolean {
+    return this.getWidgetTypeMetadata(typeName).typeHierarchy.includes(expectedTypeName);
+  }
+
+  resolveWidgetTypeName(typeConstraint: string | Function): string {
+    if (typeof typeConstraint === "string") {
+      return typeConstraint;
+    }
+
+    const registered = this.widgetTypeTokens.get(typeConstraint);
+
+    return registered ?? typeConstraint.name;
+  }
+
+  registerWidgetType(typeName: string, defaultCss?: string): void;
+  registerWidgetType(typeName: string, options?: RegisterWidgetTypeOptions): void;
+  registerWidgetType(typeName: string, options: string | RegisterWidgetTypeOptions = {}): void {
+    const normalizedOptions = typeof options === "string" ? { defaultCss: options } : options;
+    const normalizedDefaultCss = normalizeCssSource(normalizedOptions.defaultCss);
+    const normalizedScopedCss = normalizeCssSource(normalizedOptions.scopedCss);
     const existing = this.widgetTypes.get(typeName);
+    const normalizedBindings = [...(normalizedOptions.bindings ?? [])];
+    const inheritedToken = normalizedOptions.typeToken === undefined ? undefined : Object.getPrototypeOf(normalizedOptions.typeToken);
+    const inferredBaseTypeName =
+      typeof inheritedToken?.name === "string" && inheritedToken.name.length > 0 && inheritedToken.name !== "Function"
+        ? this.widgetTypeTokens.get(inheritedToken) ?? inheritedToken.name
+        : undefined;
+    const normalizedBaseTypeNames = [
+      ...new Set([...(normalizedOptions.baseTypeNames ?? []), ...(inferredBaseTypeName === undefined ? [] : [inferredBaseTypeName])]),
+    ];
 
     if (existing === undefined) {
       this.widgetTypes.set(typeName, {
+        typeName,
         defaultCss: normalizedDefaultCss,
+        scopedCss: normalizedScopedCss,
+        baseTypeNames: normalizedBaseTypeNames,
+        bindings: normalizedBindings,
+        inheritCss: normalizedOptions.inheritCss ?? true,
+        inheritBindings: normalizedOptions.inheritBindings ?? true,
+        componentClasses: [...(normalizedOptions.componentClasses ?? [])],
+        inheritComponentClasses: normalizedOptions.inheritComponentClasses ?? true,
+        borderTitle: normalizedOptions.borderTitle ?? null,
+        borderSubtitle: normalizedOptions.borderSubtitle ?? null,
+        typeToken: normalizedOptions.typeToken,
         defaultStylesheet:
           normalizedDefaultCss === undefined
             ? undefined
@@ -874,26 +1036,79 @@ export class TextualFramework {
                 origin: "default",
                 scopeTypeName: typeName,
               }),
+        scopedStylesheet:
+          normalizedScopedCss === undefined
+            ? undefined
+            : parseStylesheetOrThrow(normalizedScopedCss, {
+                origin: "default",
+              }),
       });
+      if (normalizedOptions.typeToken !== undefined) {
+        this.widgetTypeTokens.set(normalizedOptions.typeToken, typeName);
+      }
+      this.invalidateWidgetTypeMetadata();
 
       return;
     }
 
-    if (normalizedDefaultCss === undefined || existing.defaultCss === normalizedDefaultCss) {
+    const sameRegistration =
+      (normalizedDefaultCss === undefined || existing.defaultCss === normalizedDefaultCss) &&
+      (normalizedScopedCss === undefined || existing.scopedCss === normalizedScopedCss) &&
+      existing.inheritCss === (normalizedOptions.inheritCss ?? true) &&
+      existing.inheritBindings === (normalizedOptions.inheritBindings ?? true) &&
+      existing.inheritComponentClasses === (normalizedOptions.inheritComponentClasses ?? true) &&
+      JSON.stringify(existing.baseTypeNames) === JSON.stringify(normalizedBaseTypeNames) &&
+      JSON.stringify(existing.bindings) === JSON.stringify(normalizedBindings) &&
+      JSON.stringify(existing.componentClasses) === JSON.stringify(normalizedOptions.componentClasses ?? []) &&
+      existing.borderTitle === (normalizedOptions.borderTitle ?? null) &&
+      existing.borderSubtitle === (normalizedOptions.borderSubtitle ?? null);
+
+    if (sameRegistration) {
+      if (normalizedOptions.typeToken !== undefined) {
+        this.widgetTypeTokens.set(normalizedOptions.typeToken, typeName);
+      }
       return;
     }
 
-    if (existing.defaultCss !== undefined) {
-      // [LAW:one-source-of-truth] DEFAULT_CSS is canonical per widget type.
-      // Conflicting declarations must fail instead of silently picking one mount.
+    if (
+      (normalizedDefaultCss !== undefined && existing.defaultCss !== undefined && existing.defaultCss !== normalizedDefaultCss) ||
+      (normalizedScopedCss !== undefined && existing.scopedCss !== undefined && existing.scopedCss !== normalizedScopedCss)
+    ) {
+      // [LAW:one-source-of-truth] Widget type metadata is canonical per type.
+      // Conflicting registrations fail instead of letting mount order decide.
       throw new Error(`Widget type "${typeName}" registered with conflicting DEFAULT_CSS`);
     }
 
-    existing.defaultCss = normalizedDefaultCss;
-    existing.defaultStylesheet = parseStylesheetOrThrow(normalizedDefaultCss, {
-      origin: "default",
-      scopeTypeName: typeName,
-    });
+    existing.defaultCss = existing.defaultCss ?? normalizedDefaultCss;
+    existing.scopedCss = existing.scopedCss ?? normalizedScopedCss;
+    existing.defaultStylesheet =
+      existing.defaultStylesheet ??
+      (normalizedDefaultCss === undefined
+        ? undefined
+        : parseStylesheetOrThrow(normalizedDefaultCss, {
+            origin: "default",
+            scopeTypeName: typeName,
+          }));
+    existing.scopedStylesheet =
+      existing.scopedStylesheet ??
+      (normalizedScopedCss === undefined
+        ? undefined
+        : parseStylesheetOrThrow(normalizedScopedCss, {
+            origin: "default",
+          }));
+    existing.baseTypeNames = normalizedBaseTypeNames;
+    existing.bindings = normalizedBindings;
+    existing.inheritCss = normalizedOptions.inheritCss ?? true;
+    existing.inheritBindings = normalizedOptions.inheritBindings ?? true;
+    existing.componentClasses = [...(normalizedOptions.componentClasses ?? [])];
+    existing.inheritComponentClasses = normalizedOptions.inheritComponentClasses ?? true;
+    existing.borderTitle = normalizedOptions.borderTitle ?? existing.borderTitle;
+    existing.borderSubtitle = normalizedOptions.borderSubtitle ?? existing.borderSubtitle;
+    existing.typeToken = normalizedOptions.typeToken ?? existing.typeToken;
+    if (existing.typeToken !== undefined) {
+      this.widgetTypeTokens.set(existing.typeToken, typeName);
+    }
+    this.invalidateWidgetTypeMetadata();
 
     if (this.isRunning) {
       this.recalculateStyles();
@@ -1035,20 +1250,69 @@ export class TextualFramework {
 
   setCssPath(path: string | readonly string[]): void {
     this.cssPath = typeof path === "string" ? [path] : [...path];
+    this.refreshCssWatchers();
     this._on_css_change();
   }
 
-  _on_css_change(): void {
-    const missing = this.cssPath.some((path) => !existsSync(path));
+  private getWatchedCssPaths(): string[] {
+    const screenPaths = [...this.modeStacks.values()].flatMap((stack) => stack.flatMap((entry) => entry.cssPath));
+    return [...new Set([...this.cssPath, ...screenPaths])];
+  }
 
-    if (missing) {
-      return;
+  private refreshScreenStylesheets(): void {
+    for (const stack of this.modeStacks.values()) {
+      for (const entry of stack) {
+        if (entry.implicit) {
+          continue;
+        }
+
+        try {
+          entry.stylesheets = [
+            ...(entry.css === null || entry.css.trim().length === 0
+              ? []
+              : [parseStylesheetOrThrow(entry.css, { origin: "user" })]),
+            ...entry.cssPath
+              .filter((path) => existsSync(path))
+              .map((path) => parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" })),
+          ];
+        } catch {
+          continue;
+        }
+      }
+    }
+  }
+
+  private refreshCssWatchers(): void {
+    const watchedPaths = new Set(this.debug ? this.getWatchedCssPaths() : []);
+
+    for (const [path, watcher] of this.cssWatchers.entries()) {
+      if (!watchedPaths.has(path)) {
+        watcher.close();
+        this.cssWatchers.delete(path);
+      }
     }
 
+    for (const path of watchedPaths) {
+      if (this.cssWatchers.has(path)) {
+        continue;
+      }
+
+      try {
+        const watcher = watch(path, () => {
+          this._on_css_change();
+        });
+        this.cssWatchers.set(path, watcher);
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  _on_css_change(): void {
     let stylesheets: ParsedStylesheet[];
 
     try {
-      stylesheets = this.cssPath.map((path) => {
+      stylesheets = this.cssPath.filter((path) => existsSync(path)).map((path) => {
         return parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" });
       });
     } catch {
@@ -1058,6 +1322,8 @@ export class TextualFramework {
     // [LAW:one-source-of-truth] CSS_PATH files are parsed into the same
     // userStylesheets list consumed by cascade resolution and hot reload.
     this.userStylesheets = stylesheets;
+    this.refreshScreenStylesheets();
+    this.refreshCssWatchers();
     this.recalculateStyles();
   }
 
@@ -1245,12 +1511,11 @@ export class TextualFramework {
   }
 
   getActiveStylesheetsFor(typeName: string): ParsedStylesheet[] {
-    const defaultStylesheet = this.widgetTypes.get(typeName)?.defaultStylesheet;
-    const stylesheets = [defaultStylesheet, ...this.userStylesheets].filter(
-      (stylesheet): stylesheet is ParsedStylesheet => stylesheet !== undefined,
-    );
-
-    return stylesheets;
+    return [
+      ...this.getWidgetTypeMetadata(typeName).defaultStylesheets,
+      ...this.userStylesheets,
+      ...(this.activeScreen?.stylesheets ?? []),
+    ];
   }
 
   parseSelectors(selectorText: string): ParsedSelector[] {
@@ -1274,19 +1539,23 @@ export class TextualFramework {
   }
 
   recalculateStyles(): void {
-    const visit = (widget: WidgetNode, inheritedCustomProperties: Record<string, string>): void => {
-      const resolvedStyles = resolveStylesForWidget(this, widget, inheritedCustomProperties);
+    const visit = (
+      widget: WidgetNode,
+      inheritedCustomProperties: Record<string, string>,
+      inheritedTextStyle: unknown,
+    ): void => {
+      const resolvedStyles = resolveStylesForWidget(this, widget, inheritedCustomProperties, inheritedTextStyle);
       widget.resolvedStyles.update(resolvedStyles);
 
       for (const child of this.registry.getChildren(widget.nodeId)) {
-        visit(child, resolvedStyles.customProperties);
+        visit(child, resolvedStyles.customProperties, resolvedStyles.rules["text-style"]);
       }
     };
 
     // [LAW:dataflow-not-control-flow] Every style recalculation walks the same
     // tree in the same order. Variability lives in selector matches and values.
     for (const rootWidget of this.registry.getChildren(null)) {
-      visit(rootWidget, this.getGlobalStyleVariables());
+      visit(rootWidget, this.getGlobalStyleVariables(), undefined);
     }
 
     this.syncPointerStateAfterLayout();
@@ -2140,6 +2409,7 @@ export class TextualFramework {
 
     this.activeMode = name;
     this.screenStackVersion += 1;
+    this.refreshCssWatchers();
     this.signals.mode_change_signal.publish(name);
     this.emitBroadcast(new ModeChanged(name));
 
@@ -2206,6 +2476,7 @@ export class TextualFramework {
     stack.push(entry);
     this.modeStacks.set(this.activeMode, stack);
     this.screenStackVersion += 1;
+    this.refreshCssWatchers();
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(entry.name);
@@ -2236,6 +2507,7 @@ export class TextualFramework {
     const popped = stack.pop()!;
     this.modeStacks.set(this.activeMode, stack);
     this.screenStackVersion += 1;
+    this.refreshCssWatchers();
 
     this.resolveScreenResult(popped, result);
 
@@ -2272,6 +2544,7 @@ export class TextualFramework {
     stack[stack.length - 1] = entry;
     this.modeStacks.set(this.activeMode, stack);
     this.screenStackVersion += 1;
+    this.refreshCssWatchers();
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(entry.name);
@@ -2356,6 +2629,15 @@ export class TextualFramework {
     options: ScreenOptions & { callback?: (result: unknown) => void },
   ): ScreenEntry {
     const bindings = makeBindings(options.bindings ?? []);
+    const cssPath = typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
+    const stylesheets = [
+      ...(options.css === undefined || options.css.trim().length === 0
+        ? []
+        : [parseStylesheetOrThrow(options.css, { origin: "user" })]),
+      ...cssPath
+        .filter((path) => existsSync(path))
+        .map((path) => parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" })),
+    ];
     const entry: ScreenEntry = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
@@ -2363,6 +2645,10 @@ export class TextualFramework {
       bindings,
       actions: undefined,
       autoFocus: options.autoFocus ?? null,
+      css: options.css ?? null,
+      cssPath,
+      scopedCss: options.scopedCss ?? true,
+      stylesheets,
       implicit: false,
       savedFocusNodeId: null,
       commandProviders: readCommandProvidersFromElement(element),
@@ -3420,6 +3706,10 @@ function createImplicitEntry(): ScreenEntry {
     bindings: [],
     actions: undefined,
     autoFocus: null,
+    css: null,
+    cssPath: [],
+    scopedCss: true,
+    stylesheets: [],
     implicit: true,
     savedFocusNodeId: null,
     commandProviders: new Set(),
