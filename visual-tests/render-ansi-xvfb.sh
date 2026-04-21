@@ -40,7 +40,8 @@ if ! xdpyinfo >/dev/null 2>&1; then
   exit 1
 fi
 
-xterm \
+LC_ALL=C.UTF-8 LANG=C.UTF-8 xterm \
+  -u8 \
   -geometry 80x24 \
   -fa "DejaVu Sans Mono" \
   -fs 14 \
