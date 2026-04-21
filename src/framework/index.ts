@@ -10,6 +10,7 @@ export {
   InvalidModeError,
   type KeymapInput,
   type PointerLocation,
+  type PointerShape,
   DuplicateKeyHandlers,
   ScreenStackError,
   type SimpleCommand,
@@ -62,9 +63,26 @@ export {
 } from "./widget-registry.js";
 export {
   BadIdentifier,
+  BadWidgetName,
+  MountError,
+  WidgetError,
   WidgetNode,
   type ScrollAnimationState,
   type ScrollToOptions,
   type WalkChildrenOptions,
   type WidgetNodeInit,
 } from "./widget-node.js";
+export {
+  ModalScreen,
+  Screen,
+  Widget,
+  type WidgetOptions,
+} from "./widget.js";
+export {
+  find_first_enabled,
+  find_last_enabled,
+  find_next_enabled,
+  find_next_enabled_no_wrap,
+  get_directed_distance,
+  type EnabledCandidate,
+} from "./widget-navigation.js";

@@ -70,6 +70,7 @@ export interface UseWidgetOptions {
   actions?: WidgetActions;
   bindings?: BindingDeclaration[];
   focusable?: boolean;
+  canFocusChildren?: boolean;
   autoFocus?: boolean;
   defaultCss?: string;
   componentClasses?: string[];
@@ -127,6 +128,7 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       actionsRef,
       bindingsRef,
       focusable: options.focusable ?? false,
+      canFocusChildren: options.canFocusChildren,
       autoFocus: options.autoFocus ?? false,
       disabled: options.disabled ?? false,
       loading: options.loading ?? false,
@@ -233,6 +235,7 @@ export interface WidgetHostProps extends PropsWithChildren {
   actions?: WidgetActions;
   bindings?: BindingDeclaration[];
   focusable?: boolean;
+  canFocusChildren?: boolean;
   autoFocus?: boolean;
   defaultCss?: string;
   componentClasses?: string[];
@@ -338,6 +341,7 @@ export function WidgetHost({
   actions,
   bindings,
   focusable,
+  canFocusChildren,
   autoFocus,
   defaultCss,
   componentClasses,
@@ -361,6 +365,7 @@ export function WidgetHost({
     actions,
     bindings,
     focusable,
+    canFocusChildren,
     autoFocus,
     defaultCss,
     componentClasses,

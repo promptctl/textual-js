@@ -4,6 +4,9 @@ import type { BindingDeclaration } from "../bindings/index.js";
 import {
   TextualFramework,
   type KeymapInput,
+  type ScreenDescriptor,
+  type ScreenEntry,
+  type ScreenOptions,
   type SimpleCommand,
   type SystemCommand,
 } from "../framework/app-framework.js";
@@ -12,6 +15,7 @@ import { CommandPalette, type ProviderConstructor } from "../commands/index.js";
 import { Notification, type NotificationSeverity } from "../services/notifications.js";
 import type { AnsiTheme } from "../services/theme.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
+import { NoMatches } from "../framework/dom-query.js";
 import { runTestRoot, type RunTestOptions, type TestSession } from "../testing/run-test.js";
 import { TextualApp } from "./textual-app.js";
 
@@ -87,6 +91,92 @@ export class App<Result = unknown> {
     return [];
   }
 
+  get screen_stack(): ScreenEntry[] {
+    return this.framework.getScreenStack();
+  }
+
+  get screen(): ScreenEntry | null {
+    return this.framework.activeScreen;
+  }
+
+  get_screen_stack(): ScreenEntry[] {
+    return this.framework.getScreenStack();
+  }
+
+  get_default_screen(): ScreenEntry | null {
+    return this.framework.getScreenStack()[0] ?? null;
+  }
+
+  install_screen(screen: ScreenDescriptor | (() => React.ReactElement), name: string): void {
+    this.framework.installScreen(name, normalizeScreenFactory(screen));
+  }
+
+  uninstall_screen(name: string): void {
+    this.framework.uninstallScreen(name);
+  }
+
+  get_screen(name: string, expectedType?: React.ComponentType<Record<string, unknown>>): React.ReactElement {
+    return expectedType === undefined ? this.framework.getScreen(name) : this.framework.getScreen(name, expectedType);
+  }
+
+  get_child_by_id(id: string) {
+    const child = this.framework.registry.getChildren(null).find((widget) => widget.id === id);
+
+    if (child === undefined) {
+      throw new NoMatches(`No child with id "${id}"`);
+    }
+
+    return child;
+  }
+
+  get_widget_by_id(id: string) {
+    const widget = this.framework.findWidgets(`#${id}`)[0];
+
+    if (widget === undefined) {
+      throw new NoMatches(`No widget with id "${id}"`);
+    }
+
+    return widget;
+  }
+
+  push_screen(
+    descriptor: ScreenDescriptor,
+    callbackOrOptions?: ((result: unknown) => void) | (ScreenOptions & { wait_for_dismiss?: boolean }),
+    extraOptions?: ScreenOptions,
+  ): ScreenEntry | Promise<unknown> {
+    if (typeof callbackOrOptions !== "function" && callbackOrOptions?.wait_for_dismiss === true) {
+      const { wait_for_dismiss, ...options } = callbackOrOptions;
+      void wait_for_dismiss;
+      return this.framework.pushScreenWait(descriptor, options);
+    }
+
+    return this.framework.pushScreen(descriptor, callbackOrOptions as ((result: unknown) => void) | ScreenOptions | undefined, extraOptions);
+  }
+
+  push_screen_wait(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Promise<unknown> {
+    return this.framework.pushScreenWait(descriptor, options);
+  }
+
+  pop_screen(result?: unknown): ScreenEntry | null {
+    return this.framework.popScreen(result);
+  }
+
+  switch_screen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): ScreenEntry {
+    return this.framework.switchScreen(descriptor, options);
+  }
+
+  switch_mode(name: string): void {
+    this.framework.switchMode(name);
+  }
+
+  add_mode(name: string, factory: () => React.ReactElement): void {
+    this.framework.addMode(name, factory);
+  }
+
+  remove_mode(name: string): void {
+    this.framework.removeMode(name);
+  }
+
   render(): React.ReactElement {
     return (
       <TextualApp
@@ -100,7 +190,9 @@ export class App<Result = unknown> {
         actions={this.appOptions.actions}
         commandProviders={this.resolveCommandProviders()}
         getSystemCommands={(screen) => this.getSystemCommands(screen)}
-        autoFocus={this.appOptions.autoFocus}
+        screens={this.resolveScreens()}
+        modes={this.resolveModes()}
+        autoFocus={this.appOptions.autoFocus ?? this.resolveAutoFocus()}
         tooltipDelay={this.appOptions.tooltipDelay}
         showTooltips={this.appOptions.showTooltips}
       >
@@ -268,6 +360,22 @@ export class App<Result = unknown> {
     return this.appOptions.commandProviders ?? constructorProviders;
   }
 
+  private resolveScreens(): Record<string, ScreenDescriptor | (() => React.ReactElement)> {
+    return {
+      ...((this.constructor as { SCREENS?: Record<string, ScreenDescriptor | (() => React.ReactElement)> }).SCREENS ?? {}),
+    };
+  }
+
+  private resolveModes(): Record<string, ScreenDescriptor | (() => React.ReactElement) | string> {
+    return {
+      ...((this.constructor as { MODES?: Record<string, ScreenDescriptor | (() => React.ReactElement) | string> }).MODES ?? {}),
+    };
+  }
+
+  private resolveAutoFocus(): string | null | undefined {
+    return (this.constructor as { AUTO_FOCUS?: string | null }).AUTO_FOCUS;
+  }
+
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {
     const app = this;
     const session = await runTestRoot(this.render(), this.framework, options);
@@ -291,4 +399,16 @@ export class App<Result = unknown> {
     // run_test is the Stage 0 alias so both surfaces share one implementation.
     return this.runTest(options);
   }
+}
+
+function normalizeScreenFactory(screen: ScreenDescriptor | (() => React.ReactElement)): () => React.ReactElement {
+  if (React.isValidElement(screen)) {
+    return () => screen;
+  }
+
+  if (typeof screen === "function") {
+    return () => React.createElement(screen as React.ComponentType<Record<string, unknown>>);
+  }
+
+  throw new TypeError("install_screen requires a screen element or component");
 }

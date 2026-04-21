@@ -7,6 +7,9 @@ export {
 } from "./action.js";
 export {
   InvalidBinding,
+  BindingError,
+  BindingsMap,
+  NoBinding,
   makeBindings,
   matchesBindingKey,
   normalizeBindingKey,

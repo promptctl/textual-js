@@ -5,6 +5,8 @@ import { render } from "ink-testing-library";
 
 import {
   ActionError,
+  BindingsMap,
+  NoBinding,
   type BindingClash,
   type BindingNamespace,
   SkipAction,
@@ -38,6 +40,11 @@ describe("action parsing", () => {
   it("parses bare names, namespaced names, and literal argument lists", () => {
     expect(parseAction("save")).toEqual({ namespace: "", actionName: "save", params: [] });
     expect(parseAction("app.quit")).toEqual({ namespace: "app", actionName: "quit", params: [] });
+    expect(parseAction("foo.bar.baz(True, False, None)")).toEqual({
+      namespace: "foo.bar",
+      actionName: "baz",
+      params: [true, false, null],
+    });
     expect(parseAction("focus('input')")).toEqual({ namespace: "", actionName: "focus", params: ["input"] });
     expect(parseAction("delete(true)")).toEqual({ namespace: "", actionName: "delete", params: [true] });
     expect(parseAction("add(1, 2, 3)")).toEqual({ namespace: "", actionName: "add", params: [1, 2, 3] });
@@ -61,7 +68,7 @@ describe("action parsing", () => {
     expect(() => parseAction("foo([1,])")).toThrow(ActionError);
     expect(() => parseAction("foo((1,))")).toThrow(ActionError);
     expect(() => parseAction("1bad.name")).toThrow(ActionError);
-    expect(() => parseAction("bogus.name")).toThrow(ActionError);
+    expect(() => parseAction("bad-name.action")).toThrow(ActionError);
   });
 });
 
@@ -89,6 +96,19 @@ describe("binding normalization", () => {
 
     expect(bindings[0]).toMatchObject({ key: "ctrl+s", action: "save" });
     expect(bindings[1]).toMatchObject({ key: "ctrl+z", action: "undo", description: "Undo" });
+  });
+
+  it("stores bindings in BindingsMap with merge and shown-key helpers", () => {
+    const appMap = new BindingsMap([{ key: "?", action: "help", description: "Help" }]);
+    const widgetMap = new BindingsMap();
+    widgetMap.bind("ctrl+s", "save", "Save", { show: true });
+
+    const merged = BindingsMap.merge([appMap, widgetMap]);
+
+    expect(appMap.getBindingsForKey("question_mark")[0].action).toBe("help");
+    expect(merged.getBindingsForKey("ctrl+s")[0].action).toBe("save");
+    expect(merged.shownKeys.map((binding) => binding.action)).toEqual(["help", "save"]);
+    expect(() => merged.getBindingsForKey("f12")).toThrow(NoBinding);
   });
 });
 

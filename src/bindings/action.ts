@@ -7,15 +7,13 @@ export class SkipAction extends Error {
   }
 }
 
-export type ActionNamespace = "" | "app" | "screen" | "focused";
+export type ActionNamespace = string;
 
 export interface ParsedAction {
   namespace: ActionNamespace;
   actionName: string;
   params: unknown[];
 }
-
-const ALLOWED_NAMESPACES = new Set<ActionNamespace>(["", "app", "screen", "focused"]);
 
 export function parseAction(source: string): ParsedAction {
   const trimmed = source.trim();
@@ -31,8 +29,8 @@ export function parseAction(source: string): ParsedAction {
   const namespace = (dot >= 0 ? head.slice(0, dot) : "") as ActionNamespace;
   const actionName = dot >= 0 ? head.slice(dot + 1) : head;
 
-  if (!ALLOWED_NAMESPACES.has(namespace)) {
-    throw new ActionError(`Unknown action namespace "${namespace}" in "${source}"`);
+  if (namespace.length > 0 && !/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(namespace)) {
+    throw new ActionError(`Invalid action namespace "${namespace}" in "${source}"`);
   }
 
   if (actionName.length === 0 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(actionName)) {
@@ -258,9 +256,9 @@ function parseIdentifier(state: ParserState): unknown {
 
   state.index += match[0].length;
 
-  if (match[0] === "true") return true;
-  if (match[0] === "false") return false;
-  if (match[0] === "null") return null;
+  if (match[0] === "true" || match[0] === "True") return true;
+  if (match[0] === "false" || match[0] === "False") return false;
+  if (match[0] === "null" || match[0] === "None") return null;
   if (match[0] === "undefined") return undefined;
 
   throw new ActionError(`Unsupported literal "${match[0]}" in "${state.source}"`);

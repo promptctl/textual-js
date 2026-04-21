@@ -8,6 +8,7 @@ import {
   TextualFramework,
   type ActiveTooltip,
   type KeymapInput,
+  type ScreenDescriptor,
   type SystemCommandResolver,
 } from "../framework/app-framework.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
@@ -28,6 +29,8 @@ export interface TextualAppProps extends PropsWithChildren {
   actions?: WidgetActions;
   commandProviders?: Iterable<ProviderConstructor> | null;
   getSystemCommands?: SystemCommandResolver;
+  screens?: Record<string, ScreenDescriptor | (() => React.ReactElement)>;
+  modes?: Record<string, ScreenDescriptor | (() => React.ReactElement) | string>;
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
@@ -179,6 +182,8 @@ export const TextualApp = observer(function TextualApp({
   actions,
   commandProviders,
   getSystemCommands,
+  screens,
+  modes,
   autoFocus,
   tooltipDelay,
   showTooltips,
@@ -226,6 +231,20 @@ export const TextualApp = observer(function TextualApp({
   }, [getSystemCommands, ownedFramework]);
 
   useLayoutEffect(() => {
+    for (const [name, screen] of Object.entries(screens ?? {})) {
+      if (!ownedFramework.isScreenInstalled(name)) {
+        ownedFramework.installScreen(name, normalizeScreenFactory(screen, ownedFramework));
+      }
+    }
+  }, [ownedFramework, screens]);
+
+  useLayoutEffect(() => {
+    for (const [name, screen] of Object.entries(modes ?? {})) {
+      ownedFramework.addMode(name, normalizeScreenFactory(screen, ownedFramework));
+    }
+  }, [modes, ownedFramework]);
+
+  useLayoutEffect(() => {
     ownedFramework.setAppAutoFocus(autoFocus);
   }, [autoFocus, ownedFramework]);
 
@@ -243,3 +262,24 @@ export const TextualApp = observer(function TextualApp({
     </TextualProvider>
   );
 });
+
+function normalizeScreenFactory(
+  screen: ScreenDescriptor | (() => React.ReactElement) | string,
+  framework: TextualFramework,
+): () => React.ReactElement {
+  if (typeof screen === "string") {
+    return () => framework.getScreen(screen);
+  }
+
+  if (React.isValidElement(screen)) {
+    throw new ValueError("SCREENS and MODES must contain screen classes or callables, not instances");
+  }
+
+  if (typeof screen !== "function") {
+    throw new ValueError("SCREENS and MODES must contain screen classes, callables, or names");
+  }
+
+  return () => React.createElement(screen as React.ComponentType<Record<string, unknown>>);
+}
+
+export class ValueError extends Error {}

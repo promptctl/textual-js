@@ -2,7 +2,9 @@ import { makeAutoObservable, observable, runInAction } from "mobx";
 
 import type { Binding } from "../bindings/index.js";
 import { Content, type ContentInput, type VisualInput } from "../content/index.js";
+import { Hide, Show } from "../events/events.js";
 import type { Message, MessageConstructor } from "../events/message.js";
+import { Offset } from "../geometry/offset.js";
 import { Region } from "../geometry/region.js";
 import { Size } from "../geometry/size.js";
 import type { Notification, NotificationSeverity } from "../services/notifications.js";
@@ -27,6 +29,7 @@ export interface WidgetNodeInit {
   actionsRef: { current: WidgetActions | undefined };
   bindingsRef: { current: Binding[] };
   focusable: boolean;
+  canFocusChildren?: boolean;
   autoFocus: boolean;
   disabled: boolean;
   loading: boolean;
@@ -36,6 +39,30 @@ export interface WidgetNodeInit {
 }
 
 export class BadIdentifier extends Error {}
+
+export class MountError extends Error {}
+
+export class WidgetError extends Error {}
+
+export class BadWidgetName extends Error {}
+
+export interface PseudoClasses {
+  enabled: boolean;
+  focus: boolean;
+  hover: boolean;
+}
+
+export type MountSpot = number | string | WidgetNode;
+
+export interface MountOptions {
+  before?: MountSpot;
+  after?: MountSpot;
+}
+
+export interface MoveChildOptions {
+  before?: number | WidgetNode;
+  after?: number | WidgetNode;
+}
 
 export interface WalkChildrenOptions {
   method?: "depth" | "breadth";
@@ -60,6 +87,70 @@ function validateCssIdentifier(identifier: string, kind: "id" | "class"): void {
   if (!TEXTUAL_IDENTIFIER.test(identifier)) {
     throw new BadIdentifier(`Invalid CSS ${kind} "${identifier}"`);
   }
+}
+
+function splitMountArgs(items: Array<WidgetNode | MountOptions>): { widgets: WidgetNode[]; options: MountOptions } {
+  const last = items.at(-1);
+  const hasOptions = last !== undefined && !(last instanceof WidgetNode);
+  const options = hasOptions ? (last as MountOptions) : {};
+  const widgetItems = hasOptions ? items.slice(0, -1) : items;
+  const widgets = widgetItems.map((item) => {
+    if (!(item instanceof WidgetNode)) {
+      throw new TypeError("mount() accepts only WidgetNode instances");
+    }
+
+    return item;
+  });
+
+  return { widgets, options };
+}
+
+function normalizeInsertionIndex(index: number, length: number): number {
+  const integer = Math.trunc(index);
+  const normalized = integer < 0 ? length + integer : integer;
+
+  if (normalized < 0 || normalized > length) {
+    throw new WidgetError(`Child index ${index} is out of range`);
+  }
+
+  return normalized;
+}
+
+function normalizeExistingIndex(index: number, length: number): number {
+  const integer = Math.trunc(index);
+  const normalized = integer < 0 ? length + integer : integer;
+
+  if (normalized < 0 || normalized >= length) {
+    throw new WidgetError(`Child index ${index} is out of range`);
+  }
+
+  return normalized;
+}
+
+function resolveChildIndex(children: WidgetNode[], child: WidgetNode | number, label: string): number {
+  if (typeof child === "number") {
+    return normalizeExistingIndex(child, children.length);
+  }
+
+  const index = children.indexOf(child);
+
+  if (index === -1) {
+    throw new WidgetError(`move_child ${label} is not a direct child`);
+  }
+
+  return index;
+}
+
+function compareSortValues(left: unknown, right: unknown): number {
+  if (left === right) {
+    return 0;
+  }
+
+  return String(left) < String(right) ? -1 : 1;
+}
+
+function isNumberPair(value: readonly [number, number] | object): value is readonly [number, number] {
+  return Array.isArray(value);
 }
 
 function normalizeClassInput(classes: string | string[]): string[] {
@@ -89,6 +180,7 @@ export class WidgetNode {
   readonly actionsRef: { current: WidgetActions | undefined };
   readonly bindingsRef: { current: Binding[] };
   readonly focusable: boolean;
+  readonly canFocusChildren: boolean;
   readonly autoFocus: boolean;
   private readonly classNames = observable.set<string>();
   readonly pseudoClasses = observable.map<string, boolean>();
@@ -110,6 +202,7 @@ export class WidgetNode {
   borderTitle: Content | null;
   borderSubtitle: Content | null;
   lifecycleReady = false;
+  private offsetValue = Offset.ZERO;
 
   constructor(init: WidgetNodeInit) {
     this.framework = init.framework;
@@ -121,6 +214,7 @@ export class WidgetNode {
     this.actionsRef = init.actionsRef;
     this.bindingsRef = init.bindingsRef;
     this.focusable = init.focusable;
+    this.canFocusChildren = init.canFocusChildren ?? true;
     this.autoFocus = init.autoFocus;
     this.disabled = init.disabled;
     this.loading = init.loading;
@@ -144,27 +238,32 @@ export class WidgetNode {
         validateCssIdentifier(className, "class");
         this.classNames.add(className);
       }
+      this.syncStateClass("-disabled", init.disabled);
+      this.syncStateClass("-loading", init.loading);
     });
 
-    makeAutoObservable(
-      this,
-      {
-        framework: false,
-        handlersRef: false,
-        actionsRef: false,
-        bindingsRef: false,
-        nodeId: false,
-        parentId: false,
-        id: false,
-        typeName: false,
-        focusable: false,
-        autoFocus: false,
-        styles: false,
-        inlineStyles: false,
-        renderStyles: false,
-      },
-      { autoBind: true },
-    );
+    if (new.target === WidgetNode) {
+      makeAutoObservable(
+        this,
+        {
+          framework: false,
+          handlersRef: false,
+          actionsRef: false,
+          bindingsRef: false,
+          nodeId: false,
+          parentId: false,
+          id: false,
+          typeName: false,
+          focusable: false,
+          canFocusChildren: false,
+          autoFocus: false,
+          styles: false,
+          inlineStyles: false,
+          renderStyles: false,
+        },
+        { autoBind: true },
+      );
+    }
   }
 
   get classes(): ReadonlySet<string> {
@@ -202,10 +301,18 @@ export class WidgetNode {
     return this.parent?.isLoadingEffective ?? false;
   }
 
+  get canFocus(): boolean {
+    return this.focusable;
+  }
+
   setDisabled(value: boolean): void {
     const wasDisabledEffective = this.isDisabledEffective;
+    const changed = this.disabled !== value;
     this.disabled = value;
-    this.framework.refreshStyles(true);
+    runInAction(() => {
+      this.syncStateClass("-disabled", value);
+    });
+    this.framework.refreshStyles(changed);
 
     if (!wasDisabledEffective && this.isDisabledEffective) {
       this.framework.clearFocusWithin(this);
@@ -213,8 +320,12 @@ export class WidgetNode {
   }
 
   setLoading(value: boolean): void {
+    const changed = this.loading !== value;
     this.loading = value;
-    this.framework.refreshStyles(true);
+    runInAction(() => {
+      this.syncStateClass("-loading", value);
+    });
+    this.framework.refreshStyles(changed);
   }
 
   setTooltip(value: VisualInput | null): void {
@@ -306,6 +417,19 @@ export class WidgetNode {
     this.setVisible(value);
   }
 
+  get offset(): Offset {
+    return this.offsetValue;
+  }
+
+  set offset(value: Offset | readonly [number, number] | { x: number; y: number }) {
+    if (value instanceof Offset) {
+      this.offsetValue = value;
+      return;
+    }
+
+    this.offsetValue = isNumberPair(value) ? new Offset(value[0], value[1]) : new Offset(value.x, value.y);
+  }
+
   get border_title(): Content | null {
     return this.borderTitle;
   }
@@ -326,6 +450,12 @@ export class WidgetNode {
 
   get children(): NodeList {
     return this.framework.registry.getChildNodeList(this.nodeId);
+  }
+
+  get siblings(): WidgetNode[] {
+    return this.parentId === null
+      ? []
+      : this.framework.registry.getChildren(this.parentId).filter((widget) => widget.nodeId !== this.nodeId);
   }
 
   get isEmpty(): boolean {
@@ -354,6 +484,29 @@ export class WidgetNode {
 
   focus(): void {
     this.framework.focusWidget(this.nodeId);
+  }
+
+  blur(): void {
+    if (this.isFocused) {
+      this.framework.focusWidget(null);
+    }
+  }
+
+  allowFocus(): boolean {
+    return this.focusable && !this.isDisabledEffective && !this.isLoadingEffective && this.isInteractive;
+  }
+
+  allowFocusChildren(): boolean {
+    return this.canFocusChildren && !this.isDisabledEffective && !this.isLoadingEffective && this.isInteractive;
+  }
+
+  trap_focus(enabled = true): void {
+    this.framework.trapFocus(this, enabled);
+  }
+
+  checkConsumeKey(key: string, character: string | null): boolean {
+    const checker = this.actions?.checkConsumeKey as ((key: string, character: string | null) => unknown) | undefined;
+    return typeof checker === "function" ? checker(key, character) === true : false;
   }
 
   get messageQueueSize(): number {
@@ -403,6 +556,46 @@ export class WidgetNode {
     this.scrollTo(this.scrollOffsetX, this.scrollOffsetY);
   }
 
+  get virtualSize(): Size {
+    return new Size(this.virtualWidth, this.virtualHeight);
+  }
+
+  set virtualSize(value: Size | readonly [number, number] | { width: number; height: number }) {
+    const size = value instanceof Size ? value : isNumberPair(value) ? new Size(value[0], value[1]) : new Size(value.width, value.height);
+    this.setVirtualSize(size);
+  }
+
+  get scrollOffset(): Offset {
+    return new Offset(this.scrollOffsetX, this.scrollOffsetY);
+  }
+
+  set scrollOffset(value: Offset | readonly [number, number] | { x: number; y: number }) {
+    const offset = value instanceof Offset ? value : isNumberPair(value) ? new Offset(value[0], value[1]) : new Offset(value.x, value.y);
+    this.scrollTo(offset.x, offset.y);
+  }
+
+  get isScrollable(): boolean {
+    const overflowX = this.resolvedStyles.getRule<string>("overflow-x") ?? "auto";
+    const overflowY = this.resolvedStyles.getRule<string>("overflow-y") ?? "auto";
+    return overflowX !== "hidden" || overflowY !== "hidden";
+  }
+
+  get showVerticalScrollbar(): boolean {
+    return this.isScrollable && this.virtualHeight > this.screenRegion.height;
+  }
+
+  get showHorizontalScrollbar(): boolean {
+    return this.isScrollable && this.virtualWidth > this.screenRegion.width;
+  }
+
+  get allowVerticalScroll(): boolean {
+    return !this.isDisabledEffective && !this.isLoadingEffective && this.showVerticalScrollbar;
+  }
+
+  get allowHorizontalScroll(): boolean {
+    return !this.isDisabledEffective && !this.isLoadingEffective && this.showHorizontalScrollbar;
+  }
+
   scrollTo(x: number, y: number, options: ScrollToOptions = {}): void {
     const next = this.clampScrollOffsets(x, y);
     this.scrollTargetX = next.x;
@@ -418,6 +611,58 @@ export class WidgetNode {
 
   scrollEnd(): void {
     this.scrollTo(this.maxScrollX, this.maxScrollY);
+  }
+
+  scrollHome(): void {
+    this.scrollTo(0, 0);
+  }
+
+  scrollUp(lines = 1, options: ScrollToOptions = {}): void {
+    this.scrollRelative(0, -Math.max(0, Math.trunc(lines)), options);
+  }
+
+  scrollDown(lines = 1, options: ScrollToOptions = {}): void {
+    this.scrollRelative(0, Math.max(0, Math.trunc(lines)), options);
+  }
+
+  scrollLeft(cells = 1, options: ScrollToOptions = {}): void {
+    this.scrollRelative(-Math.max(0, Math.trunc(cells)), 0, options);
+  }
+
+  scrollRight(cells = 1, options: ScrollToOptions = {}): void {
+    this.scrollRelative(Math.max(0, Math.trunc(cells)), 0, options);
+  }
+
+  action_scroll_home(): void {
+    this.scrollHome();
+  }
+
+  action_scroll_end(): void {
+    this.scrollEnd();
+  }
+
+  action_scroll_up(): void {
+    this.scrollUp();
+  }
+
+  action_scroll_down(): void {
+    this.scrollDown();
+  }
+
+  action_scroll_left(): void {
+    this.scrollLeft();
+  }
+
+  action_scroll_right(): void {
+    this.scrollRight();
+  }
+
+  action_scroll_page_up(): void {
+    this.scrollPageUp();
+  }
+
+  action_scroll_page_down(): void {
+    this.scrollPageDown();
   }
 
   scrollPageUp(): void {
@@ -509,6 +754,14 @@ export class WidgetNode {
     return this.classNames.has(className);
   }
 
+  private syncStateClass(className: string, enabled: boolean): void {
+    if (enabled) {
+      this.classNames.add(className);
+    } else {
+      this.classNames.delete(className);
+    }
+  }
+
   replaceClasses(nextClasses: string[]): void {
     runInAction(() => {
       this.classNames.clear();
@@ -517,6 +770,8 @@ export class WidgetNode {
         validateCssIdentifier(className, "class");
         this.classNames.add(className);
       }
+      this.syncStateClass("-disabled", this.disabled);
+      this.syncStateClass("-loading", this.loading);
     });
   }
 
@@ -583,6 +838,8 @@ export class WidgetNode {
         validateCssIdentifier(className, "class");
         this.classNames.add(className);
       }
+      this.syncStateClass("-disabled", this.disabled);
+      this.syncStateClass("-loading", this.loading);
     });
 
     this.framework.refreshStyles(!same);
@@ -662,7 +919,8 @@ export class WidgetNode {
 
     if (name === "even" || name === "odd") {
       const index = this.framework.registry.getSiblingIndex(this.nodeId);
-      return index >= 0 && (name === "even" ? index % 2 === 0 : index % 2 === 1);
+      const position = index + 1;
+      return index >= 0 && (name === "even" ? position % 2 === 0 : position % 2 === 1);
     }
 
     if (name === "empty") {
@@ -670,6 +928,38 @@ export class WidgetNode {
     }
 
     return this.pseudoClasses.get(name) ?? false;
+  }
+
+  get_pseudo_class_state(): PseudoClasses {
+    return {
+      enabled: this.hasPseudoClass("enabled"),
+      focus: this.hasPseudoClass("focus"),
+      hover: this.hasPseudoClass("hover"),
+    };
+  }
+
+  get first_of_type(): boolean {
+    return this.hasPseudoClass("first-of-type");
+  }
+
+  get last_of_type(): boolean {
+    return this.hasPseudoClass("last-of-type");
+  }
+
+  get first_child(): boolean {
+    return this.hasPseudoClass("first-child");
+  }
+
+  get last_child(): boolean {
+    return this.hasPseudoClass("last-child");
+  }
+
+  get is_odd(): boolean {
+    return this.hasPseudoClass("odd");
+  }
+
+  get is_even(): boolean {
+    return this.hasPseudoClass("even");
   }
 
   setInlineStyle(name: string, value: StyleAssignmentValue | null | undefined): void {
@@ -689,7 +979,206 @@ export class WidgetNode {
   }
 
   setVisible(value: boolean | "visible" | "hidden"): void {
+    const wasVisible = this.isVisible;
     this.setInlineStyle("visibility", value === true ? "visible" : value === false ? "hidden" : value);
+    this.framework.callAfterRefresh(() => {
+      const isVisible = this.isVisible;
+
+      if (wasVisible !== isVisible && this.framework.isNodeMounted(this)) {
+        // [LAW:single-enforcer] Visibility event emission is owned by the
+        // widget visibility setter so public visible changes share one seam.
+        this.postMessage(isVisible ? new Show() : new Hide());
+      }
+    });
+  }
+
+  get _cover_widget(): object | null {
+    return this.loading ? { owner: this } : null;
+  }
+
+  render(): ContentInput {
+    return "";
+  }
+
+  render_str(value: ContentInput): Content {
+    return Content.fromText(value);
+  }
+
+  get_content_width(): number {
+    return Math.max(
+      ...Content.fromText(this.render())
+        .plain.split("\n")
+        .map((line) => Content.fromText(line, { markup: false }).cellLength),
+      0,
+    );
+  }
+
+  get_content_height(): number {
+    const plain = Content.fromText(this.render()).plain;
+    return plain.length === 0 ? 0 : plain.split("\n").length;
+  }
+
+  mount(...widgetsOrOptions: Array<WidgetNode | MountOptions>): WidgetNode[] {
+    const { widgets, options } = splitMountArgs(widgetsOrOptions);
+
+    if (!this.framework.isNodeMounted(this)) {
+      throw new MountError("Cannot mount children on an unmounted widget");
+    }
+
+    if (options.before !== undefined && options.after !== undefined) {
+      throw new MountError("Cannot specify both before and after");
+    }
+
+    const insertionIndex =
+      options.before !== undefined
+        ? this._find_mount_point(options.before)[1]
+        : options.after !== undefined
+          ? this._find_mount_point(options.after)[1] + 1
+          : this.children.length;
+
+    widgets.forEach((widget, offset) => {
+      if (widget === this) {
+        throw new WidgetError("A widget cannot own itself");
+      }
+
+      widget.parentId = this.nodeId;
+      this.framework.registerWidget(widget);
+      this.children._insert(insertionIndex + offset, widget);
+    });
+
+    return widgets;
+  }
+
+  mount_all(widgets: Iterable<WidgetNode>, options: MountOptions = {}): WidgetNode[] {
+    return this.mount(...Array.from(widgets), options);
+  }
+
+  move_child(child: WidgetNode | number, options: MoveChildOptions): void {
+    if ((options.before === undefined) === (options.after === undefined)) {
+      throw new WidgetError("move_child requires exactly one of before or after");
+    }
+
+    const children = this.children.toArray();
+    const childIndex = resolveChildIndex(children, child, "child");
+    const childWidget = children[childIndex]!;
+    const targetSpot = options.before ?? options.after;
+    const targetIndex = resolveChildIndex(children, targetSpot as WidgetNode | number, "target");
+
+    if (childIndex === targetIndex) {
+      return;
+    }
+
+    const afterAdjustment = options.after === undefined ? 0 : 1;
+    const withoutChildIndex = childIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    this.children._insert(withoutChildIndex + afterAdjustment, childWidget);
+    this.framework.registry.touch();
+  }
+
+  remove(): void {
+    if (!this.framework.isNodeMounted(this)) {
+      return;
+    }
+
+    for (const widget of this.walkChildren({ withSelf: true, reverse: true })) {
+      this.framework.notifyWillUnmount(widget);
+      this.framework.unregisterWidget(widget.nodeId);
+    }
+  }
+
+  remove_children(selector?: string | QueryTypeConstraint): void {
+    for (const child of this.matchDirectChildren(selector)) {
+      child.remove();
+    }
+  }
+
+  sort_children(key?: (widget: WidgetNode) => unknown, reverse = false): void {
+    const ordered = this.children
+      .toArray()
+      .map((widget, index) => ({ widget, index, value: key?.(widget) ?? index }))
+      .sort((left, right) => compareSortValues(left.value, right.value) || left.index - right.index)
+      .map((entry) => entry.widget);
+
+    if (reverse) {
+      ordered.reverse();
+    }
+
+    this.children._clear();
+    for (const child of ordered) {
+      this.children._append(child);
+    }
+    this.framework.registry.touch();
+  }
+
+  _find_mount_point(spot: MountSpot): [WidgetNode, number] {
+    if (typeof spot === "number") {
+      return [this, normalizeInsertionIndex(spot, this.children.length)];
+    }
+
+    if (typeof spot === "string") {
+      const matches = this.queryChildren(spot).results();
+
+      if (matches.length === 0) {
+        throw new NoMatches(`No child matched "${spot}"`);
+      }
+
+      if (matches.length > 1) {
+        throw new TooManyMatches(`More than one child matched "${spot}"`);
+      }
+
+      return [this, this.children.index(matches[0]!)];
+    }
+
+    const parent = spot.parent;
+
+    if (parent === undefined || !this.framework.isNodeMounted(spot)) {
+      throw new MountError("Mount point widget is not in the DOM");
+    }
+
+    return [parent, parent.children.index(spot)];
+  }
+
+  get_child_by_id(id: string): WidgetNode {
+    const child = this.children.toArray().find((widget) => widget.id === id);
+
+    if (child === undefined) {
+      throw new NoMatches(`No child with id "${id}"`);
+    }
+
+    return child;
+  }
+
+  get_widget_by_id(id: string): WidgetNode {
+    const widget = this.walkChildren().find((candidate) => candidate.id === id);
+
+    if (widget === undefined) {
+      throw new NoMatches(`No descendant with id "${id}"`);
+    }
+
+    return widget;
+  }
+
+  get_child_by_type(typeConstraint: QueryTypeConstraint): WidgetNode {
+    const typeName = this.framework.resolveWidgetTypeName(typeConstraint);
+    const child = this.children.toArray().find((candidate) => candidate.matchesType(typeName));
+
+    if (child === undefined) {
+      throw new NoMatches(`No child matched requested type`);
+    }
+
+    return child;
+  }
+
+  private matchDirectChildren(selector?: string | QueryTypeConstraint): WidgetNode[] {
+    if (selector === undefined || selector === "*") {
+      return this.children.toArray();
+    }
+
+    if (typeof selector === "string") {
+      return this.queryChildren(selector).results();
+    }
+
+    const typeName = this.framework.resolveWidgetTypeName(selector);
+    return this.children.toArray().filter((child) => child.matchesType(typeName));
   }
 
   query(selectorText = "*"): DOMQuery {

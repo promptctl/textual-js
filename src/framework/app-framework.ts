@@ -257,6 +257,8 @@ export interface PointerLocation {
   y: number;
 }
 
+export type PointerShape = "default" | "pointer" | "text" | "crosshair" | "move" | "not-allowed" | string;
+
 export interface ActiveTooltip {
   sourceNodeId: string;
   visual: Visual;
@@ -540,6 +542,8 @@ export class TextualFramework {
   private lastActionDispatchResult: ActionDispatchResult = "unhandled";
   private readonly bindingClashSignatures = new Map<string, string>();
   private lastPointerLocation: PointerLocation | null = null;
+  pointerShape: PointerShape = "default";
+  private focusTrapNodeId: string | null = null;
   private pendingPointerClick: PendingPointerClick | null = null;
   private lastClickChain: ClickChainState | null = null;
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
@@ -638,6 +642,7 @@ export class TextualFramework {
         bindingClashSignatures: false,
         handleBindingsClash: false,
         activePrevention: false,
+        focusTrapNodeId: false,
       } as never,
       { autoBind: true },
     );
@@ -717,6 +722,10 @@ export class TextualFramework {
 
   setShowNotifications(enabled: boolean | null | undefined): void {
     this.showNotifications = enabled ?? true;
+  }
+
+  setPointerShape(shape: PointerShape): void {
+    this.pointerShape = shape;
   }
 
   setControlledTerminalSize(size: Size | null): void {
@@ -1029,11 +1038,15 @@ export class TextualFramework {
       inheritCss: boolean;
       inheritBindings: boolean;
       inheritComponentClasses: boolean;
+      BINDINGS: Iterable<BindingDeclaration>;
     }> | undefined;
     const normalizedDefaultCss = normalizeCssSource(normalizedOptions.defaultCss ?? typeSource?.DEFAULT_CSS);
     const normalizedScopedCss = normalizeCssSource(normalizedOptions.scopedCss ?? typeSource?.SCOPED_CSS);
     const existing = this.widgetTypes.get(typeName);
-    const normalizedBindings = [...(normalizedOptions.bindings ?? [])];
+    const normalizedBindings = [
+      ...makeBindings(typeSource?.BINDINGS ?? []),
+      ...(normalizedOptions.bindings ?? []),
+    ];
     const inheritedToken = normalizedOptions.typeToken === undefined ? undefined : Object.getPrototypeOf(normalizedOptions.typeToken);
     const inferredBaseTypeName =
       typeof inheritedToken?.name === "string" && inheritedToken.name.length > 0 && inheritedToken.name !== "Function"
@@ -1176,12 +1189,14 @@ export class TextualFramework {
   }
 
   unregisterWidget(nodeId: string): void {
-    if (this.focusedNodeId === nodeId) {
-      this.focusedNodeId = null;
-    }
+    const hadFocus = this.focusedNodeId === nodeId;
 
     if (this.hoveredNodeId === nodeId) {
       this.hoveredNodeId = null;
+    }
+
+    if (this.focusTrapNodeId === nodeId) {
+      this.focusTrapNodeId = null;
     }
 
     this.registry.deregister(nodeId);
@@ -1194,6 +1209,12 @@ export class TextualFramework {
     this.unmountingQueues.delete(nodeId);
     this.closedQueues.add(nodeId);
     this.recalculateStyles();
+
+    if (hadFocus) {
+      // [LAW:single-enforcer] Focus recovery after removal enters through the
+      // framework focus boundary rather than direct widget mutation.
+      this.applyFocusChange(this.getFocusChain()[0]?.nodeId ?? null, { markBlurOverride: true });
+    }
   }
 
   focusWidget(nodeId: string | null): void {
@@ -1219,30 +1240,39 @@ export class TextualFramework {
     }
   }
 
+  trapFocus(widget: WidgetNode, enabled = true): void {
+    if (enabled && this.focusedNodeId !== null && this.isNodeWithin(this.registry.get(this.focusedNodeId), widget)) {
+      this.focusTrapNodeId = widget.nodeId;
+      this.notifyBindingsUpdated();
+      return;
+    }
+
+    if (!enabled && this.focusTrapNodeId === widget.nodeId) {
+      this.focusTrapNodeId = null;
+      this.notifyBindingsUpdated();
+    }
+  }
+
   getFocusChain(): WidgetNode[] {
+    const trap = this.focusTrapNodeId === null ? undefined : this.registry.get(this.focusTrapNodeId);
+
     return this.registry.list().filter((widget) => {
-      if (!widget.focusable) {
-        return false;
-      }
-
-      if (widget.isDisabledEffective || widget.isLoadingEffective) {
-        return false;
-      }
-
-      return widget.isInteractive;
+      const insideTrap = trap === undefined || this.isNodeWithin(widget, trap);
+      const ancestorsAllowFocus = this.ancestorsAllowFocus(widget);
+      return insideTrap && ancestorsAllowFocus && widget.allowFocus();
     });
   }
 
-  focusNext(selectorText?: string): WidgetNode | null {
-    return this.moveFocus(1, selectorText);
+  focusNext(selector?: string | Function): WidgetNode | null {
+    return this.moveFocus(1, selector);
   }
 
-  focusPrevious(selectorText?: string): WidgetNode | null {
-    return this.moveFocus(-1, selectorText);
+  focusPrevious(selector?: string | Function): WidgetNode | null {
+    return this.moveFocus(-1, selector);
   }
 
-  private moveFocus(direction: 1 | -1, selectorText?: string): WidgetNode | null {
-    const chain = this.filterFocusChain(selectorText);
+  private moveFocus(direction: 1 | -1, selector?: string | Function): WidgetNode | null {
+    const chain = this.filterFocusChain(selector);
 
     if (chain.length === 0) {
       this.focusWidget(null);
@@ -2194,7 +2224,11 @@ export class TextualFramework {
   }
 
   private resolvePointerDispatchTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
-    return targetNode ?? this.resolveDefaultDispatchTarget();
+    return targetNode ?? this.resolveActiveScreenRootTarget() ?? this.resolveDefaultDispatchTarget();
+  }
+
+  private resolveActiveScreenRootTarget(): WidgetNode | undefined {
+    return this.registry.getChildren(null).find((widget) => widget.isInteractive);
   }
 
   private resolvePointerFocusTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
@@ -2207,7 +2241,7 @@ export class TextualFramework {
     let current = targetNode;
 
     while (current !== undefined) {
-      if (current.focusable && !current.isDisabledEffective && !current.isLoadingEffective && current.isInteractive) {
+      if (this.ancestorsAllowFocus(current) && current.allowFocus()) {
         return current;
       }
 
@@ -2270,6 +2304,7 @@ export class TextualFramework {
     const hoveredChanged = this.hoveredNodeId !== nextHoveredNodeId;
 
     this.lastPointerLocation = pointer;
+    this.pointerShape = targetNode?.focusable === true ? "pointer" : "default";
 
     if (hoveredChanged) {
       this.hoveredNodeId = nextHoveredNodeId;
@@ -2728,15 +2763,17 @@ export class TextualFramework {
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
   ): ScreenEntry {
-    const bindings = makeBindings(options.bindings ?? []);
+    const screenType = element.type as { AUTO_FOCUS?: string | null; BINDINGS?: Iterable<BindingDeclaration> };
+    const bindings = makeBindings([...(screenType.BINDINGS ?? []), ...(options.bindings ?? [])]);
     const screenStyles = this.readScreenStylesheetState(element, options);
+    const staticAutoFocus = screenType.AUTO_FOCUS;
     const entry: ScreenEntry = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
       element,
       bindings,
       actions: undefined,
-      autoFocus: options.autoFocus ?? null,
+      autoFocus: options.autoFocus ?? staticAutoFocus ?? null,
       css: screenStyles.css,
       cssPath: screenStyles.cssPath,
       scopedCss: screenStyles.scopedCss,
@@ -2860,6 +2897,10 @@ export class TextualFramework {
     if (namespace === "focused") {
       const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
       return focused === undefined ? null : { actions: focused.actions };
+    }
+
+    if (namespace !== "") {
+      return null;
     }
 
     // Unnamespaced action: use the default target, else the focused widget, else app.
@@ -3228,7 +3269,13 @@ export class TextualFramework {
         }
 
         if (message instanceof Key && !message.isPropagationStopped) {
-          if (this.dispatchNodeKeyBindings(currentNode, message.key)) {
+          const keyConsumer = message.sender instanceof WidgetNode ? message.sender : undefined;
+          const consumedByDescendant =
+            keyConsumer !== undefined &&
+            keyConsumer.nodeId !== currentNode.nodeId &&
+            keyConsumer.checkConsumeKey(message.key, message.character);
+
+          if (!consumedByDescendant && this.dispatchNodeKeyBindings(currentNode, message.key)) {
             message.stop();
           }
         }
@@ -3600,15 +3647,48 @@ export class TextualFramework {
     return this.resolveAutoFocusTarget(chain);
   }
 
-  private filterFocusChain(selectorText?: string): WidgetNode[] {
+  private filterFocusChain(selector?: string | Function): WidgetNode[] {
     const chain = this.getFocusChain();
 
-    if (selectorText === undefined) {
+    if (selector === undefined) {
       return chain;
     }
 
-    const selectors = this.parseSelectors(selectorText);
-    return chain.filter((widget) => selectors.some((selector) => this.matchesSelector(widget, selector)));
+    if (typeof selector === "function") {
+      const typeName = this.resolveWidgetTypeName(selector);
+      return chain.filter((widget) => widget.matchesType(typeName));
+    }
+
+    const selectors = this.parseSelectors(selector);
+    return chain.filter((widget) => selectors.some((candidate) => this.matchesSelector(widget, candidate)));
+  }
+
+  private ancestorsAllowFocus(widget: WidgetNode): boolean {
+    let current = widget.parent;
+
+    while (current !== undefined) {
+      if (!current.allowFocusChildren()) {
+        return false;
+      }
+
+      current = current.parent;
+    }
+
+    return true;
+  }
+
+  private isNodeWithin(widget: WidgetNode | undefined, ancestor: WidgetNode): boolean {
+    let current = widget;
+
+    while (current !== undefined) {
+      if (current.nodeId === ancestor.nodeId) {
+        return true;
+      }
+
+      current = current.parent;
+    }
+
+    return false;
   }
 
   private resolveAutoFocusTarget(chain: WidgetNode[]): WidgetNode | null {
