@@ -3,11 +3,14 @@ import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import {
+  App,
   CommandPalette,
   CommandPaletteClosed,
   CommandPaletteOpened,
   CommandPaletteOptionHighlighted,
   Content,
+  DiscoveryHit,
+  Hit,
   Provider,
   Static,
   SystemCommandsProvider,
@@ -90,10 +93,17 @@ class DiscoveryProvider extends Provider {
 
 function createPalette(
   providers: Provider[],
-  options?: { runOnSelect?: boolean },
+  options?: { runOnSelect?: boolean; run_on_select?: boolean },
 ): CommandPalette {
   const framework = new TextualFramework();
-  return new CommandPalette(providers, { app: framework, screen: null, focused: null }, options);
+  return new CommandPalette(providers, {
+    app: framework,
+    framework,
+    screen: null,
+    screenEntry: null,
+    focused: null,
+    focusedNode: null,
+  }, options);
 }
 
 describe("command palette provider model", () => {
@@ -134,6 +144,16 @@ describe("command palette provider model", () => {
     expect(results).toEqual([]);
 
     await palette.shutdown();
+  });
+
+  it("provides runtime Hit and DiscoveryHit classes", () => {
+    const hit = new Hit(100, "Open File", () => undefined, "Open File", "Open a file");
+    const discovery = new DiscoveryHit("Recent File", () => undefined, "Recent File", "Open recent");
+
+    expect(hit.score).toBe(100);
+    expect(hit.matchDisplay).toBe("Open File");
+    expect(discovery.display).toBe("Recent File");
+    expect(discovery.helpText).toBe("Open recent");
   });
 });
 
@@ -204,6 +224,33 @@ describe("command palette provider composition", () => {
     expect(contexts[0]?.app).toBe(session.framework);
     expect(contexts[0]?.screen).toBe(session.framework.getScreenStack()[0]);
     expect(contexts[0]?.focused?.typeName).toBe("Focused");
+
+    session.unmount();
+  });
+
+  it("provides the public App wrapper to providers when opened through App", async () => {
+    const contexts: Array<NonNullable<Provider["context"]>> = [];
+
+    class ContextProvider extends Provider {
+      startup(): void {
+        contexts.push(this.context!);
+      }
+
+      search(): CommandHit[] {
+        return [];
+      }
+    }
+
+    class PaletteApp extends App {
+      static COMMANDS = new Set([ContextProvider]);
+    }
+
+    const app = new PaletteApp();
+    const session = await app.runTest();
+
+    await app.framework.openCommandPalette();
+
+    expect(contexts[0]?.app).toBe(app);
 
     session.unmount();
   });
@@ -351,6 +398,20 @@ describe("command palette options", () => {
   it("defaults runOnSelect to true", () => {
     const palette = createPalette([]);
     expect(palette.runOnSelect).toBe(true);
+  });
+
+  it("uses the class-level run_on_select default and exposes the snake_case open check", () => {
+    const previous = CommandPalette.run_on_select;
+    CommandPalette.run_on_select = false;
+
+    const palette = createPalette([]);
+    const framework = new TextualFramework();
+    framework.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
+
+    expect(palette.runOnSelect).toBe(false);
+    expect(CommandPalette.is_open(framework)).toBe(true);
+
+    CommandPalette.run_on_select = previous;
   });
 
   it("accepts runOnSelect false for two-step execution", () => {
@@ -538,5 +599,11 @@ describe("command palette screen interaction", () => {
     expect(calls).toBe(1);
 
     await palette.shutdown();
+  });
+
+  it("accepts the snake_case run_on_select option", () => {
+    const palette = createPalette([], { run_on_select: false });
+
+    expect(palette.runOnSelect).toBe(false);
   });
 });

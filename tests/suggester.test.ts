@@ -79,6 +79,20 @@ describe("Suggester base", () => {
     expect(await suggester.lookup("hello")).toBe("result-hello");
     expect(callCount).toBe(1);
   });
+
+  it("supports snake_case suggester hooks and option names", async () => {
+    class SnakeCaseSuggester extends Suggester {
+      protected override get_suggestion(value: string): string | null {
+        return `${value}!`;
+      }
+    }
+
+    const suggester = new SnakeCaseSuggester({ use_cache: true, case_sensitive: false });
+
+    expect(suggester.use_cache).toBe(true);
+    expect(suggester.case_sensitive).toBe(false);
+    expect(await suggester.lookup("Hello")).toBe("hello!");
+  });
 });
 
 describe("SuggestFromList", () => {
@@ -199,5 +213,37 @@ describe("Input suggester integration", () => {
     expect(await suggester.lookup("cafe-")).toBe("cafe-con-leche");
     expect(await suggester.lookup("café")).toBe("café");
     expect(await suggester.lookup("hello.")).toBe("hello.world");
+  });
+
+  it("exposes the current suggestion on the live input widget", async () => {
+    const session = await runTest(
+      React.createElement(Input, {
+        suggester: new SuggestFromList(["hello"]),
+      }),
+    );
+
+    await session.pilot.type("h");
+
+    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input") as {
+      _suggestion: string;
+    };
+
+    expect(input._suggestion).toBe("hello");
+
+    session.unmount();
+  });
+
+  it("shows the ghost suffix for case-insensitive suggestions", async () => {
+    const session = await runTest(
+      React.createElement(Input, {
+        suggester: new SuggestFromList(["Scotland"], { case_sensitive: false }),
+      }),
+    );
+
+    await session.pilot.type("s");
+
+    expect(stripAnsi(session.lastFrame())).toContain("cotland");
+
+    session.unmount();
   });
 });

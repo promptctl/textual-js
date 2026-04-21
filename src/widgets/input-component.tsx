@@ -8,7 +8,7 @@ import { observer } from "mobx-react-lite";
 import { Content, renderContent } from "../content/index.js";
 import { Key } from "../events/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
-import { InputValidationController, type ValidateOn, type Validator } from "../validation/index.js";
+import { InputValidationController, type ValidateOn, type ValidationResult, type Validator } from "../validation/index.js";
 import { SuggestionController, type Suggester } from "../suggestions/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -65,6 +65,10 @@ export const Input = observer(function Input({
   const [, forceRender] = React.useReducer((current: number) => current + 1, 0);
   const modelRef = React.useRef<InputModel>();
   const suggestionControllerRef = React.useRef<SuggestionController>();
+  const validationControllerRef = React.useRef<InputValidationController>();
+  const validatorsRef = React.useRef(validators);
+  const validateOnRef = React.useRef(validateOn ?? validate_on);
+  const validEmptyRef = React.useRef(validEmpty ?? valid_empty ?? true);
 
   if (modelRef.current === undefined) {
     modelRef.current = new InputModel({ value, type, restrict, maxLength, password });
@@ -74,15 +78,24 @@ export const Input = observer(function Input({
     suggestionControllerRef.current = new SuggestionController(suggester);
   }
 
-  const validation = React.useMemo(
-    () =>
-      new InputValidationController({
-        validators,
-        validEmpty: validEmpty ?? valid_empty ?? false,
-        validateOn: validateOn ?? validate_on,
-      }),
-    [validEmpty, valid_empty, validateOn, validate_on, validators],
-  );
+  validatorsRef.current = validators;
+  validateOnRef.current = validateOn ?? validate_on;
+  validEmptyRef.current = validEmpty ?? valid_empty ?? validEmptyRef.current;
+
+  const rebuildValidationController = React.useCallback((nextValidEmpty = validEmptyRef.current) => {
+    validationControllerRef.current = new InputValidationController({
+      validators: validatorsRef.current,
+      validEmpty: nextValidEmpty,
+      validateOn: validateOnRef.current,
+    });
+  }, []);
+
+  if (validationControllerRef.current === undefined) {
+    rebuildValidationController(validEmptyRef.current);
+  } else {
+    rebuildValidationController(validEmptyRef.current);
+  }
+
   const widget = useWidget({
     id,
     classes: composeWidgetClasses(classes),
@@ -104,17 +117,29 @@ export const Input = observer(function Input({
   });
   const styles = useStyles(widget.handle);
 
-  const applyValidation = React.useCallback((event: ValidateOn) => {
-    const result = validation.validate(modelRef.current!.value, event);
-
+  const syncValidationClasses = React.useCallback((result: ValidationResult | null): void => {
     if (result === null) {
-      return result;
+      return;
     }
 
     widget.handle.toggleClass("-valid", result.isValid);
     widget.handle.toggleClass("-invalid", !result.isValid);
+  }, [widget.handle]);
+
+  const recomputeValidationState = React.useCallback((): ValidationResult => {
+    const controller = new InputValidationController({
+      validators: validatorsRef.current,
+      validEmpty: validEmptyRef.current,
+      validateOn: ["changed", "submitted", "blur"],
+    });
+    return controller.validate(modelRef.current!.value, "changed")!;
+  }, []);
+
+  const applyValidation = React.useCallback((event: ValidateOn) => {
+    const result = validationControllerRef.current!.validate(modelRef.current!.value, event);
+    syncValidationClasses(result);
     return result;
-  }, [validation, widget.handle]);
+  }, [syncValidationClasses]);
 
   const refreshSuggestion = React.useCallback(() => {
     void suggestionControllerRef.current!.update(modelRef.current!.value, (message) => {
@@ -142,6 +167,43 @@ export const Input = observer(function Input({
     postChanged();
     return true;
   }, [postChanged]);
+
+  React.useLayoutEffect(() => {
+    const inputHandle = widget.handle as typeof widget.handle & {
+      validEmpty?: boolean;
+      valid_empty?: boolean;
+      suggestion?: string;
+      _suggestion?: string;
+    };
+
+    Object.defineProperties(inputHandle, {
+      validEmpty: {
+        configurable: true,
+        get: () => validEmptyRef.current,
+        set: (nextValue: boolean) => {
+          validEmptyRef.current = Boolean(nextValue);
+          rebuildValidationController(validEmptyRef.current);
+          syncValidationClasses(recomputeValidationState());
+          forceRender();
+        },
+      },
+      valid_empty: {
+        configurable: true,
+        get: () => validEmptyRef.current,
+        set: (nextValue: boolean) => {
+          inputHandle.validEmpty = nextValue;
+        },
+      },
+      suggestion: {
+        configurable: true,
+        get: () => suggestionControllerRef.current!.suggestion,
+      },
+      _suggestion: {
+        configurable: true,
+        get: () => suggestionControllerRef.current!.suggestion,
+      },
+    });
+  }, [rebuildValidationController, recomputeValidationState, syncValidationClasses, widget.handle]);
 
   function handleInputKey(message: Key): void {
     const model = modelRef.current!;
@@ -178,9 +240,7 @@ export const Input = observer(function Input({
     ? "*".repeat(modelRef.current.value.length)
     : modelRef.current.value;
   const suggestion = suggestionControllerRef.current.suggestion;
-  const suffix = suggestion.startsWith(modelRef.current.value)
-    ? suggestion.slice(modelRef.current.value.length)
-    : "";
+  const suffix = resolveSuggestionSuffix(modelRef.current.value, suggestion, suggester);
   const content = Content.assemble(
     displayValue,
     suffix.length === 0 ? "" : Content.styled(suffix, "dim"),
@@ -194,3 +254,12 @@ export const Input = observer(function Input({
     </WidgetScope>
   );
 });
+
+function resolveSuggestionSuffix(value: string, suggestion: string, suggester: Suggester | null): string {
+  const caseSensitive = suggester?.caseSensitive ?? true;
+  const prefixMatches = caseSensitive
+    ? suggestion.startsWith(value)
+    : suggestion.toLowerCase().startsWith(value.toLowerCase());
+
+  return prefixMatches ? suggestion.slice(value.length) : "";
+}

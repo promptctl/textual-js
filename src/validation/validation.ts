@@ -1,17 +1,43 @@
-// [LAW:one-type-per-behavior] All validators share one base class and one
-// result type. Built-in validators are instances of this one type hierarchy.
+import { Content, type ContentInput } from "../content/index.js";
 
-export interface ValidationFailure {
-  message: string;
+export type ValidationText = Exclude<ContentInput, null | undefined>;
+
+export interface ValidationFailureInit {
+  message: ValidationText;
   value?: unknown;
-  description?: string;
+  description?: ValidationText;
   validator: Validator<unknown>;
 }
 
-export class ValidationResult {
-  readonly failures: readonly ValidationFailure[];
+export class Failure {
+  readonly message: ValidationText;
+  readonly value: unknown;
+  readonly description: ValidationText | undefined;
+  readonly validator: Validator<unknown>;
 
-  private constructor(failures: readonly ValidationFailure[]) {
+  constructor(validator: Validator<unknown>, description?: ValidationText);
+  constructor(validator: Validator<unknown>, init: Omit<ValidationFailureInit, "validator">);
+  constructor(
+    validator: Validator<unknown>,
+    descriptionOrInit: ValidationText | Omit<ValidationFailureInit, "validator"> = "",
+  ) {
+    const init = isValidationFailureInitPayload(descriptionOrInit)
+      ? descriptionOrInit
+      : { message: "", description: descriptionOrInit };
+
+    this.validator = validator;
+    this.message = init.message ?? "";
+    this.value = init.value;
+    this.description = init.description;
+  }
+}
+
+export type ValidationFailure = Failure | ValidationFailureInit;
+
+export class ValidationResult {
+  readonly failures: readonly Failure[];
+
+  private constructor(failures: readonly Failure[]) {
     this.failures = failures;
   }
 
@@ -19,10 +45,22 @@ export class ValidationResult {
     return this.failures.length === 0;
   }
 
-  get failureDescriptions(): string[] {
+  get is_valid(): boolean {
+    // [LAW:one-source-of-truth] isValid is the canonical JS result flag; the
+    // snake_case Stage 6 alias derives from it so validity cannot drift.
+    return this.isValid;
+  }
+
+  get failureDescriptions(): Array<ValidationText> {
     return this.failures
       .map((failure) => failure.description ?? failure.message)
-      .filter((description) => description.length > 0);
+      .filter((description) => describeValidationText(description).length > 0);
+  }
+
+  get failure_descriptions(): Array<ValidationText> {
+    // [LAW:one-source-of-truth] failureDescriptions is the canonical JS list;
+    // the snake_case Stage 6 alias delegates to the same derived descriptions.
+    return this.failureDescriptions;
   }
 
   merge(other: ValidationResult): ValidationResult {
@@ -34,12 +72,11 @@ export class ValidationResult {
   }
 
   static failure(failures: ValidationFailure[]): ValidationResult {
-    return new ValidationResult(failures);
+    return new ValidationResult(failures.map(normalizeFailure));
   }
 
   static merge(results: ValidationResult[]): ValidationResult {
-    const failures = results.flatMap((result) => result.failures);
-    return new ValidationResult(failures);
+    return new ValidationResult(results.flatMap((result) => result.failures));
   }
 }
 
@@ -69,11 +106,16 @@ export class InputValidationController {
   constructor(options: {
     validators?: readonly Validator<string>[];
     validEmpty?: boolean;
+    valid_empty?: boolean;
     validateOn?: Iterable<string> | null;
   } = {}) {
     this.validators = options.validators ?? [];
-    this.validEmpty = options.validEmpty ?? false;
+    this.validEmpty = options.validEmpty ?? options.valid_empty ?? true;
     this.validateOn = normalizeValidateOn(options.validateOn);
+  }
+
+  get valid_empty(): boolean {
+    return this.validEmpty;
   }
 
   validate(value: string, event: ValidateOn): ValidationResult | null {
@@ -94,11 +136,27 @@ export class InputValidationController {
   }
 }
 
-export abstract class Validator<T = string> {
-  readonly failureDescription: string | undefined;
+type ValidatorOptions = {
+  failureDescription?: ValidationText;
+  failure_description?: ValidationText;
+};
 
-  constructor(failureDescription?: string) {
-    this.failureDescription = failureDescription;
+export abstract class Validator<T = string> {
+  readonly failureDescription: ValidationText | undefined;
+
+  constructor(failureDescription?: ValidationText);
+  constructor(options?: ValidatorOptions);
+  constructor(failureDescriptionOrOptions?: ValidationText | ValidatorOptions) {
+    if (!isValidatorOptions(failureDescriptionOrOptions)) {
+      this.failureDescription = failureDescriptionOrOptions;
+      return;
+    }
+
+    this.failureDescription = failureDescriptionOrOptions.failureDescription ?? failureDescriptionOrOptions.failure_description;
+  }
+
+  get failure_description(): ValidationText | undefined {
+    return this.failureDescription;
   }
 
   abstract validate(value: T): ValidationResult;
@@ -107,56 +165,109 @@ export abstract class Validator<T = string> {
     return ValidationResult.success();
   }
 
-  protected failure(message: string, value?: T, description?: string): ValidationResult {
-    // [LAW:dataflow-not-control-flow] Description resolution always runs through
-    // the same priority chain: constructor > describeFailure > inline.
+  protected failure(message: ValidationText, value?: T, description?: ValidationText): ValidationResult {
+    const unresolved = new Failure(this as Validator<unknown>, { message, value, description });
     const resolvedDescription =
-      this.failureDescription ?? this.describeFailure(message, value) ?? description ?? message;
+      this.failureDescription ??
+      this.describeFailure(unresolved) ??
+      unresolved.description ??
+      unresolved.message;
 
     return ValidationResult.failure([
-      {
-        message,
-        value,
+      new Failure(this as Validator<unknown>, {
+        message: unresolved.message,
+        value: unresolved.value,
         description: resolvedDescription,
-        validator: this,
-      },
+      }),
     ]);
   }
 
-  protected describeFailure(_message: string, _value?: T): string | undefined {
+  protected describe_failure(_failure: Failure): ValidationText | undefined {
     return undefined;
+  }
+
+  protected describeFailure(failure: Failure): ValidationText | undefined {
+    return this.describe_failure(failure);
   }
 }
 
+type RangeValidatorOptions = ValidatorOptions & {
+  min?: number;
+  max?: number;
+  minimum?: number;
+  maximum?: number;
+};
+
 export class NumberValidator extends Validator<string> {
+  static readonly InvalidValue = class NumberInvalidValue extends Failure {};
+
+  static readonly NotInRange = class NumberNotInRange extends Failure {
+    readonly minimum: number | undefined;
+    readonly maximum: number | undefined;
+
+    constructor(
+      validator: Validator<unknown>,
+      value: unknown,
+      minimum: number | undefined,
+      maximum: number | undefined,
+      description: ValidationText,
+    ) {
+      super(validator, {
+        message: "Must be a valid number.",
+        value,
+        description,
+      });
+      this.minimum = minimum;
+      this.maximum = maximum;
+    }
+  };
+
   readonly minimum: number | undefined;
   readonly maximum: number | undefined;
 
-  constructor(options: { min?: number; max?: number; failureDescription?: string } = {}) {
-    super(options.failureDescription);
-    this.minimum = options.min;
-    this.maximum = options.max;
+  constructor(options: RangeValidatorOptions = {}) {
+    super(options);
+    // [LAW:one-source-of-truth] minimum/maximum are the canonical range
+    // fields; min/max are accepted only as constructor aliases for Stage 6.
+    this.minimum = options.minimum ?? options.min;
+    this.maximum = options.maximum ?? options.max;
   }
 
   validate(value: string): ValidationResult {
     const trimmed = value.trim();
 
     if (trimmed === "" || trimmed === "inf" || trimmed === "-inf" || trimmed === "nan" || trimmed === "Infinity" || trimmed === "-Infinity" || trimmed === "NaN") {
-      return this.failure("Must be a valid number.", value);
+      return ValidationResult.failure([
+        new NumberValidator.InvalidValue(this, {
+          message: "Must be a valid number.",
+          value,
+          description: this.failureDescription ?? "Must be a valid number.",
+        }),
+      ]);
     }
 
     const number = Number(trimmed);
 
     if (!Number.isFinite(number)) {
-      return this.failure("Must be a valid number.", value);
+      return ValidationResult.failure([
+        new NumberValidator.InvalidValue(this, {
+          message: "Must be a valid number.",
+          value,
+          description: this.failureDescription ?? "Must be a valid number.",
+        }),
+      ]);
     }
 
     if (this.minimum !== undefined && number < this.minimum) {
-      return this.failure(`Must be between ${this.minimum} and ${this.maximum ?? "∞"}.`, value);
+      return ValidationResult.failure([
+        new NumberValidator.NotInRange(this, value, this.minimum, this.maximum, resolveRangeDescription(this)),
+      ]);
     }
 
     if (this.maximum !== undefined && number > this.maximum) {
-      return this.failure(`Must be between ${this.minimum ?? "-∞"} and ${this.maximum}.`, value);
+      return ValidationResult.failure([
+        new NumberValidator.NotInRange(this, value, this.minimum, this.maximum, resolveRangeDescription(this)),
+      ]);
     }
 
     return this.success();
@@ -164,13 +275,38 @@ export class NumberValidator extends Validator<string> {
 }
 
 export class IntegerValidator extends Validator<string> {
+  static readonly InvalidValue = class IntegerInvalidValue extends Failure {};
+
+  static readonly NotInRange = class IntegerNotInRange extends Failure {
+    readonly minimum: number | undefined;
+    readonly maximum: number | undefined;
+
+    constructor(
+      validator: Validator<unknown>,
+      value: unknown,
+      minimum: number | undefined,
+      maximum: number | undefined,
+      description: ValidationText,
+    ) {
+      super(validator, {
+        message: "Must be a valid integer.",
+        value,
+        description,
+      });
+      this.minimum = minimum;
+      this.maximum = maximum;
+    }
+  };
+
   readonly minimum: number | undefined;
   readonly maximum: number | undefined;
 
-  constructor(options: { min?: number; max?: number; failureDescription?: string } = {}) {
-    super(options.failureDescription);
-    this.minimum = options.min;
-    this.maximum = options.max;
+  constructor(options: RangeValidatorOptions = {}) {
+    super(options);
+    // [LAW:one-source-of-truth] minimum/maximum are the canonical range
+    // fields; min/max are accepted only as constructor aliases for Stage 6.
+    this.minimum = options.minimum ?? options.min;
+    this.maximum = options.maximum ?? options.max;
   }
 
   validate(value: string): ValidationResult {
@@ -185,22 +321,38 @@ export class IntegerValidator extends Validator<string> {
       unsigned.startsWith("_") ||
       unsigned.endsWith("_")
     ) {
-      return this.failure("Must be a valid integer.", value);
+      return ValidationResult.failure([
+        new IntegerValidator.InvalidValue(this, {
+          message: "Must be a valid integer.",
+          value,
+          description: this.failureDescription ?? "Must be a valid integer.",
+        }),
+      ]);
     }
 
     const trimmed = raw.replace(/_/g, "");
     const number = Number(trimmed);
 
     if (!Number.isInteger(number)) {
-      return this.failure("Must be a valid integer.", value);
+      return ValidationResult.failure([
+        new IntegerValidator.InvalidValue(this, {
+          message: "Must be a valid integer.",
+          value,
+          description: this.failureDescription ?? "Must be a valid integer.",
+        }),
+      ]);
     }
 
     if (this.minimum !== undefined && number < this.minimum) {
-      return this.failure(`Must be between ${this.minimum} and ${this.maximum ?? "∞"}.`, value);
+      return ValidationResult.failure([
+        new IntegerValidator.NotInRange(this, value, this.minimum, this.maximum, resolveRangeDescription(this)),
+      ]);
     }
 
     if (this.maximum !== undefined && number > this.maximum) {
-      return this.failure(`Must be between ${this.minimum ?? "-∞"} and ${this.maximum}.`, value);
+      return ValidationResult.failure([
+        new IntegerValidator.NotInRange(this, value, this.minimum, this.maximum, resolveRangeDescription(this)),
+      ]);
     }
 
     return this.success();
@@ -211,10 +363,10 @@ export class LengthValidator extends Validator<string> {
   readonly minimum: number | undefined;
   readonly maximum: number | undefined;
 
-  constructor(options: { min?: number; max?: number; failureDescription?: string } = {}) {
-    super(options.failureDescription);
-    this.minimum = options.min;
-    this.maximum = options.max;
+  constructor(options: RangeValidatorOptions = {}) {
+    super(options);
+    this.minimum = options.minimum ?? options.min;
+    this.maximum = options.maximum ?? options.max;
   }
 
   validate(value: string): ValidationResult {
@@ -233,8 +385,10 @@ export class LengthValidator extends Validator<string> {
 export class RegexValidator extends Validator<string> {
   readonly pattern: RegExp;
 
-  constructor(pattern: string | RegExp, failureDescription?: string) {
-    super(failureDescription);
+  constructor(pattern: string | RegExp, failureDescription?: ValidationText);
+  constructor(pattern: string | RegExp, options?: ValidatorOptions);
+  constructor(pattern: string | RegExp, failureDescriptionOrOptions?: ValidationText | ValidatorOptions) {
+    super(failureDescriptionOrOptions as ValidatorOptions & ValidationText);
     this.pattern = typeof pattern === "string" ? new RegExp(`^(?:${pattern})$`) : pattern;
   }
 
@@ -246,8 +400,10 @@ export class RegexValidator extends Validator<string> {
 }
 
 export class URLValidator extends Validator<string> {
-  constructor(failureDescription?: string) {
-    super(failureDescription);
+  constructor(failureDescription?: ValidationText);
+  constructor(options?: ValidatorOptions);
+  constructor(failureDescriptionOrOptions?: ValidationText | ValidatorOptions) {
+    super(failureDescriptionOrOptions as ValidatorOptions & ValidationText);
   }
 
   validate(value: string): ValidationResult {
@@ -265,8 +421,10 @@ export class URLValidator extends Validator<string> {
 export class FunctionValidator extends Validator<string> {
   private readonly fn: (value: string) => boolean;
 
-  constructor(fn: (value: string) => boolean, failureDescription?: string) {
-    super(failureDescription);
+  constructor(fn: (value: string) => boolean, failureDescription?: ValidationText);
+  constructor(fn: (value: string) => boolean, options?: ValidatorOptions);
+  constructor(fn: (value: string) => boolean, failureDescriptionOrOptions?: ValidationText | ValidatorOptions) {
+    super(failureDescriptionOrOptions as ValidatorOptions & ValidationText);
     this.fn = fn;
   }
 
@@ -275,4 +433,26 @@ export class FunctionValidator extends Validator<string> {
       ? this.success()
       : this.failure("Validation failed.", value);
   }
+}
+
+function normalizeFailure(failure: ValidationFailure): Failure {
+  return failure instanceof Failure ? failure : new Failure(failure.validator, failure);
+}
+
+function describeValidationText(value: ValidationText): string {
+  return typeof value === "string" ? value : Content.fromText(value).plain;
+}
+
+function resolveRangeDescription(validator: { minimum: number | undefined; maximum: number | undefined; failureDescription?: ValidationText }): ValidationText {
+  return validator.failureDescription ?? `Must be between ${validator.minimum ?? "-∞"} and ${validator.maximum ?? "∞"}.`;
+}
+
+function isValidationFailureInitPayload(
+  value: ValidationText | Omit<ValidationFailureInit, "validator">,
+): value is Omit<ValidationFailureInit, "validator"> {
+  return typeof value === "object" && value !== null && "message" in value;
+}
+
+function isValidatorOptions(value: ValidationText | ValidatorOptions | undefined): value is ValidatorOptions {
+  return typeof value === "object" && value !== null && !(value instanceof Content);
 }

@@ -9,11 +9,14 @@ export {
   type PaletteResult,
 } from "./command-palette.js";
 export {
+  DiscoveryHit,
+  Hit,
   Provider,
   SimpleCommandProvider,
   SystemCommandsProvider,
   type CommandHit,
-  type DiscoveryHit,
+  type DiscoveryHitInit,
+  type CommandHitInit,
   type ProviderConstructor,
   type ProviderContext,
 } from "./provider.js";

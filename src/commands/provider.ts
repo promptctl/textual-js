@@ -1,11 +1,13 @@
 // [LAW:one-type-per-behavior] All command providers share one base class.
 // The palette calls the same search/discover interface on every provider.
 
+import type { App } from "../app/app.js";
 import type { VisualInput } from "../content/index.js";
 import type { ScreenEntry, SimpleCommand, SystemCommand, TextualFramework } from "../framework/app-framework.js";
+import type { Screen, Widget } from "../framework/widget.js";
 import type { WidgetNode } from "../framework/widget-node.js";
 
-export interface CommandHit {
+export interface CommandHitInit {
   score: number;
   matchDisplay: VisualInput;
   text?: string;
@@ -13,32 +15,117 @@ export interface CommandHit {
   helpText?: string;
 }
 
-export interface DiscoveryHit {
+export class Hit {
+  readonly score: number;
+  readonly matchDisplay: VisualInput;
+  readonly text: string | undefined;
+  readonly command: () => void;
+  readonly helpText: string | undefined;
+
+  constructor(score: number, matchDisplay: VisualInput, command: () => void, text?: string, helpText?: string);
+  constructor(init: CommandHitInit);
+  constructor(
+    scoreOrInit: number | CommandHitInit,
+    matchDisplay?: VisualInput,
+    command?: () => void,
+    text?: string,
+    helpText?: string,
+  ) {
+    const init =
+      typeof scoreOrInit === "number"
+        ? {
+            score: scoreOrInit,
+            matchDisplay: matchDisplay as VisualInput,
+            command: command as () => void,
+            text,
+            helpText,
+          }
+        : scoreOrInit;
+
+    this.score = init.score;
+    this.matchDisplay = init.matchDisplay;
+    this.command = init.command;
+    this.text = init.text;
+    this.helpText = init.helpText;
+  }
+}
+
+export type CommandHit = Hit | CommandHitInit;
+
+export interface DiscoveryHitInit {
   display: VisualInput;
   text?: string;
   command: () => void;
   helpText?: string;
 }
 
+export class DiscoveryHit {
+  readonly display: VisualInput;
+  readonly text: string | undefined;
+  readonly command: () => void;
+  readonly helpText: string | undefined;
+
+  constructor(display: VisualInput, command: () => void, text?: string, helpText?: string);
+  constructor(init: DiscoveryHitInit);
+  constructor(
+    displayOrInit: VisualInput | DiscoveryHitInit,
+    command?: () => void,
+    text?: string,
+    helpText?: string,
+  ) {
+    const init =
+      typeof displayOrInit === "object" && displayOrInit !== null && "display" in displayOrInit && "command" in displayOrInit
+        ? displayOrInit
+        : {
+            display: displayOrInit as VisualInput,
+            command: command as () => void,
+            text,
+            helpText,
+          };
+
+    this.display = init.display;
+    this.command = init.command;
+    this.text = init.text;
+    this.helpText = init.helpText;
+  }
+}
+
+export type DiscoveryHitLike = DiscoveryHit | DiscoveryHitInit;
+
 export interface ProviderContext {
-  app: TextualFramework;
-  screen: ScreenEntry | null;
-  focused: WidgetNode | null;
+  app: App | TextualFramework;
+  framework: TextualFramework;
+  screen: Screen | ScreenEntry | null;
+  screenEntry: ScreenEntry | null;
+  focused: Widget | WidgetNode | null;
+  focusedNode: WidgetNode | null;
 }
 
 export abstract class Provider {
   context: ProviderContext | null = null;
 
-  get app(): TextualFramework {
+  get app(): ProviderContext["app"] {
     return this.requireContext().app;
   }
 
-  get screen(): ScreenEntry | null {
+  get framework(): TextualFramework {
+    return this.requireContext().framework;
+  }
+
+  get screen(): ProviderContext["screen"] {
     return this.requireContext().screen;
   }
 
-  get focused(): WidgetNode | null {
+  get screenEntry(): ScreenEntry | null {
+    return this.requireContext().screenEntry;
+  }
+
+  get focused(): ProviderContext["focused"] {
     return this.requireContext().focused;
+  }
+
+  get focusedNode(): WidgetNode | null {
+    return this.requireContext().focusedNode;
   }
 
   startup(): Promise<void> | void {
@@ -51,7 +138,7 @@ export abstract class Provider {
 
   abstract search(query: string): AsyncIterable<CommandHit> | CommandHit[];
 
-  discover(): AsyncIterable<DiscoveryHit> | DiscoveryHit[] {
+  discover(): AsyncIterable<DiscoveryHitLike> | DiscoveryHitLike[] {
     return [];
   }
 
@@ -89,7 +176,7 @@ export class SimpleCommandProvider extends Provider {
       }));
   }
 
-  discover(): DiscoveryHit[] {
+  discover(): DiscoveryHitLike[] {
     return this.commands.map((command) => {
       const normalizedCommand = normalizeSimpleCommand(command);
 
@@ -122,7 +209,7 @@ export class SystemCommandsProvider extends Provider {
       });
   }
 
-  discover(): DiscoveryHit[] {
+  discover(): DiscoveryHitLike[] {
     return this.readCommands()
       .filter((command) => command.discover)
       .map((command) => ({
@@ -136,7 +223,11 @@ export class SystemCommandsProvider extends Provider {
   private readCommands(): SystemCommand[] {
     // [LAW:single-enforcer] System command discovery is delegated to the app
     // resolver; this provider only adapts that canonical list into palette hits.
-    return this.app.getSystemCommands(this.screen);
+    const readCommands =
+      "get_system_commands" in this.app
+        ? this.app.get_system_commands.bind(this.app)
+        : this.framework.getSystemCommands.bind(this.framework);
+    return Array.from(readCommands(this.screen));
   }
 }
 

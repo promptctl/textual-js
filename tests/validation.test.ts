@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import React from "react";
 
 import {
+  Content,
+  Failure,
   Input,
   InputChanged,
   InputSubmitted,
@@ -13,6 +15,7 @@ import {
   RegexValidator,
   URLValidator,
   ValidationResult,
+  Validator,
   runTest,
 } from "../src/index.js";
 
@@ -20,13 +23,15 @@ describe("ValidationResult", () => {
   it("distinguishes success from failure and merges results", () => {
     const success = ValidationResult.success();
     const failure = ValidationResult.failure([
-      { message: "too short", description: "Must be longer", validator: new LengthValidator({ min: 5 }) },
+      new Failure(new LengthValidator({ min: 5 }), { message: "too short", description: "Must be longer" }),
     ]);
 
     expect(success.isValid).toBe(true);
+    expect(success.is_valid).toBe(true);
     expect(success.failures).toEqual([]);
     expect(failure.isValid).toBe(false);
     expect(failure.failureDescriptions).toEqual(["Must be longer"]);
+    expect(failure.failure_descriptions).toEqual(["Must be longer"]);
 
     const merged = ValidationResult.merge([success, failure]);
     expect(merged.isValid).toBe(false);
@@ -35,10 +40,10 @@ describe("ValidationResult", () => {
 
   it("merges multiple failures from different validators", () => {
     const a = ValidationResult.failure([
-      { message: "a", description: "Error A", validator: new LengthValidator() },
+      new Failure(new LengthValidator(), { message: "a", description: "Error A" }),
     ]);
     const b = ValidationResult.failure([
-      { message: "b", description: "Error B", validator: new LengthValidator() },
+      new Failure(new LengthValidator(), { message: "b", description: "Error B" }),
     ]);
 
     const merged = ValidationResult.merge([a, b]);
@@ -72,6 +77,13 @@ describe("NumberValidator", () => {
     expect(validator.validate("-1").isValid).toBe(false);
     expect(validator.validate("101").isValid).toBe(false);
     expect(validator.validate("-1").failureDescriptions[0]).toContain("between");
+  });
+
+  it("supports minimum/maximum aliases and returns typed range failures", () => {
+    const validator = new NumberValidator({ minimum: 0, maximum: 10 });
+    const result = validator.validate("99");
+
+    expect(result.failures[0]).toBeInstanceOf(NumberValidator.NotInRange);
   });
 });
 
@@ -158,6 +170,30 @@ describe("custom failure descriptions", () => {
     expect(result.isValid).toBe(false);
     expect(result.failureDescriptions).toEqual(["Custom error"]);
   });
+
+  it("uses describe_failure when no constructor description is provided", () => {
+    class CustomValidator extends Validator<string> {
+      validate(value: string): ValidationResult {
+        return this.failure("invalid", value, "inline");
+      }
+
+      protected override describe_failure(): string {
+        return "from describe_failure";
+      }
+    }
+
+    const validator = new CustomValidator();
+    expect(validator.validate("x").failureDescriptions).toEqual(["from describe_failure"]);
+  });
+
+  it("allows Content failure descriptions", () => {
+    const validator = new NumberValidator({
+      failureDescription: Content.styled("Styled error", "bold red"),
+    });
+    const result = validator.validate("abc");
+
+    expect(Content.fromText(result.failureDescriptions[0]).plain).toBe("Styled error");
+  });
 });
 
 describe("InputValidationController", () => {
@@ -181,6 +217,16 @@ describe("InputValidationController", () => {
       validEmpty: true,
     });
 
+    expect(controller.validate("", "changed")?.isValid).toBe(true);
+  });
+
+  it("defaults validEmpty to true and exposes the snake_case alias", () => {
+    const controller = new InputValidationController({
+      validators: [new LengthValidator({ min: 2 })],
+    });
+
+    expect(controller.validEmpty).toBe(true);
+    expect(controller.valid_empty).toBe(true);
     expect(controller.validate("", "changed")?.isValid).toBe(true);
   });
 });
@@ -242,6 +288,31 @@ describe("Input validation integration", () => {
 
     expect(submitted[0]?.validationResult?.isValid).toBe(false);
     expect(input.hasClass("-invalid")).toBe(true);
+
+    session.unmount();
+  });
+
+  it("exposes valid_empty on the live input widget and revalidates when it changes", async () => {
+    const session = await runTest(
+      React.createElement(Input, {
+        value: "",
+        validators: [new LengthValidator({ min: 2 })],
+        validateOn: ["changed"],
+        validEmpty: false,
+      }),
+    );
+
+    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input") as {
+      valid_empty: boolean;
+      hasClass: (name: string) => boolean;
+    };
+
+    expect(input.hasClass("-valid")).toBe(false);
+
+    input.valid_empty = true;
+
+    expect(input.hasClass("-valid")).toBe(true);
+    expect(input.hasClass("-invalid")).toBe(false);
 
     session.unmount();
   });

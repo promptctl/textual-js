@@ -67,6 +67,7 @@ export class App<Result = unknown> {
 
   constructor(options: AppOptions = {}) {
     this.framework = options.framework ?? new TextualFramework();
+    this.framework.setPublicApp(this);
     this.appOptions = {
       css: options.css,
       cssPath: options.cssPath,
@@ -90,6 +91,12 @@ export class App<Result = unknown> {
 
   getSystemCommands(_screen: unknown): Iterable<SystemCommand> {
     return [];
+  }
+
+  get_system_commands(screen: unknown): Iterable<SystemCommand> {
+    // [LAW:one-source-of-truth] getSystemCommands remains the canonical JS
+    // override; the snake_case Stage 6 surface delegates to it.
+    return this.getSystemCommands(screen);
   }
 
   get screen_stack(): ScreenEntry[] {

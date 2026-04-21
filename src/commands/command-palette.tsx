@@ -8,14 +8,15 @@ import { makeAutoObservable, runInAction } from "mobx";
 import { observer } from "mobx-react-lite";
 
 import { renderVisual, visualize, type Visual } from "../content/index.js";
-import { Key } from "../events/events.js";
+import { Click, Key } from "../events/events.js";
 import { Message, type MessageInit } from "../events/message.js";
 import { useTextual, WidgetScope, useWidget } from "../framework/context.js";
 import { Worker, WorkerCancelled, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
-import type { Provider, CommandHit, DiscoveryHit, ProviderContext } from "./provider.js";
+import type { Provider, CommandHit, DiscoveryHitLike, ProviderContext } from "./provider.js";
 
 export interface CommandPaletteOptions {
   runOnSelect?: boolean;
+  run_on_select?: boolean;
   noMatchesTimeout?: number;
 }
 
@@ -72,9 +73,19 @@ export class CommandPalette {
   static readonly Opened = CommandPaletteOpened;
   static readonly Closed = CommandPaletteClosed;
   static readonly OptionHighlighted = CommandPaletteOptionHighlighted;
+  static run_on_select = true;
+
+  static get runOnSelect(): boolean {
+    return CommandPalette.run_on_select;
+  }
+
+  static set runOnSelect(value: boolean) {
+    CommandPalette.run_on_select = value;
+  }
   readonly providers: readonly Provider[];
   readonly runOnSelect: boolean;
   readonly noMatchesTimeout: number;
+  private readonly context: ProviderContext;
   private readonly fuzzy = new uFuzzy();
   private started = false;
   private searchGeneration = 0;
@@ -92,7 +103,8 @@ export class CommandPalette {
     options: CommandPaletteOptions = {},
   ) {
     this.providers = providers;
-    this.runOnSelect = options.runOnSelect ?? true;
+    this.context = context;
+    this.runOnSelect = options.runOnSelect ?? options.run_on_select ?? CommandPalette.run_on_select;
     this.noMatchesTimeout = options.noMatchesTimeout ?? 250;
 
     // [LAW:one-source-of-truth] Provider context is set once at construction;
@@ -133,6 +145,8 @@ export class CommandPalette {
       worker.cancel();
     }
 
+    await this.requireFramework().workers.waitForComplete(this.ownedWorkers);
+
     for (const provider of this.providers) {
       await provider.shutdown();
     }
@@ -143,7 +157,7 @@ export class CommandPalette {
   }
 
   runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    const worker = this.requireApp().runAppWorker(work, {
+    const worker = this.requireFramework().runAppWorker(work, {
       ...options,
       start: options.start ?? true,
       group: options.group ?? "command-palette",
@@ -298,11 +312,21 @@ export class CommandPalette {
   }
 
   static isOpen(app: unknown): boolean {
-    const activeScreen = (app as { activeScreen?: { name: string | null } | null }).activeScreen;
+    const isObject = typeof app === "object" && app !== null;
+    const framework = isObject && "framework" in app
+      ? (app as { framework: { activeScreen?: { name: string | null } | null } }).framework
+      : (app as { activeScreen?: { name: string | null } | null });
+    const activeScreen = framework.activeScreen;
 
     // [LAW:one-source-of-truth] Palette visibility is derived from the active
     // screen entry name so future launchers and observers read one shared marker.
     return activeScreen?.name === CommandPalette.SCREEN_NAME;
+  }
+
+  static is_open(app: unknown): boolean {
+    // [LAW:one-source-of-truth] isOpen is the canonical JS state check; the
+    // snake_case Stage 6 alias delegates so visibility cannot diverge.
+    return CommandPalette.isOpen(app);
   }
 
   private clearNoMatchesTimer(): void {
@@ -312,14 +336,14 @@ export class CommandPalette {
     }
   }
 
-  private requireApp(): ProviderContext["app"] {
-    const context = this.providers[0]?.context;
+  private requireFramework(): ProviderContext["framework"] {
+    const context = this.context;
 
-    if (context === undefined || context === null) {
+    if (context === null) {
       throw new Error("Command palette worker support requires a provider context");
     }
 
-    return context.app;
+    return context.framework;
   }
 }
 
@@ -341,7 +365,11 @@ export const CommandPaletteScreen = observer(function CommandPaletteScreen({
       },
       onClick: (message) => {
         message.stop();
-        void framework.closeActiveCommandPalette(false);
+        const insidePalette = isLocalClickInsideWidget(message as Click, widget.handle);
+
+        if (!insidePalette) {
+          void framework.closeActiveCommandPalette(false);
+        }
       },
     },
   });
@@ -365,7 +393,7 @@ export const CommandPaletteScreen = observer(function CommandPaletteScreen({
 });
 
 function handlePaletteKey(
-  framework: ProviderContext["app"],
+  framework: ProviderContext["framework"],
   palette: CommandPalette,
   message: Key,
 ): void {
@@ -406,6 +434,15 @@ function handlePaletteKey(
   }
 }
 
+function isLocalClickInsideWidget(message: Click, widget: ProviderContext["focusedNode"]): boolean {
+  if (widget === null) {
+    return false;
+  }
+
+  const region = widget.effectiveScreenRegion;
+  return message.x >= 0 && message.y >= 0 && message.x < region.width && message.y < region.height;
+}
+
 function resolvePaletteText(display: Visual, text: string | undefined): string {
   if (text !== undefined) {
     return text;
@@ -430,7 +467,7 @@ function normalizeCommandHit(hit: CommandHit): NormalizedCommandHit {
   };
 }
 
-function normalizeDiscoveryHit(hit: DiscoveryHit): NormalizedDiscoveryHit {
+function normalizeDiscoveryHit(hit: DiscoveryHitLike): NormalizedDiscoveryHit {
   const display = visualize(hit.display);
 
   return {

@@ -79,6 +79,7 @@ import {
   type CommandPaletteOptions,
   type Provider,
   type ProviderConstructor,
+  type ProviderContext,
 } from "../commands/index.js";
 import {
   matchesSelector as selectorMatchesWidget,
@@ -589,6 +590,7 @@ export class TextualFramework {
   private pendingStyleRecalc = false;
   private pendingDrainAfterBatch = false;
   activeCommandPalette: CommandPalette | null = null;
+  private publicApp: unknown = null;
   readonly signals: AppSignals;
   screenStackVersion = 0;
 
@@ -1591,8 +1593,18 @@ export class TextualFramework {
     this.systemCommandResolver = resolver ?? (() => []);
   }
 
+  setPublicApp(app: unknown): void {
+    // [LAW:one-source-of-truth] The public App wrapper is registered once on
+    // the framework so provider contexts derive from the running app object.
+    this.publicApp = app;
+  }
+
   getSystemCommands(screen: ScreenEntry | null): SystemCommand[] {
     return Array.from(this.systemCommandResolver(screen));
+  }
+
+  get_system_commands(screen: ScreenEntry | null): SystemCommand[] {
+    return this.getSystemCommands(screen);
   }
 
   private createCommandProviders(baseScreen: ScreenEntry | null): Provider[] {
@@ -1611,11 +1623,7 @@ export class TextualFramework {
 
   async searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
     const provider = new SimpleCommandProvider(commands);
-    const palette = new CommandPalette([provider], {
-      app: this,
-      screen: this.activeScreen,
-      focused: this.getFocusedWidget(),
-    });
+    const palette = new CommandPalette([provider], this.createProviderContext(this.activeScreen, this.getFocusedWidget()));
 
     await palette.startup();
     await palette.open();
@@ -1633,7 +1641,7 @@ export class TextualFramework {
     const baseScreen = this.activeScreen;
     const focused = this.getFocusedWidget();
     const providers = this.createCommandProviders(baseScreen);
-    const palette = new CommandPalette(providers, { app: this, screen: baseScreen, focused }, options);
+    const palette = new CommandPalette(providers, this.createProviderContext(baseScreen, focused), options);
 
     await palette.startup();
     await palette.open();
@@ -1660,6 +1668,19 @@ export class TextualFramework {
     this.activeCommandPalette = null;
     this.postAppMessage(new CommandPalette.Closed(optionSelected));
     command?.();
+  }
+
+  private createProviderContext(baseScreen: ScreenEntry | null, focused: WidgetNode | null): ProviderContext {
+    const contextApp = this.publicApp ?? this;
+
+    return {
+      app: contextApp as ProviderContext["app"],
+      framework: this,
+      screen: baseScreen,
+      screenEntry: baseScreen,
+      focused,
+      focusedNode: focused,
+    };
   }
 
   postAppMessage(message: Message): void {

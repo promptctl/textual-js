@@ -17,9 +17,17 @@ export abstract class Suggester {
   private readonly cache: Map<string, string | null> | null;
   readonly caseSensitive: boolean;
 
-  constructor(options: { useCache?: boolean; caseSensitive?: boolean } = {}) {
-    this.cache = options.useCache === false ? null : new Map();
-    this.caseSensitive = options.caseSensitive ?? true;
+  constructor(options: { useCache?: boolean; use_cache?: boolean; caseSensitive?: boolean; case_sensitive?: boolean } = {}) {
+    this.cache = options.useCache === false || options.use_cache === false ? null : new Map();
+    this.caseSensitive = options.caseSensitive ?? options.case_sensitive ?? true;
+  }
+
+  get use_cache(): boolean {
+    return this.cache !== null;
+  }
+
+  get case_sensitive(): boolean {
+    return this.caseSensitive;
   }
 
   async lookup(value: string): Promise<string | null> {
@@ -48,7 +56,13 @@ export abstract class Suggester {
     return suggestion;
   }
 
-  protected abstract getSuggestion(value: string): Promise<string | null> | string | null;
+  protected getSuggestion(value: string): Promise<string | null> | string | null {
+    return this.get_suggestion(value);
+  }
+
+  protected get_suggestion(_value: string): Promise<string | null> | string | null {
+    throw new Error("Suggester subclasses must implement getSuggestion() or get_suggestion()");
+  }
 }
 
 export class SuggestionController {
@@ -92,12 +106,18 @@ export class SuggestionController {
 export class SuggestFromList extends Suggester {
   private readonly items: readonly string[];
 
-  constructor(items: readonly string[], options: { caseSensitive?: boolean; useCache?: boolean } = {}) {
-    super({ useCache: options.useCache ?? true, caseSensitive: options.caseSensitive ?? true });
+  constructor(
+    items: readonly string[],
+    options: { caseSensitive?: boolean; case_sensitive?: boolean; useCache?: boolean; use_cache?: boolean } = {},
+  ) {
+    super({
+      useCache: options.useCache ?? options.use_cache ?? true,
+      caseSensitive: options.caseSensitive ?? options.case_sensitive ?? true,
+    });
     this.items = items;
   }
 
-  protected getSuggestion(value: string): string | null {
+  protected get_suggestion(value: string): string | null {
     // [LAW:dataflow-not-control-flow] Matching always iterates the full list;
     // the prefix test is the data that decides which item wins.
     for (const item of this.items) {

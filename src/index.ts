@@ -305,6 +305,7 @@ export {
   tokenize_tcss,
 } from "./styles/index.js";
 export {
+  Failure,
   FunctionValidator,
   InputValidationController,
   IntegerValidator,
@@ -316,6 +317,8 @@ export {
   Validator,
   normalizeValidateOn,
   type ValidationFailure,
+  type ValidationFailureInit,
+  type ValidationText,
   type ValidateOn,
 } from "./validation/index.js";
 export {
@@ -330,13 +333,16 @@ export {
   CommandPaletteOpened,
   CommandPaletteOptionHighlighted,
   CommandPaletteScreen,
+  DiscoveryHit,
+  Hit,
   Provider,
   SimpleCommandProvider,
   SystemCommandsProvider,
   type CommandHit,
+  type CommandHitInit,
   type CommandPaletteOptions,
   type CommandPaletteScreenProps,
-  type DiscoveryHit,
+  type DiscoveryHitInit,
   type PaletteResult,
   type ProviderConstructor,
   type ProviderContext,

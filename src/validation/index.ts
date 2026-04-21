@@ -1,4 +1,5 @@
 export {
+  Failure,
   FunctionValidator,
   InputValidationController,
   IntegerValidator,
@@ -10,5 +11,7 @@ export {
   Validator,
   normalizeValidateOn,
   type ValidationFailure,
+  type ValidationFailureInit,
+  type ValidationText,
   type ValidateOn,
 } from "./validation.js";
