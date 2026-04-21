@@ -533,6 +533,47 @@ describe("Stage 1 runtime seams", () => {
     instance.cleanup();
   });
 
+  it("returned signal cleanup removes only its own subscription", async () => {
+    const framework = new TextualFramework();
+    let publisher!: WidgetNode;
+    let subscriber!: WidgetNode;
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <HandleHarness
+          id="publisher"
+          onReady={(value) => {
+            publisher = value;
+          }}
+        />
+        <HandleHarness
+          id="subscriber"
+          onReady={(value) => {
+            subscriber = value;
+          }}
+        />
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    const signal = publisher.createSignal<string>();
+    const received: string[] = [];
+    const callback = (value: string): void => {
+      received.push(value);
+    };
+    const firstCleanup = signal.subscribe(subscriber, callback, true);
+    signal.subscribe(subscriber, callback, true);
+
+    firstCleanup();
+    signal.publish("only-second");
+
+    expect(received).toEqual(["only-second"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
   it("rejects signal subscriptions from unmounted widgets", () => {
     const framework = new TextualFramework();
     const publisher = new WidgetNode({

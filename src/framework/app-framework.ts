@@ -1,5 +1,6 @@
 import React from "react";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { threadId } from "node:worker_threads";
 import { makeAutoObservable, runInAction } from "mobx";
 
 import {
@@ -24,6 +25,7 @@ import {
   MouseScrollRight,
   MouseScrollUp,
   MouseUp,
+  Notify,
   Paste,
   Ready,
   Resize,
@@ -43,7 +45,13 @@ import {
 } from "../bindings/index.js";
 import { measureVisual, visualize, type Visual, type VisualInput } from "../content/index.js";
 import { Size } from "../geometry/index.js";
-import { Notification, Notifications, type NotificationSeverity } from "../services/notifications.js";
+import {
+  Notification,
+  Notifications,
+  type NotificationContent,
+  type NotificationSeverity,
+  type NotificationInit,
+} from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
 import { ManagedTimer, type TimerCallback, type TimerOptions } from "../services/timer.js";
@@ -248,7 +256,7 @@ export interface AppSignals {
   app_suspend_signal: Signal<void>;
   app_resume_signal: Signal<void>;
   mode_change_signal: Signal<string>;
-  screen_change_signal: Signal<string | null>;
+  screen_change_signal: Signal<ScreenEntry | null>;
   bindings_updated_signal: Signal<void>;
 }
 
@@ -300,6 +308,8 @@ export type SimpleCommand =
       helpText?: string;
     };
 
+export interface NotifyOptions extends Pick<NotificationInit, "severity" | "timeout" | "title" | "markup"> {}
+
 export interface SystemCommand {
   name: VisualInput;
   text?: string;
@@ -348,6 +358,24 @@ function normalizeCssPathSource(path: string | readonly string[] | undefined): s
   }
 
   return typeof path === "string" ? [path] : [...path];
+}
+
+function normalizeNotifyOptions(
+  severityOrOptions: NotificationSeverity | NotifyOptions,
+  timeout: number,
+  title: NotificationContent,
+  markup: boolean,
+): NotificationInit {
+  if (typeof severityOrOptions === "object") {
+    return {
+      severity: severityOrOptions.severity,
+      timeout: severityOrOptions.timeout,
+      title: severityOrOptions.title,
+      markup: severityOrOptions.markup,
+    };
+  }
+
+  return { severity: severityOrOptions, timeout, title, markup };
 }
 
 function parseStylesheetOrThrow(
@@ -549,6 +577,7 @@ export class TextualFramework {
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingError: unknown = null;
   private readonly signalRegistry = new Set<Signal<unknown>>();
+  private readonly appThreadId = threadId;
   private readonly appWorkerOwner: WorkerOwner = {
     nodeId: "__app__",
     typeName: "App",
@@ -575,7 +604,7 @@ export class TextualFramework {
       app_suspend_signal: this.createFrameworkSignal<void>(),
       app_resume_signal: this.createFrameworkSignal<void>(),
       mode_change_signal: this.createFrameworkSignal<string>(),
-      screen_change_signal: this.createFrameworkSignal<string | null>(),
+      screen_change_signal: this.createFrameworkSignal<ScreenEntry | null>(),
       bindings_updated_signal: this.createFrameworkSignal<void>(),
     };
 
@@ -1948,23 +1977,15 @@ export class TextualFramework {
       workerName,
       options.group ?? (options.exclusive === true ? workerName : undefined),
       options.description ?? options.name ?? `${node.typeName} worker`,
-      options.exitOnError ?? false,
+      options.exitOnError ?? true,
       options.thread ?? false,
       (targetId, message) => this.postMessage(targetId, message),
-      (settledWorker) => {
-        this.workers.remove(settledWorker as Worker<unknown>);
-      },
+      () => undefined,
     );
     const registeredWorker = this.workers.addWorker(worker, false, options.exclusive ?? false);
     const shouldStart = options.start ?? true;
 
-    if (shouldStart) {
-      void registeredWorker.start().catch((error) => {
-        if (!(error instanceof WorkerCancelled)) {
-          this.reportUnhandledError(new WorkerFailed((error as Error).message, { cause: error as Error }));
-        }
-      });
-    }
+    this.startWorker(registeredWorker, shouldStart);
 
     return registeredWorker;
   }
@@ -1977,23 +1998,15 @@ export class TextualFramework {
       workerName,
       options.group ?? (options.exclusive === true ? workerName : undefined),
       options.description ?? options.name ?? "App worker",
-      options.exitOnError ?? false,
+      options.exitOnError ?? true,
       options.thread ?? false,
       (targetId, message) => this.postMessage(targetId, message),
-      (settledWorker) => {
-        this.workers.remove(settledWorker as Worker<unknown>);
-      },
+      () => undefined,
     );
     const registeredWorker = this.workers.addWorker(worker, false, options.exclusive ?? false);
     const shouldStart = options.start ?? true;
 
-    if (shouldStart) {
-      void registeredWorker.start().catch((error) => {
-        if (!(error instanceof WorkerCancelled)) {
-          this.reportUnhandledError(new WorkerFailed((error as Error).message, { cause: error as Error }));
-        }
-      });
-    }
+    this.startWorker(registeredWorker, shouldStart);
 
     return registeredWorker;
   }
@@ -2002,6 +2015,20 @@ export class TextualFramework {
     // [LAW:one-source-of-truth] App-level worker creation delegates to the same
     // framework boundary as runAppWorker, keeping manager and error behavior shared.
     return this.runAppWorker(work, options);
+  }
+
+  private startWorker<TResult>(worker: Worker<TResult>, shouldStart: boolean): void {
+    if (!shouldStart) {
+      return;
+    }
+
+    void worker.start().catch((error) => {
+      if (!(error instanceof WorkerCancelled) && worker.exitOnError) {
+        // [LAW:single-enforcer] exitOnError is enforced only at the framework
+        // worker-start boundary; worker.wait() remains result/error retrieval.
+        this.reportUnhandledError(new WorkerFailed((error as Error).message, { cause: error as Error }));
+      }
+    });
   }
 
   setTimer(node: WidgetNode, name: string, delayMs: number, callback: TimerCallback): void {
@@ -2032,12 +2059,21 @@ export class TextualFramework {
     this.timers.get(this.timerKey(node.nodeId, name))?.reset();
   }
 
-  notify(message: string, severity: NotificationSeverity = "information", timeout = Notification.timeout, title = ""): Notification {
-    const notification = new Notification(message, { severity, timeout, title });
+  notify(
+    message: NotificationContent,
+    severityOrOptions: NotificationSeverity | NotifyOptions = "information",
+    timeout = Notification.timeout,
+    title: NotificationContent = "",
+    markup = true,
+  ): Notification {
+    const options = normalizeNotifyOptions(severityOrOptions, timeout, title, markup);
+    const notification = new Notification(message, options);
 
     // [LAW:single-enforcer] Notification recording is gated at this boundary so
     // mount effects, widget helpers, and app calls all share the same transient policy.
-    return this.showNotifications ? this.notifications.add(notification) : notification;
+    const storedNotification = this.showNotifications ? this.notifications.add(notification) : notification;
+    this.postAppMessage(new Notify(notification));
+    return storedNotification;
   }
 
   dismissNotification(identity: string): void {
@@ -2050,6 +2086,12 @@ export class TextualFramework {
 
   clearNotifications(): void {
     this.notifications.clear();
+  }
+
+  _unnotify(notification: Notification): void {
+    // [LAW:one-source-of-truth] Object-based notification removal delegates to
+    // the collection identity rule used by dismissNotification and expiry.
+    this.notifications.delete(notification);
   }
 
   callLater<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
@@ -2098,6 +2140,12 @@ export class TextualFramework {
   callFromThread<TResult, TArgs extends unknown[]>(callback: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
     if (!this.isRunning) {
       throw new RuntimeError("callFromThread requires a running app");
+    }
+
+    if (threadId === this.appThreadId) {
+      // [LAW:single-enforcer] The app-thread identity check lives at the
+      // callFromThread boundary, independent of message-pump context.
+      throw new RuntimeError("callFromThread must be called from a foreign thread");
     }
 
     try {
@@ -2549,7 +2597,7 @@ export class TextualFramework {
     this.emitBroadcast(new ModeChanged(name));
 
     this.resumeActiveScreen();
-    this.signals.screen_change_signal.publish(this.activeScreen?.name ?? null);
+    this.signals.screen_change_signal.publish(this.activeScreen);
     this.notifyBindingsUpdated();
   }
 
@@ -2614,7 +2662,7 @@ export class TextualFramework {
     this.refreshCssWatchers();
 
     this.resumeActiveScreen();
-    this.signals.screen_change_signal.publish(entry.name);
+    this.signals.screen_change_signal.publish(entry);
     this.notifyBindingsUpdated();
 
     return entry;
@@ -2647,7 +2695,7 @@ export class TextualFramework {
     this.resolveScreenResult(popped, result);
 
     this.resumeActiveScreen();
-    this.signals.screen_change_signal.publish(this.activeScreen?.name ?? null);
+    this.signals.screen_change_signal.publish(this.activeScreen);
     this.notifyBindingsUpdated();
 
     return popped;
@@ -2682,7 +2730,7 @@ export class TextualFramework {
     this.refreshCssWatchers();
 
     this.resumeActiveScreen();
-    this.signals.screen_change_signal.publish(entry.name);
+    this.signals.screen_change_signal.publish(entry);
     this.notifyBindingsUpdated();
 
     return entry;

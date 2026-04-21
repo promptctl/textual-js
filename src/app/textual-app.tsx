@@ -16,6 +16,8 @@ import { Size } from "../geometry/index.js";
 import type { BindingDeclaration } from "../bindings/index.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
 import type { ProviderConstructor } from "../commands/index.js";
+import type { Notification } from "../services/notifications.js";
+import { Color } from "../styles/color.js";
 
 export interface TextualAppProps extends PropsWithChildren {
   framework?: TextualFramework;
@@ -104,13 +106,49 @@ const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null 
       width={32}
     >
       {notifications.map((notification) => (
-        <Box key={notification.identity}>
-          {renderVisual(visualize(notification.message), {}, `toast:${notification.identity}`)}
+        <Box
+          key={notification.identity}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={getToastSeverityColor(framework, notification).css}
+          paddingX={1}
+          marginBottom={1}
+        >
+          {renderToastTitle(notification)}
+          {renderVisual(
+            visualize(notification.message, { markup: notification.markup }),
+            {},
+            `toast:${notification.identity}:${notification.severityClass}:message`,
+          )}
         </Box>
       ))}
     </Box>
   );
 });
+
+function getToastSeverityColor(framework: TextualFramework, notification: Notification): Color {
+  const severityColors = {
+    "-information": framework.activeTheme.primary,
+    "-warning": framework.activeTheme.warning,
+    "-error": framework.activeTheme.error,
+  };
+
+  // [LAW:single-enforcer] Toast severity styling is selected from the
+  // notification severity class once; the renderer consumes that class mapping.
+  return severityColors[notification.severityClass as keyof typeof severityColors] ?? framework.activeTheme.primary;
+}
+
+function renderToastTitle(notification: Notification): React.JSX.Element | null {
+  if (notification.title === "") {
+    return null;
+  }
+
+  return renderVisual(
+    visualize(notification.title, { markup: notification.markup }),
+    { bold: true },
+    `toast:${notification.identity}:${notification.severityClass}:title`,
+  );
+}
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const framework = useTextual();

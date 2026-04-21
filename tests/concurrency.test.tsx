@@ -275,13 +275,12 @@ describe("concurrency primitives", () => {
     instance.cleanup();
   });
 
-  it("marshals callFromThread work and rejects not-running or same-pump calls", async () => {
+  it("rejects callFromThread when stopped or called from the app thread", async () => {
     const stopped = new TextualFramework();
 
     expect(() => stopped.callFromThread(() => "nope")).toThrow(RuntimeError);
 
     const framework = new TextualFramework();
-    const order: string[] = [];
     let samePumpError: unknown = null;
 
     const instance = render(
@@ -292,15 +291,7 @@ describe("concurrency primitives", () => {
 
     await framework.whenIdle();
 
-    const result = await framework.callFromThread((value: string) => {
-      order.push("callback");
-      return `return:${value}`;
-    }, "value");
-
-    await framework.whenIdle();
-
-    expect(result).toBe("return:value");
-    expect(order).toEqual(["callback"]);
+    expect(() => framework.callFromThread(() => "same-thread")).toThrow(RuntimeError);
 
     framework.callAfterRefresh(() => {
       try {

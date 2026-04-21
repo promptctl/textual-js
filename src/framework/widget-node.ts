@@ -7,7 +7,8 @@ import type { Message, MessageConstructor } from "../events/message.js";
 import { Offset } from "../geometry/offset.js";
 import { Region } from "../geometry/region.js";
 import { Size } from "../geometry/size.js";
-import type { Notification, NotificationSeverity } from "../services/notifications.js";
+import type { Notification, NotificationContent, NotificationSeverity } from "../services/notifications.js";
+import type { NotifyOptions } from "./app-framework.js";
 import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
@@ -734,8 +735,14 @@ export class WidgetNode {
     this.framework.resetTimer(this, name);
   }
 
-  notify(message: string, severity?: NotificationSeverity, timeout?: number, title?: string): Notification {
-    return this.framework.notify(message, severity, timeout, title);
+  notify(
+    message: NotificationContent,
+    severityOrOptions?: NotificationSeverity | NotifyOptions,
+    timeout?: number,
+    title?: NotificationContent,
+    markup?: boolean,
+  ): Notification {
+    return this.framework.notify(message, severityOrOptions, timeout, title, markup);
   }
 
   dismissNotification(identity: string): void {

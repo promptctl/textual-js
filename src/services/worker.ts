@@ -1,12 +1,25 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { Worker as NodeWorker } from "node:worker_threads";
 
 import { makeAutoObservable, observable, runInAction } from "mobx";
 
+import type { Content } from "../content/index.js";
 import { Message, type MessageInit } from "../events/message.js";
 
 export type WorkerState = "pending" | "running" | "success" | "error" | "cancelled";
 export type WorkFunction<TResult> = (signal: AbortSignal, worker: Worker<unknown>) => Promise<TResult> | TResult;
-export type WorkerCallable<TResult> = WorkFunction<TResult> | PromiseLike<TResult>;
+type ThreadInvocation = "work-function" | "decorated-method";
+
+interface ThreadWorkSpec<TResult> {
+  readonly __textualThreadWork: true;
+  readonly source: string;
+  readonly args: readonly unknown[];
+  readonly invocation: ThreadInvocation;
+  readonly resultType?: TResult;
+}
+
+export type WorkerCallable<TResult> = WorkFunction<TResult> | PromiseLike<TResult> | ThreadWorkSpec<TResult>;
+export type WorkerDescription = string | Content;
 
 export interface WorkerOwner {
   nodeId: string;
@@ -16,7 +29,7 @@ export interface WorkerOwner {
 export interface WorkerOptions {
   name?: string;
   group?: string;
-  description?: string;
+  description?: WorkerDescription;
   start?: boolean;
   exitOnError?: boolean;
   exclusive?: boolean;
@@ -52,6 +65,12 @@ export function getCurrentWorker(): Worker<unknown> {
   return worker;
 }
 
+export function get_current_worker(): Worker<unknown> {
+  // [LAW:one-source-of-truth] getCurrentWorker owns active-worker lookup; the
+  // compatibility alias cannot acquire worker context through another path.
+  return getCurrentWorker();
+}
+
 export class Worker<TResult> {
   readonly controller = new AbortController();
   readonly createdAt = Date.now();
@@ -67,7 +86,7 @@ export class Worker<TResult> {
     private readonly work: WorkerCallable<TResult>,
     readonly name: string,
     readonly group: string | undefined,
-    readonly description: string,
+    readonly description: WorkerDescription,
     readonly exitOnError: boolean,
     threadOrPostMessage: boolean | ((targetId: string, message: Message) => void),
     postMessageOrOnSettled: ((targetId: string, message: Message) => void) | ((worker: Worker<TResult>) => void),
@@ -83,7 +102,16 @@ export class Worker<TResult> {
       this.onSettled = postMessageOrOnSettled as (worker: Worker<TResult>) => void;
     }
 
-    makeAutoObservable(this, {}, { autoBind: true });
+    makeAutoObservable(
+      this,
+      {
+        work: false,
+        postMessage: false,
+        onSettled: false,
+        execution: false,
+      } as never,
+      { autoBind: true },
+    );
   }
 
   readonly thread: boolean;
@@ -94,12 +122,40 @@ export class Worker<TResult> {
     return this.state === "cancelled";
   }
 
+  get is_cancelled(): boolean {
+    return this.isCancelled;
+  }
+
   get isRunning(): boolean {
     return this.state === "running";
   }
 
+  get is_running(): boolean {
+    return this.isRunning;
+  }
+
   get isFinished(): boolean {
     return this.state === "success" || this.state === "error" || this.state === "cancelled";
+  }
+
+  get is_finished(): boolean {
+    return this.isFinished;
+  }
+
+  get completed_steps(): number {
+    return this.completedSteps;
+  }
+
+  set completed_steps(value: number) {
+    this.completedSteps = value;
+  }
+
+  get total_steps(): number | null {
+    return this.totalSteps;
+  }
+
+  set total_steps(value: number | null) {
+    this.totalSteps = value;
   }
 
   get progress(): number {
@@ -224,6 +280,10 @@ export class Worker<TResult> {
   }
 
   private async executeWork(): Promise<TResult> {
+    if (this.thread) {
+      return await this.executeThreadWork();
+    }
+
     const candidate =
       typeof this.work === "function"
         ? this.work(this.controller.signal, this as Worker<unknown>)
@@ -233,11 +293,24 @@ export class Worker<TResult> {
       return await candidate;
     }
 
-    if (!this.thread) {
-      throw new WorkerDeclarationError("Synchronous worker functions require thread: true");
-    }
+    throw new WorkerDeclarationError("Synchronous worker functions require thread: true");
+  }
 
-    return candidate;
+  private async executeThreadWork(): Promise<TResult> {
+    const spec = getThreadWorkSpec(this.work);
+
+    // [LAW:single-enforcer] thread:true execution enters the worker-thread
+    // runner before callable invocation, so blocking sync work cannot run on
+    // the app thread and async-thread work uses the same boundary.
+    return await runThreadWork<TResult>(spec, this.controller.signal, (message) => {
+      runInAction(() => {
+        if (message.type === "update") {
+          this.update(message.completedSteps, message.totalSteps);
+        } else {
+          this.advance(message.steps);
+        }
+      });
+    });
   }
 }
 
@@ -330,6 +403,10 @@ export class WorkerManager implements Iterable<Worker<unknown>> {
         }
       }),
     );
+
+    for (const worker of trackedWorkers) {
+      this.remove(worker);
+    }
   }
 
   async wait_for_complete(workers?: Iterable<Worker<unknown>>): Promise<void> {
@@ -435,10 +512,238 @@ function installWorkDecorator(
       thread,
     };
 
+    const callable = thread
+      ? createThreadWorkSpec(original, args, "decorated-method")
+      : () => original.apply(this, args);
+
     // [LAW:single-enforcer] Decorated workers funnel through runWorker so
     // exclusivity, cancellation, and manager membership use the same boundary.
-    return runner.call(this, () => original.apply(this, args), workerOptions);
+    return runner.call(this, callable, workerOptions);
   };
+}
+
+function createThreadWorkSpec<TResult>(
+  callable: (...args: unknown[]) => TResult,
+  args: readonly unknown[],
+  invocation: ThreadInvocation,
+): ThreadWorkSpec<TResult> {
+  return {
+    __textualThreadWork: true,
+    source: normalizeFunctionSource(callable),
+    args: [...args],
+    invocation,
+  };
+}
+
+function isThreadWorkSpec<TResult>(value: WorkerCallable<TResult>): value is ThreadWorkSpec<TResult> {
+  return typeof value === "object" && value !== null && "__textualThreadWork" in value;
+}
+
+function getThreadWorkSpec<TResult>(work: WorkerCallable<TResult>): ThreadWorkSpec<TResult> {
+  if (isThreadWorkSpec(work)) {
+    return work;
+  }
+
+  if (typeof work !== "function") {
+    throw new WorkerDeclarationError("Thread workers require a callable function");
+  }
+
+  return createThreadWorkSpec<TResult>(work as (...args: unknown[]) => TResult, [], "work-function");
+}
+
+function normalizeFunctionSource(callable: Function): string {
+  const source = callable.toString();
+  const trimmed = source.trim();
+
+  if (trimmed.includes("[native code]")) {
+    throw new WorkerDeclarationError("Thread workers cannot execute native functions");
+  }
+
+  if (/^(?:async\s+)?function\b/.test(trimmed) || trimmed.includes("=>")) {
+    return trimmed;
+  }
+
+  if (/^async\s+[\w$]+\s*\(/.test(trimmed)) {
+    return `async function ${trimmed.slice("async ".length)}`;
+  }
+
+  return `function ${trimmed}`;
+}
+
+type ThreadProgressMessage =
+  | { type: "update"; completedSteps: number; totalSteps: number | null | undefined }
+  | { type: "advance"; steps: number };
+
+type ThreadWorkerMessage<TResult> =
+  | { type: "success"; result: TResult }
+  | { type: "error"; name: string; message: string; stack?: string }
+  | ThreadProgressMessage;
+
+const THREAD_WORKER_SOURCE = `
+const { parentPort, workerData } = require("node:worker_threads");
+
+const controller = new AbortController();
+
+parentPort.on("message", (message) => {
+  if (message && message.type === "abort") {
+    controller.abort();
+  }
+});
+
+const post = (message) => {
+  parentPort.postMessage(message);
+};
+
+const workerProxy = {
+  controller,
+  get isCancelled() {
+    return controller.signal.aborted;
+  },
+  get is_cancelled() {
+    return controller.signal.aborted;
+  },
+  get isRunning() {
+    return !controller.signal.aborted;
+  },
+  get is_running() {
+    return !controller.signal.aborted;
+  },
+  get isFinished() {
+    return false;
+  },
+  get is_finished() {
+    return false;
+  },
+  completedSteps: 0,
+  completed_steps: 0,
+  totalSteps: null,
+  total_steps: null,
+  update(completedSteps, totalSteps) {
+    if (typeof completedSteps === "object" && completedSteps !== null) {
+      this.completedSteps = Math.max(0, completedSteps.completedSteps ?? this.completedSteps);
+      this.completed_steps = this.completedSteps;
+      this.totalSteps = completedSteps.totalSteps ?? this.totalSteps;
+      this.total_steps = this.totalSteps;
+      post({ type: "update", completedSteps: this.completedSteps, totalSteps: this.totalSteps });
+      return;
+    }
+
+    this.completedSteps = Math.max(0, completedSteps);
+    this.completed_steps = this.completedSteps;
+    this.totalSteps = totalSteps ?? this.totalSteps;
+    this.total_steps = this.totalSteps;
+    post({ type: "update", completedSteps: this.completedSteps, totalSteps: this.totalSteps });
+  },
+  advance(steps = 1) {
+    this.completedSteps += steps;
+    this.completed_steps = this.completedSteps;
+    post({ type: "advance", steps });
+  },
+};
+
+(async () => {
+  try {
+    const callable = eval("(" + workerData.source + ")");
+    const result = workerData.invocation === "decorated-method"
+      ? callable(...workerData.args)
+      : callable(controller.signal, workerProxy);
+    const awaited = result && typeof result.then === "function" ? await result : result;
+
+    if (controller.signal.aborted) {
+      const error = new Error("Worker was cancelled");
+      error.name = "AbortError";
+      throw error;
+    }
+
+    post({ type: "success", result: awaited });
+  } catch (error) {
+    post({
+      type: "error",
+      name: error && error.name ? error.name : "Error",
+      message: error && error.message ? error.message : String(error),
+      stack: error && error.stack ? error.stack : undefined,
+    });
+  }
+})();
+`;
+
+function runThreadWork<TResult>(
+  spec: ThreadWorkSpec<TResult>,
+  signal: AbortSignal,
+  onProgress: (message: ThreadProgressMessage) => void,
+): Promise<TResult> {
+  return new Promise<TResult>((resolve, reject) => {
+    const worker = new NodeWorker(THREAD_WORKER_SOURCE, {
+      eval: true,
+      workerData: {
+        source: spec.source,
+        args: spec.args,
+        invocation: spec.invocation,
+      },
+    });
+    let settled = false;
+
+    const settle = (callback: () => void): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      signal.removeEventListener("abort", abortThread);
+      void worker.terminate();
+      callback();
+    };
+
+    const abortThread = (): void => {
+      worker.postMessage({ type: "abort" });
+      settle(() => {
+        reject(new WorkerCancelled("Worker was cancelled"));
+      });
+    };
+
+    signal.addEventListener("abort", abortThread, { once: true });
+
+    worker.on("message", (message: ThreadWorkerMessage<TResult>) => {
+      if (message.type === "update" || message.type === "advance") {
+        onProgress(message);
+        return;
+      }
+
+      if (message.type === "success") {
+        settle(() => {
+          resolve(message.result);
+        });
+        return;
+      }
+
+      const error = message.name === "AbortError" || message.name === "WorkerCancelled"
+        ? new WorkerCancelled("Worker was cancelled")
+        : new Error(message.message);
+      error.name = message.name;
+      error.stack = message.stack ?? error.stack;
+      settle(() => {
+        reject(error);
+      });
+    });
+
+    worker.on("error", (error) => {
+      settle(() => {
+        reject(error);
+      });
+    });
+
+    worker.on("exit", (code) => {
+      if (code !== 0) {
+        settle(() => {
+          reject(new Error(`Worker thread exited with code ${code}`));
+        });
+      }
+    });
+
+    if (signal.aborted) {
+      abortThread();
+    }
+  });
 }
 
 function isPromiseLike<TResult>(value: unknown): value is PromiseLike<TResult> {

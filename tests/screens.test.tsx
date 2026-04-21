@@ -56,6 +56,26 @@ function ScreenWithCss(): React.JSX.Element {
 
 let nextDetachedNodeId = 1;
 
+function createDetachedNode(framework: TextualFramework, typeName = "DetachedNode"): WidgetNode {
+  const node = new WidgetNode({
+    framework,
+    nodeId: `detached-node-${nextDetachedNodeId++}`,
+    parentId: null,
+    classes: [],
+    typeName,
+    handlersRef: { current: undefined },
+    actionsRef: { current: undefined },
+    bindingsRef: { current: [] },
+    focusable: false,
+    autoFocus: false,
+    disabled: false,
+    loading: false,
+  });
+
+  framework.registerWidget(node);
+  return node;
+}
+
 function createDetachedWorker<TResult>(
   framework: TextualFramework,
   work: () => Promise<TResult> | TResult,
@@ -425,6 +445,34 @@ describe("screen modes", () => {
 
     instance.unmount();
     instance.cleanup();
+  });
+
+  it("publishes mode names and active screen entries through app-level signals", async () => {
+    const framework = new TextualFramework();
+    framework.addMode("secondary", () => <DialogScreen />);
+    const subscriber = createDetachedNode(framework, "SignalSubscriber");
+    const modes: string[] = [];
+    const screens: Array<TextualFramework["activeScreen"]> = [];
+
+    framework.startup();
+    const unsubscribeMode = framework.signals.mode_change_signal.subscribe(subscriber, (mode) => {
+      modes.push(mode);
+    });
+    const unsubscribeScreen = framework.signals.screen_change_signal.subscribe(subscriber, (screen) => {
+      screens.push(screen);
+    });
+
+    framework.pushScreen(<DialogScreen />, { name: "dialog" });
+    framework.switchMode("secondary");
+    await framework.whenIdle();
+
+    expect(modes).toEqual(["secondary"]);
+    expect(screens.map((screen) => screen?.name ?? null)).toEqual(["dialog", null]);
+    expect(screens[0]).toEqual(expect.objectContaining({ name: "dialog" }));
+
+    unsubscribeMode();
+    unsubscribeScreen();
+    framework.shutdown();
   });
 
   it("rejects unknown modes, duplicate modes, and removal of the active mode", () => {

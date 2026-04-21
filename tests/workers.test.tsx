@@ -1,9 +1,11 @@
 import React, { useLayoutEffect } from "react";
+import { threadId } from "node:worker_threads";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 
 import {
+  Content,
   WidgetNode,
   WidgetScope,
   TextualApp,
@@ -15,6 +17,7 @@ import {
   WorkerFailed,
   WorkerStateChanged,
   getCurrentWorker,
+  get_current_worker,
   work,
   useWidget,
 } from "../src/index.js";
@@ -77,9 +80,13 @@ describe("workers", () => {
 
     await expect(worker.wait()).resolves.toBe("done");
     await framework.whenIdle();
+    expect(framework.workers.has(worker)).toBe(true);
     await framework.workers.waitForComplete();
 
     expect(worker.progress).toBe(100);
+    expect(worker.completed_steps).toBe(2);
+    expect(worker.total_steps).toBe(2);
+    expect(worker.is_finished).toBe(true);
     expect(states).toEqual(["running", "success"]);
     expect(framework.workers.length).toBe(0);
 
@@ -178,15 +185,53 @@ describe("workers", () => {
     await expect(pendingWorker.wait()).resolves.toBe("pending");
 
     const promiseWorker = framework.run_worker(Promise.resolve("promise"), { name: "promise" });
-    const syncThreadWorker = framework.run_worker(() => "sync", { thread: true, name: "sync" });
+    const syncThreadWorker = framework.run_worker(() => {
+      return globalThis.process ? 1 : 0;
+    }, { thread: true, name: "sync", description: Content.styled("sync worker", "bold") });
 
     await expect(promiseWorker.wait()).resolves.toBe("promise");
-    await expect(syncThreadWorker.wait()).resolves.toBe("sync");
+    await expect(syncThreadWorker.wait()).resolves.toBe(1);
+    expect(syncThreadWorker.description).toBeInstanceOf(Content);
+    expect(framework.workers.has(syncThreadWorker)).toBe(true);
     await framework.workers.wait_for_complete();
 
     expect(framework.workers.length).toBe(0);
     expect(Array.from(framework.workers.reversed())).toEqual([]);
     expect(framework.workers.toString()).toContain("0 workers");
+  });
+
+  it("runs sync and async thread workers on a worker thread", async () => {
+    const framework = new TextualFramework();
+    const syncThreadWorker = framework.run_worker(() => {
+      return require("node:worker_threads").threadId as number;
+    }, { thread: true, name: "sync-thread" });
+    const asyncThreadWorker = framework.run_worker(async () => {
+      return require("node:worker_threads").threadId as number;
+    }, { thread: true, name: "async-thread" });
+
+    await expect(syncThreadWorker.wait()).resolves.not.toBe(threadId);
+    await expect(asyncThreadWorker.wait()).resolves.not.toBe(threadId);
+    await framework.workers.wait_for_complete();
+  });
+
+  it("defaults exitOnError to true but suppresses app error forwarding when disabled", async () => {
+    const defaultFramework = new TextualFramework();
+    defaultFramework.setCaptureUnhandledErrors(true);
+    const defaultWorker = defaultFramework.run_worker(async () => {
+      throw new Error("default failure");
+    }, { name: "default-failure" });
+
+    await expect(defaultWorker.wait()).rejects.toBeInstanceOf(WorkerFailed);
+    await expect(defaultFramework.whenIdle()).rejects.toBeInstanceOf(WorkerFailed);
+
+    const suppressedFramework = new TextualFramework();
+    suppressedFramework.setCaptureUnhandledErrors(true);
+    const suppressedWorker = suppressedFramework.run_worker(async () => {
+      throw new Error("suppressed failure");
+    }, { name: "suppressed-failure", exitOnError: false });
+
+    await expect(suppressedWorker.wait()).rejects.toBeInstanceOf(WorkerFailed);
+    await expect(suppressedFramework.whenIdle()).resolves.toBeUndefined();
   });
 
   it("implements work decorator launch, thread sync methods, declaration errors, and exclusivity", async () => {
@@ -206,7 +251,7 @@ describe("workers", () => {
       }
 
       async exclusiveTask(value: string): Promise<string> {
-        const worker = getCurrentWorker();
+        const worker = get_current_worker();
 
         return new Promise((resolve, reject) => {
           worker.controller.signal.addEventListener("abort", () => {

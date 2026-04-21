@@ -9,12 +9,13 @@ import {
   type ScreenOptions,
   type SimpleCommand,
   type SystemCommand,
+  type NotifyOptions,
 } from "../framework/app-framework.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
 import { CommandPalette, type ProviderConstructor } from "../commands/index.js";
-import { Notification, type NotificationSeverity } from "../services/notifications.js";
+import { Notification, type NotificationContent, type NotificationSeverity } from "../services/notifications.js";
 import type { AnsiTheme } from "../services/theme.js";
-import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
+import { Worker, WorkerManager, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import { NoMatches } from "../framework/dom-query.js";
 import { runTestRoot, type RunTestOptions, type TestSession } from "../testing/run-test.js";
 import { TextualApp } from "./textual-app.js";
@@ -261,8 +262,18 @@ export class App<Result = unknown> {
     return this.runWorker(work, options);
   }
 
-  notify(message: string, severity?: NotificationSeverity, timeout?: number, title?: string): Notification {
-    return this.framework.notify(message, severity, timeout, title);
+  get workers(): WorkerManager {
+    return this.framework.workers;
+  }
+
+  notify(
+    message: NotificationContent,
+    severityOrOptions?: NotificationSeverity | NotifyOptions,
+    timeout?: number,
+    title?: NotificationContent,
+    markup?: boolean,
+  ): Notification {
+    return this.framework.notify(message, severityOrOptions, timeout, title, markup);
   }
 
   clearNotifications(): void {
@@ -271,6 +282,10 @@ export class App<Result = unknown> {
 
   clear_notifications(): void {
     this.clearNotifications();
+  }
+
+  _unnotify(notification: Notification): void {
+    this.framework._unnotify(notification);
   }
 
   get theme(): string {
@@ -339,6 +354,26 @@ export class App<Result = unknown> {
 
   get theme_changed_signal() {
     return this.framework.signals.theme_changed_signal;
+  }
+
+  get mode_change_signal() {
+    return this.framework.signals.mode_change_signal;
+  }
+
+  get screen_change_signal() {
+    return this.framework.signals.screen_change_signal;
+  }
+
+  get features() {
+    return this.framework.features;
+  }
+
+  get devtools() {
+    return this.framework.devtools;
+  }
+
+  get debug(): boolean {
+    return this.framework.debug;
   }
 
   suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {

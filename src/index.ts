@@ -111,6 +111,7 @@ export {
   MountError,
   ModalScreen,
   type KeymapInput,
+  type NotifyOptions,
   type PointerShape,
   OnDecoratorError,
   ScreenStackError,
@@ -178,6 +179,7 @@ export {
 export {
   Notification,
   Notifications,
+  type NotificationContent,
   type NotificationInit,
   type NotificationSeverity,
 } from "./services/notifications.js";
@@ -215,8 +217,10 @@ export {
   WorkerManager,
   WorkerStateChanged,
   getCurrentWorker,
+  get_current_worker,
   work,
   type WorkerCallable,
+  type WorkerDescription,
   type WorkerOwner,
   type WorkFunction,
   type WorkDecoratorOptions,

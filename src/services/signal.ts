@@ -10,6 +10,7 @@ interface SignalSubscriber<TValue> {
   nodeId: string;
   nodeRef: WeakRef<WidgetNode>;
   callbacks: Array<{
+    id: number;
     callback: SignalCallback<TValue>;
     immediate: boolean;
   }>;
@@ -17,6 +18,7 @@ interface SignalSubscriber<TValue> {
 
 export class Signal<TValue> {
   private readonly subscribers = observable.map<string, SignalSubscriber<TValue>>();
+  private nextSubscriptionId = 1;
   readonly description: string;
 
   constructor(owner: WidgetNode, description: string);
@@ -76,8 +78,10 @@ export class Signal<TValue> {
       nodeRef: new WeakRef(node),
       callbacks: [],
     };
+    const subscriptionId = this.nextSubscriptionId++;
+
     runInAction(() => {
-      existing.callbacks.push({ callback, immediate });
+      existing.callbacks.push({ id: subscriptionId, callback, immediate });
       this.subscribers.set(node.nodeId, existing);
     });
 
@@ -89,7 +93,9 @@ export class Signal<TValue> {
       }
 
       runInAction(() => {
-        current.callbacks = current.callbacks.filter((entry) => entry.callback !== callback);
+        // [LAW:one-source-of-truth] The returned cleanup handle owns exactly
+        // one subscription id; callback identity is not a second cleanup key.
+        current.callbacks = current.callbacks.filter((entry) => entry.id !== subscriptionId);
 
         if (current.callbacks.length === 0) {
           this.subscribers.delete(node.nodeId);

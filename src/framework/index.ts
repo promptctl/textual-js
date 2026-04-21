@@ -9,6 +9,7 @@ export {
   type BindingNamespace,
   InvalidModeError,
   type KeymapInput,
+  type NotifyOptions,
   type PointerLocation,
   type PointerShape,
   DuplicateKeyHandlers,
