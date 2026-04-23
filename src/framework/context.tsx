@@ -330,7 +330,7 @@ const WidgetVisibilityBoundary = observer(function WidgetVisibilityBoundary({
   return widget.isVisible ? <>{children}</> : <Transform transform={concealOutput}>{children}</Transform>;
 });
 
-export function WidgetHost({
+export const WidgetHost = observer(function WidgetHost({
   children,
   id,
   classes,
@@ -380,8 +380,11 @@ export function WidgetHost({
     typeToken,
   });
 
-  return <WidgetScope widget={widget.handle}>{widget.lifecycleReady ? children : null}</WidgetScope>;
-}
+  // [LAW:single-enforcer] Children render only after `widget.handle.lifecycleReady`,
+  // which the framework flips true at the end of Mount dispatch — so onMount
+  // handlers always complete before any descendant renders.
+  return <WidgetScope widget={widget.handle}>{widget.handle.lifecycleReady ? children : null}</WidgetScope>;
+});
 
 export interface WidgetScopeProps extends PropsWithChildren {
   widget: WidgetNode;

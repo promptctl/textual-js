@@ -341,9 +341,40 @@ function defaultPointerCoordinate(size: number): number {
 }
 
 async function settleFramework(framework: TextualFramework): Promise<void> {
-  await framework.whenIdle();
-  await Promise.resolve();
-  framework.throwPendingError();
+  // [LAW:single-enforcer] Test settling iterates until the framework reaches
+  // a fixed point. Each Mount dispatch can flip a widget's lifecycleReady,
+  // which (via mobx-react observers) schedules a React render; that render
+  // mounts the next layer of children, whose useLayoutEffect runs
+  // registerWidget and enqueues fresh Mount messages. We loop until two
+  // consecutive snapshots agree on the (id, width, height) tuple of every
+  // registered widget — so layout has measured every descendant before the
+  // test exercises hit-tests or the rendered frame.
+  let previousSignature: string | null = null;
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    await framework.whenIdle();
+    // Yield through several microtasks. mobx-react-lite's useSyncExternalStore
+    // flips an internal version on observable mutation, and React processes
+    // the resulting render in the next microtask round. Avoid setTimeout
+    // here: tests using vi.useFakeTimers would hang on a mocked timer.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    // Re-sync layout readers so widget regions reflect the latest Ink
+    // measurement after staged child mounts. Without this, parent regions
+    // captured before children rendered remain stale.
+    framework.recordDisplayPass();
+    const widgets = framework.findWidgets("*");
+    const signature = widgets
+      .map((w) => `${w.nodeId}:${w.screenRegion.width}x${w.screenRegion.height}`)
+      .sort()
+      .join("|");
+    if (signature === previousSignature) {
+      framework.throwPendingError();
+      return;
+    }
+    previousSignature = signature;
+  }
+  throw new Error("settleFramework: framework never reached a fixed point in 50 iterations");
 }
 
 export interface TestSession {

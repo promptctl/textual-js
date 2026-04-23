@@ -1199,10 +1199,16 @@ export class TextualFramework {
     this.recalculateStyles();
 
     if (this.isRunning) {
+      // [LAW:single-enforcer] When running, the Mount dispatch (line ~3380)
+      // is the single point that marks the widget ready — after onMount
+      // handlers complete. Marking ready synchronously here would let
+      // children render before mount lifecycle finishes.
       this.enqueueLifecycleMessages(widget);
+    } else {
+      // Not yet running: startup() will enqueue Mount for every
+      // already-registered widget, and Mount dispatch will mark them
+      // ready. Until then the widget is registered but not ready.
     }
-
-    widget.markLifecycleReady();
   }
 
   notifyWillUnmount(widget: WidgetNode): void {
