@@ -15,9 +15,9 @@ class ButtonFocusedApp(App):
         yield Button("Focus me", variant="primary", id="target")
 
 
-async def capture(pilot) -> None:
-    await pilot.press("tab")
-    await pilot.pause(0.05)
-
-
 app = ButtonFocusedApp
+
+interactions = [
+    {"type": "key", "keys": "Tab"},
+    {"type": "wait", "ms": 50},
+]

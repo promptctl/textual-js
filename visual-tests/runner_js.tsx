@@ -1,0 +1,56 @@
+/**
+ * Real-terminal runner for textual-js fixtures.
+ *
+ * Invoked inside an xterm that is running inside Xvfb inside Docker. Loads
+ * the fixture component, wraps it in TextualApp with its exported appProps,
+ * and calls Ink's real `render()` — which writes to the real stdout TTY.
+ *
+ * The render stays mounted until the orchestrator kills the process from
+ * outside after the screenshot is taken.
+ */
+
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import React from "react";
+import { render } from "ink";
+
+import { TextualApp, type TextualAppProps } from "../src/index.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const FIXTURES_DIR = join(__dirname, "fixtures");
+
+async function main(): Promise<void> {
+  const name = process.argv[2];
+
+  if (name === undefined) {
+    process.stderr.write("usage: runner_js.tsx <fixture-name>\n");
+    process.exit(2);
+  }
+
+  const fixturePath = join(FIXTURES_DIR, `${name}.tsx`);
+  const fixtureModule: {
+    default: React.ComponentType;
+    appProps?: Partial<TextualAppProps>;
+  } = await import(fixturePath);
+
+  const Component = fixtureModule.default;
+  const appProps = fixtureModule.appProps ?? {};
+
+  // [LAW:one-source-of-truth] The fixture default export is the single
+  // component; real-terminal rendering wraps it in TextualApp with exported
+  // appProps and hands it to Ink's render — no test harness in the path.
+  render(
+    React.createElement(
+      TextualApp,
+      appProps,
+      React.createElement(Component),
+    ),
+  );
+}
+
+main().catch((error) => {
+  process.stderr.write(`runner_js fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.exit(1);
+});

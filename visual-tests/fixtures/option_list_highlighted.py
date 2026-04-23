@@ -22,11 +22,14 @@ class OptionListHighlightedApp(App):
         )
 
 
-async def capture(pilot) -> None:
-    pilot.app.query_one(OptionList).focus()
-    await pilot.pause(0.05)
-    await pilot.press("down")
-    await pilot.pause(0.05)
+    def on_mount(self) -> None:
+        # OptionList needs focus before arrow keys move the highlight.
+        self.query_one(OptionList).focus()
 
 
 app = OptionListHighlightedApp
+
+interactions = [
+    {"type": "key", "keys": "Down"},
+    {"type": "wait", "ms": 50},
+]

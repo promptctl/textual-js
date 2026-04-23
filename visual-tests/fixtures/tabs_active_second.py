@@ -20,10 +20,9 @@ class TabsActiveSecondApp(App):
         )
 
 
-async def capture(pilot) -> None:
-    tabs = pilot.app.query_one(Tabs)
-    tabs.active = "tab-two"
-    await pilot.pause(0.05)
+    def on_mount(self) -> None:
+        self.query_one(Tabs).active = "tab-two"
 
 
 app = TabsActiveSecondApp
+

@@ -16,12 +16,13 @@ class SelectOpenedApp(App):
         yield Select.from_values(["a", "b", "c"])
 
 
-async def capture(pilot) -> None:
-    select = pilot.app.query_one(Select)
-    select.focus()
-    await pilot.pause(0.05)
-    select.expanded = True
-    await pilot.pause(0.1)
+    def on_mount(self) -> None:
+        # Expand the dropdown from the app itself; pilot is not available in
+        # real-terminal mode and the initial-state fixture is simpler.
+        select = self.query_one(Select)
+        select.focus()
+        select.expanded = True
 
 
 app = SelectOpenedApp
+

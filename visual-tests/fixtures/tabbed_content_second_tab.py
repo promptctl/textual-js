@@ -20,10 +20,9 @@ class TabbedContentSecondTabApp(App):
                 yield Static("Content of pane two")
 
 
-async def capture(pilot) -> None:
-    tabbed = pilot.app.query_one("#tabbed", TabbedContent)
-    tabbed.active = "pane-two"
-    await pilot.pause(0.05)
+    def on_mount(self) -> None:
+        self.query_one("#tabbed", TabbedContent).active = "pane-two"
 
 
 app = TabbedContentSecondTabApp
+

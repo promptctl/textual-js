@@ -22,12 +22,13 @@ class InputInvalidApp(App):
             validate_on=("changed",),
         )
 
-
-async def capture(pilot) -> None:
-    # Trigger validation by emitting a Changed message at the current value.
-    input_widget = pilot.app.query_one(Input)
-    input_widget.validate(input_widget.value)
-    await pilot.pause(0.05)
+    def on_mount(self) -> None:
+        # [LAW:dataflow-not-control-flow] The invalid state is part of the
+        # fixture's initial data, not a post-render interaction — force the
+        # Number validator to evaluate "abc" at mount time.
+        input_widget = self.query_one(Input)
+        input_widget.validate(input_widget.value)
 
 
 app = InputInvalidApp
+

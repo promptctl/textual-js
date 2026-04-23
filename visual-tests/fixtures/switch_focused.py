@@ -15,9 +15,9 @@ class SwitchFocusedApp(App):
         yield Switch(value=False, id="target")
 
 
-async def capture(pilot) -> None:
-    await pilot.press("tab")
-    await pilot.pause(0.05)
-
-
 app = SwitchFocusedApp
+
+interactions = [
+    {"type": "key", "keys": "Tab"},
+    {"type": "wait", "ms": 50},
+]

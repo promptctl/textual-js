@@ -16,9 +16,9 @@ class TextAreaFocusedApp(App):
         yield TextArea("focus me")
 
 
-async def capture(pilot) -> None:
-    await pilot.press("tab")
-    await pilot.pause(0.05)
-
-
 app = TextAreaFocusedApp
+
+interactions = [
+    {"type": "key", "keys": "Tab"},
+    {"type": "wait", "ms": 50},
+]

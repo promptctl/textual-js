@@ -16,9 +16,9 @@ class InputFocusedApp(App):
         yield Input(placeholder="Focused input", id="target")
 
 
-async def capture(pilot) -> None:
-    await pilot.press("tab")
-    await pilot.pause(0.05)
-
-
 app = InputFocusedApp
+
+interactions = [
+    {"type": "key", "keys": "Tab"},
+    {"type": "wait", "ms": 50},
+]

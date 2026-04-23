@@ -28,10 +28,9 @@ class DataTableCursorRowApp(App):
         table.focus()
 
 
-async def capture(pilot) -> None:
-    await pilot.pause(0.05)
-    await pilot.press("down")
-    await pilot.pause(0.05)
-
-
 app = DataTableCursorRowApp
+
+interactions = [
+    {"type": "key", "keys": "Down"},
+    {"type": "wait", "ms": 50},
+]

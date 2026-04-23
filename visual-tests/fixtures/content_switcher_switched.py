@@ -18,10 +18,9 @@ class ContentSwitcherSwitchedApp(App):
             yield Label("B", id="panel-b")
 
 
-async def capture(pilot) -> None:
-    switcher = pilot.app.query_one("#switcher", ContentSwitcher)
-    switcher.current = "panel-b"
-    await pilot.pause(0.05)
+    def on_mount(self) -> None:
+        self.query_one("#switcher", ContentSwitcher).current = "panel-b"
 
 
 app = ContentSwitcherSwitchedApp
+

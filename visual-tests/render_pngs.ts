@@ -1,3 +1,14 @@
+/**
+ * Render fixture PNGs via the black-box Docker pipeline.
+ *
+ * Each fixture runs naturally inside an xterm that lives in an Xvfb display
+ * inside a Docker container. No reconstructed ANSI, no cell-grid backdoor —
+ * the PNG is what xterm actually drew for the real library code.
+ *
+ * Usage:
+ *   tsx render_pngs.ts [fixture]  --side=python|js|both  [--include-todos]
+ */
+
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
@@ -12,40 +23,39 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PROJECT_DIR = resolve(__dirname, "..");
+const PARENT_DIR = resolve(PROJECT_DIR, "..");
 const FIXTURES_DIR = join(__dirname, "fixtures");
-const SNAPSHOTS_DIR = join(__dirname, "snapshots");
 const DOCKERFILE = join(__dirname, "Dockerfile");
-const RENDER_SCRIPT = "/work/visual-tests/render-ansi-xvfb.sh";
 const DOCKER_IMAGE = "textual-js-visual-tests:local";
-const EXEC_MAX_BUFFER = 20 * 1024 * 1024;
+const EXEC_MAX_BUFFER = 32 * 1024 * 1024;
 
 type SnapshotSide = "python" | "js";
 type RenderSide = SnapshotSide | "both";
 
-interface CaptureTarget {
+interface RenderTarget {
   fixture: string;
   side: SnapshotSide;
-  ansiPath: string;
   pngPath: string;
-  title: string;
-}
-
-function toContainerPath(path: string): string {
-  return `/work/${path}`;
 }
 
 async function ensureDockerImage(): Promise<void> {
   // [LAW:single-enforcer] The renderer owns the visual isolation boundary; no
   // caller decides whether fixture screenshots may touch the active desktop.
-  await execFileAsync("docker", ["build", "--load", "-t", DOCKER_IMAGE, "-f", DOCKERFILE, __dirname], {
-    cwd: PROJECT_DIR,
-    env: process.env,
-    maxBuffer: EXEC_MAX_BUFFER,
-  });
+  await execFileAsync(
+    "docker",
+    ["build", "--load", "-t", DOCKER_IMAGE, "-f", DOCKERFILE, __dirname],
+    { cwd: PROJECT_DIR, env: process.env, maxBuffer: EXEC_MAX_BUFFER },
+  );
 }
 
-async function renderTarget(target: CaptureTarget): Promise<void> {
+async function renderTarget(target: RenderTarget): Promise<void> {
   await mkdir(dirname(target.pngPath), { recursive: true });
+
+  // Parent dir mount is required so `node_modules/rich-js -> ../../rich-js`
+  // (a file: symlink on the host) resolves inside the container.
+  const projectBaseName = PROJECT_DIR.split("/").pop() ?? "textual-js";
+  const containerProject = `/host-code/${projectBaseName}`;
+  const containerPng = `${containerProject}/${target.pngPath}`;
 
   await execFileAsync(
     "docker",
@@ -53,64 +63,53 @@ async function renderTarget(target: CaptureTarget): Promise<void> {
       "run",
       "--rm",
       "--volume",
-      `${PROJECT_DIR}:/work`,
+      `${PARENT_DIR}:/host-code`,
       "--workdir",
-      "/work",
+      containerProject,
       DOCKER_IMAGE,
       "bash",
-      RENDER_SCRIPT,
-      toContainerPath(target.ansiPath),
-      toContainerPath(target.pngPath),
-      target.title,
+      `${containerProject}/visual-tests/render-fixture-xvfb.sh`,
+      target.side,
+      target.fixture,
+      containerPng,
     ],
-    {
-      cwd: PROJECT_DIR,
-      env: process.env,
-      maxBuffer: EXEC_MAX_BUFFER,
-    },
+    { cwd: PROJECT_DIR, env: process.env, maxBuffer: EXEC_MAX_BUFFER },
   );
 }
 
 async function discoverFixtures(renderSide: RenderSide): Promise<string[]> {
+  // Python baseline discovery already includes both paired fixtures and
+  // todo-listed future baselines — the todo list is the only admission
+  // control. JS/both renders restrict to paired fixtures.
   if (renderSide === "python") {
     return discoverPythonBaselineFixtures(FIXTURES_DIR);
   }
-
   return discoverPairedFixtures(FIXTURES_DIR);
 }
 
 function parseRenderSide(value: string | undefined): RenderSide {
-  if (value === undefined) {
-    return "both";
-  }
-
-  if (value === "python" || value === "js" || value === "both") {
-    return value;
-  }
-
+  if (value === undefined) return "both";
+  if (value === "python" || value === "js" || value === "both") return value;
   throw new Error(`Invalid render side: ${value}`);
 }
 
-function buildTargets(fixtures: string[], renderSide: RenderSide): CaptureTarget[] {
+function buildTargets(fixtures: string[], renderSide: RenderSide): RenderTarget[] {
   const sides: SnapshotSide[] = renderSide === "both" ? ["python", "js"] : [renderSide];
-
-  return fixtures.flatMap((fixture) => {
-    return sides.map((side) => ({
+  return fixtures.flatMap((fixture) =>
+    sides.map((side) => ({
       fixture,
       side,
-      ansiPath: join("visual-tests", "snapshots", side, `${fixture}.ansi`),
       pngPath: join("visual-tests", "snapshots", side, `${fixture}.png`),
-      // [LAW:one-source-of-truth] The title is the xterm window identity used
-      // by the isolated Xvfb screenshot process.
-      title: `textual-js visual fixture: ${fixture} ${side}`,
-    }));
-  });
+    })),
+  );
 }
 
 export async function main(): Promise<void> {
-  const fixtureFilter = process.argv.find((argument) => !argument.startsWith("--") && argument !== process.argv[0] && argument !== process.argv[1]) ?? null;
-  const sideArgument = process.argv.find((argument) => argument.startsWith("--side="));
-  const renderSide = parseRenderSide(sideArgument?.slice("--side=".length));
+  const args = process.argv.slice(2);
+  const fixtureFilter = args.find((a) => !a.startsWith("--")) ?? null;
+  const sideArg = args.find((a) => a.startsWith("--side="))?.slice("--side=".length);
+  const renderSide = parseRenderSide(sideArg);
+
   let fixtures = await discoverFixtures(renderSide);
 
   if (fixtureFilter) {
@@ -121,12 +120,13 @@ export async function main(): Promise<void> {
     }
   }
 
-  process.stdout.write(`Rendering ${fixtures.length} ${renderSide} fixture screenshot set(s) in isolated Xvfb...\n\n`);
+  process.stdout.write(
+    `Rendering ${fixtures.length} ${renderSide} fixture screenshot set(s) inside Docker...\n\n`,
+  );
 
   await ensureDockerImage();
 
   const targets = buildTargets(fixtures, renderSide);
-
   for (const target of targets) {
     process.stdout.write(`  Capturing ${target.side}: ${target.fixture}\n`);
     await renderTarget(target);

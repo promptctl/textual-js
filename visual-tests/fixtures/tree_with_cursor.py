@@ -24,11 +24,10 @@ class TreeWithCursorApp(App):
         tree.focus()
 
 
-async def capture(pilot) -> None:
-    await pilot.pause(0.05)
-    await pilot.press("down")
-    await pilot.press("down")
-    await pilot.pause(0.05)
-
-
 app = TreeWithCursorApp
+
+interactions = [
+    {"type": "key", "keys": "Down"},
+    {"type": "key", "keys": "Down"},
+    {"type": "wait", "ms": 50},
+]
