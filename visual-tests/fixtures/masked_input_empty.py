@@ -17,3 +17,5 @@ class MaskedInputEmptyApp(App):
 
 
 app = MaskedInputEmptyApp
+
+interactions = []

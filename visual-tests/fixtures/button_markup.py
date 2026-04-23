@@ -30,3 +30,5 @@ class ButtonsWithMarkupApp(App):
 
 
 app = ButtonsWithMarkupApp
+
+interactions = []

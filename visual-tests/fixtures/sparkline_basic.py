@@ -21,3 +21,5 @@ class SparklineBasicApp(App):
 
 
 app = SparklineBasicApp
+
+interactions = []

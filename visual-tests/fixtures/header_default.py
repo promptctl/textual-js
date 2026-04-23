@@ -20,3 +20,5 @@ class HeaderDefaultApp(App):
 
 
 app = HeaderDefaultApp
+
+interactions = []

@@ -28,3 +28,5 @@ class RuleLineStylesApp(App):
 
 
 app = RuleLineStylesApp
+
+interactions = []

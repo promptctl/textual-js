@@ -24,3 +24,5 @@ class ContentSwitcherSwitchedApp(App):
 
 app = ContentSwitcherSwitchedApp
 
+
+interactions = []

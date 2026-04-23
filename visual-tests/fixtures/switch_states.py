@@ -23,3 +23,5 @@ class SwitchStatesApp(App):
 
 
 app = SwitchStatesApp
+
+interactions = []

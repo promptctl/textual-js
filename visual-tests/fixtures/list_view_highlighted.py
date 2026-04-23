@@ -23,3 +23,5 @@ class ListViewHighlightedApp(App):
 
 
 app = ListViewHighlightedApp
+
+interactions = []

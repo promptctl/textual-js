@@ -26,3 +26,5 @@ class TabsActiveSecondApp(App):
 
 app = TabsActiveSecondApp
 
+
+interactions = []

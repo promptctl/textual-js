@@ -21,3 +21,5 @@ class ContainersVerticalStackApp(App):
 
 
 app = ContainersVerticalStackApp
+
+interactions = []

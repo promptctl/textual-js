@@ -26,3 +26,5 @@ class MarkdownCodeBlockApp(App):
 
 
 app = MarkdownCodeBlockApp
+
+interactions = []

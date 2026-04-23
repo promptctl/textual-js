@@ -23,3 +23,5 @@ class SparklineUnevenApp(App):
 
 
 app = SparklineUnevenApp
+
+interactions = []

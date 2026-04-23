@@ -25,3 +25,5 @@ class HelpPanelDefaultApp(App):
 
 
 app = HelpPanelDefaultApp
+
+interactions = []

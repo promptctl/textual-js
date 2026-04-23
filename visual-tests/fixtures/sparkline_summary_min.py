@@ -24,3 +24,5 @@ class SparklineSummaryMinApp(App):
 
 
 app = SparklineSummaryMinApp
+
+interactions = []

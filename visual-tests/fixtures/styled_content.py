@@ -17,3 +17,5 @@ class StyledContentApp(App):
 
 
 app = StyledContentApp
+
+interactions = []

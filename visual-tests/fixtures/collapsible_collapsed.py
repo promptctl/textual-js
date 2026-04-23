@@ -18,3 +18,5 @@ class CollapsibleCollapsedApp(App):
 
 
 app = CollapsibleCollapsedApp
+
+interactions = []

@@ -1,23 +1,29 @@
 /**
- * Print a fixture's `interactions` list as JSON on stdout.
+ * Validate a fixture's `interactions` tape and emit it as TSV.
  *
  * Usage:  tsx extract-interactions.ts <side> <fixture-name>
  *   side = "python" | "js"
  *
- * Output: A JSON array of interaction objects (possibly empty), one line.
+ * Output: zero or more TAB-separated lines on stdout, one per interaction.
+ *   key      <keys>
+ *   type     <text>
+ *   hover    <col>    <row>
+ *   click    <col>    <row>    <button>
+ *   wait     <ms>
  *
- * Interaction shapes (uniform across sides):
- *   {"type":"key","keys":"Tab"}
- *   {"type":"type","text":"hello"}
- *   {"type":"hover","cell":[col,row]}
- *   {"type":"click","cell":[col,row],"button":1}
- *   {"type":"wait","ms":50}
+ * The fixture MUST declare `interactions` explicitly. A missing symbol is a
+ * fatal error, not "zero interactions" — silent substitution of an empty
+ * tape is exactly the false-MATCH vector the rewrite was built to eliminate.
+ *
+ * For genuinely static fixtures, declare `interactions = []` — the empty
+ * list is the explicit opt-out.
  */
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,59 +32,128 @@ const __dirname = dirname(__filename);
 
 const FIXTURES_DIR = join(__dirname, "fixtures");
 
-// [LAW:single-enforcer] Interaction extraction is the only seam that reads
-// the fixture's declarative action tape; both orchestrator sides go through
-// this one entrypoint so the JSON shape cannot drift.
+// [LAW:single-enforcer] One validator, one schema. Both sides converge here
+// before the orchestrator can dispatch any xdotool calls.
 const PYTHON_EXTRACT = `
 import importlib.util, json, sys
-name = sys.argv[1]
-path = sys.argv[2]
+name, path = sys.argv[1], sys.argv[2]
 spec = importlib.util.spec_from_file_location(name, path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-print(json.dumps(getattr(module, "interactions", [])))
+if not hasattr(module, "interactions"):
+    raise SystemExit(
+        f"fixture {name} does not declare 'interactions'. "
+        "Static fixtures must declare 'interactions = []' explicitly."
+    )
+print(json.dumps(module.interactions))
 `;
 
-async function extractPython(name: string): Promise<string> {
+interface KeyStep { type: "key"; keys: string }
+interface TypeStep { type: "type"; text: string }
+interface HoverStep { type: "hover"; cell: [number, number] }
+interface ClickStep { type: "click"; cell: [number, number]; button?: number }
+interface WaitStep { type: "wait"; ms: number }
+type Step = KeyStep | TypeStep | HoverStep | ClickStep | WaitStep;
+
+async function loadPython(name: string): Promise<unknown> {
   const fixturePath = join(FIXTURES_DIR, `${name}.py`);
+  if (!existsSync(fixturePath)) {
+    throw new Error(`python fixture not found: ${fixturePath}`);
+  }
   const { stdout } = await execFileAsync(
     "uv",
     ["run", "--project", join(__dirname), "python", "-c", PYTHON_EXTRACT, name, fixturePath],
     { env: process.env, maxBuffer: 1024 * 1024 },
   );
-  return stdout.trim();
+  return JSON.parse(stdout.trim());
 }
 
-async function extractJs(name: string): Promise<string> {
+async function loadJs(name: string): Promise<unknown> {
   const fixturePath = join(FIXTURES_DIR, `${name}.tsx`);
-  const fixtureModule: { interactions?: unknown } = await import(fixturePath);
-  return JSON.stringify(fixtureModule.interactions ?? []);
+  if (!existsSync(fixturePath)) {
+    throw new Error(`js fixture not found: ${fixturePath}`);
+  }
+  const fixtureModule: Record<string, unknown> = await import(fixturePath);
+  if (!("interactions" in fixtureModule)) {
+    throw new Error(
+      `fixture ${name} does not export 'interactions'. ` +
+      "Static fixtures must export 'interactions = []' explicitly.",
+    );
+  }
+  return fixtureModule.interactions;
+}
+
+function validateAndEncode(side: string, name: string, raw: unknown): string {
+  if (!Array.isArray(raw)) {
+    throw new Error(`${side}/${name}: 'interactions' is ${typeof raw}, expected array`);
+  }
+  const lines: string[] = [];
+  raw.forEach((step, i) => {
+    if (typeof step !== "object" || step === null) {
+      throw new Error(`${side}/${name}: step ${i} is not an object: ${JSON.stringify(step)}`);
+    }
+    const s = step as Partial<Step>;
+    switch (s.type) {
+      case "key": {
+        if (typeof s.keys !== "string" || s.keys.length === 0) {
+          throw new Error(`${side}/${name}: step ${i} 'key' missing 'keys' string`);
+        }
+        lines.push(`key\t${s.keys}`);
+        return;
+      }
+      case "type": {
+        if (typeof s.text !== "string") {
+          throw new Error(`${side}/${name}: step ${i} 'type' missing 'text' string`);
+        }
+        if (s.text.includes("\t") || s.text.includes("\n")) {
+          throw new Error(`${side}/${name}: step ${i} 'type' text contains tab/newline (TSV-unsafe)`);
+        }
+        lines.push(`type\t${s.text}`);
+        return;
+      }
+      case "hover": {
+        const cell = s.cell;
+        if (!Array.isArray(cell) || cell.length !== 2 || !cell.every((n) => typeof n === "number")) {
+          throw new Error(`${side}/${name}: step ${i} 'hover' missing 'cell: [col, row]'`);
+        }
+        lines.push(`hover\t${cell[0]}\t${cell[1]}`);
+        return;
+      }
+      case "click": {
+        const cell = s.cell;
+        if (!Array.isArray(cell) || cell.length !== 2 || !cell.every((n) => typeof n === "number")) {
+          throw new Error(`${side}/${name}: step ${i} 'click' missing 'cell: [col, row]'`);
+        }
+        const button = s.button ?? 1;
+        if (typeof button !== "number" || !Number.isInteger(button)) {
+          throw new Error(`${side}/${name}: step ${i} 'click' has non-integer 'button'`);
+        }
+        lines.push(`click\t${cell[0]}\t${cell[1]}\t${button}`);
+        return;
+      }
+      case "wait": {
+        if (typeof s.ms !== "number" || !Number.isFinite(s.ms) || s.ms < 0) {
+          throw new Error(`${side}/${name}: step ${i} 'wait' missing non-negative 'ms' number`);
+        }
+        lines.push(`wait\t${s.ms}`);
+        return;
+      }
+      default:
+        throw new Error(`${side}/${name}: step ${i} has unknown type '${(s as { type?: string }).type}'`);
+    }
+  });
+  return lines.length === 0 ? "" : lines.join("\n") + "\n";
 }
 
 async function main(): Promise<void> {
   const side = process.argv[2];
   const name = process.argv[3];
-
-  if (side !== "python" && side !== "js") {
+  if ((side !== "python" && side !== "js") || name === undefined) {
     process.stderr.write("usage: extract-interactions.ts <python|js> <fixture>\n");
     process.exit(2);
   }
-
-  if (name === undefined) {
-    process.stderr.write("usage: extract-interactions.ts <python|js> <fixture>\n");
-    process.exit(2);
-  }
-
-  const json = side === "python" ? await extractPython(name) : await extractJs(name);
-
-  // Sanity: result must parse as an array; fail loud if a fixture exports a
-  // non-array so the orchestrator never interprets garbage as an action tape.
-  const parsed = JSON.parse(json);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`fixture ${side}/${name} exported interactions of non-array type: ${typeof parsed}`);
-  }
-
-  process.stdout.write(`${json}\n`);
+  const raw = side === "python" ? await loadPython(name) : await loadJs(name);
+  process.stdout.write(validateAndEncode(side, name, raw));
 }
 
 main().catch((error) => {

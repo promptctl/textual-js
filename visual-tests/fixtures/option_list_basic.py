@@ -23,3 +23,5 @@ class OptionListBasicApp(App):
 
 
 app = OptionListBasicApp
+
+interactions = []

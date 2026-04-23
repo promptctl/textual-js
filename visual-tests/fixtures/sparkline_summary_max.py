@@ -24,3 +24,5 @@ class SparklineSummaryMaxApp(App):
 
 
 app = SparklineSummaryMaxApp
+
+interactions = []

@@ -17,3 +17,5 @@ class LabelBasicApp(App):
 
 
 app = LabelBasicApp
+
+interactions = []

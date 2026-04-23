@@ -5,6 +5,8 @@ from textual.widgets import Input
 
 
 class InputFocusedApp(App):
+    AUTO_FOCUS = None
+
     CSS = """
     Screen {
         background: #121212;

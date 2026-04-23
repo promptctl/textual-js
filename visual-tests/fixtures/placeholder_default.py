@@ -20,3 +20,5 @@ class PlaceholderDefaultApp(App):
 
 
 app = PlaceholderDefaultApp
+
+interactions = []

@@ -31,3 +31,5 @@ class FooterWithBindingsApp(App):
 
 
 app = FooterWithBindingsApp
+
+interactions = []

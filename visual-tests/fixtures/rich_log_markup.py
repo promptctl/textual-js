@@ -23,3 +23,5 @@ class RichLogMarkupApp(App):
 
 
 app = RichLogMarkupApp
+
+interactions = []

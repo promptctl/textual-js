@@ -17,3 +17,5 @@ class StaticMultilineApp(App):
 
 
 app = StaticMultilineApp
+
+interactions = []

@@ -20,3 +20,5 @@ class LoadingIndicatorApp(App):
 
 
 app = LoadingIndicatorApp
+
+interactions = []

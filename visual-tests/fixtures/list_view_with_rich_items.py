@@ -28,3 +28,5 @@ class ListViewWithRichItemsApp(App):
 
 
 app = ListViewWithRichItemsApp
+
+interactions = []

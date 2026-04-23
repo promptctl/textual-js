@@ -112,6 +112,8 @@ export async function main(): Promise<void> {
 
   let fixtures = await discoverFixtures(renderSide);
 
+  // [LAW:verifiable-goals] Validate the filter before the 30s docker build
+  // — fail fast on a typo'd fixture name rather than after build cost.
   if (fixtureFilter) {
     fixtures = fixtures.filter((name) => name === fixtureFilter);
     if (fixtures.length === 0) {

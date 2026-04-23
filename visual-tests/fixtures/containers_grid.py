@@ -25,3 +25,5 @@ class ContainersGridApp(App):
 
 
 app = ContainersGridApp
+
+interactions = []

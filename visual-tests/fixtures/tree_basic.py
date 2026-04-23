@@ -23,3 +23,5 @@ class TreeBasicApp(App):
 
 
 app = TreeBasicApp
+
+interactions = []

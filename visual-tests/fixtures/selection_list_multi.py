@@ -22,3 +22,5 @@ class SelectionListMultiApp(App):
 
 
 app = SelectionListMultiApp
+
+interactions = []

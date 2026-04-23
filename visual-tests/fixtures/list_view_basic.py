@@ -22,3 +22,5 @@ class ListViewBasicApp(App):
 
 
 app = ListViewBasicApp
+
+interactions = []

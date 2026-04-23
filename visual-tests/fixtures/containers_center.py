@@ -19,3 +19,5 @@ class ContainersCenterApp(App):
 
 
 app = ContainersCenterApp
+
+interactions = []

@@ -31,10 +31,15 @@ async function main(): Promise<void> {
 
   const fixturePath = join(FIXTURES_DIR, `${name}.tsx`);
   const fixtureModule: {
-    default: React.ComponentType;
+    default?: React.ComponentType;
     appProps?: Partial<TextualAppProps>;
   } = await import(fixturePath);
 
+  if (typeof fixtureModule.default !== "function") {
+    // Without this check a missing default export surfaces as a generic
+    // "Component is undefined" inside Ink, with no fixture-name context.
+    throw new Error(`fixture ${name} has no default React component export`);
+  }
   const Component = fixtureModule.default;
   const appProps = fixtureModule.appProps ?? {};
 

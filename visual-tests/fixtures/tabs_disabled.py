@@ -21,3 +21,5 @@ class TabsDisabledApp(App):
 
 
 app = TabsDisabledApp
+
+interactions = []

@@ -19,3 +19,5 @@ class ProgressPartialApp(App):
 
 
 app = ProgressPartialApp
+
+interactions = []

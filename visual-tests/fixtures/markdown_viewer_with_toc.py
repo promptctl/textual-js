@@ -35,3 +35,5 @@ class MarkdownViewerWithTocApp(App):
 
 
 app = MarkdownViewerWithTocApp
+
+interactions = []

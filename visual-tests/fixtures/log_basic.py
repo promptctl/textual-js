@@ -23,3 +23,5 @@ class LogBasicApp(App):
 
 
 app = LogBasicApp
+
+interactions = []

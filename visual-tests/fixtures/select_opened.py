@@ -26,3 +26,5 @@ class SelectOpenedApp(App):
 
 app = SelectOpenedApp
 
+
+interactions = []

@@ -23,3 +23,5 @@ class LinkStyledApp(App):
 
 
 app = LinkStyledApp
+
+interactions = []

@@ -25,3 +25,5 @@ class ButtonVariantsApp(App):
 
 
 app = ButtonVariantsApp
+
+interactions = []

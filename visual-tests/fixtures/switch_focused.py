@@ -5,6 +5,8 @@ from textual.widgets import Switch
 
 
 class SwitchFocusedApp(App):
+    AUTO_FOCUS = None
+
     CSS = """
     Screen {
         background: $background;

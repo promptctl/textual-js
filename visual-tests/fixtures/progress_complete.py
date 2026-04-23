@@ -19,3 +19,5 @@ class ProgressCompleteApp(App):
 
 
 app = ProgressCompleteApp
+
+interactions = []

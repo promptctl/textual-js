@@ -25,3 +25,5 @@ class MarkdownTableApp(App):
 
 
 app = MarkdownTableApp
+
+interactions = []

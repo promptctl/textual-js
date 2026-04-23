@@ -5,6 +5,8 @@ from textual.widgets import TextArea
 
 
 class TextAreaFocusedApp(App):
+    AUTO_FOCUS = None
+
     CSS = """
     Screen {
         background: #121212;

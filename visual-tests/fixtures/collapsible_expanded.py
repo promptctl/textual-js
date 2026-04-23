@@ -18,3 +18,5 @@ class CollapsibleExpandedApp(App):
 
 
 app = CollapsibleExpandedApp
+
+interactions = []

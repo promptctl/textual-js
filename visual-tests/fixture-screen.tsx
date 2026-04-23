@@ -1,10 +1,17 @@
 import React, { type PropsWithChildren } from "react";
 import { Box } from "ink";
 
-// Matches the `Screen { background: #121212 }` CSS that Python fixtures
-// declare. In truecolor terminal mode, Textual paints that color onto every
-// Screen cell; JS fixtures paint the same color via FixtureScreen so the
-// two pipelines render identical backgrounds.
+// [LAW:one-source-of-truth] (partial — known limitation) The visual screen
+// background hex must agree across THREE language domains that have no
+// shared build step:
+//   1. This TS constant   → consumed by Ink in FixtureScreen below.
+//   2. xterm -bg / -cr in visual-tests/render-fixture-xvfb.sh.
+//   3. `Screen { background: #121212 }` (or `$background`) in every Python
+//      fixture's CSS string.
+// A fully unified source would require a Python module emitting the CSS
+// string + a generated bash include + this TS export. Until that exists,
+// changing this hex requires synchronous edits in all three places, plus
+// regenerating every committed baseline.
 export const VISUAL_SCREEN_BACKGROUND = "#121212";
 export const VISUAL_SCREEN_FOREGROUND = "#e0e0e0";
 export const VISUAL_SCREEN_WIDTH = 80;

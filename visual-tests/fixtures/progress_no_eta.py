@@ -19,3 +19,5 @@ class ProgressNoEtaApp(App):
 
 
 app = ProgressNoEtaApp
+
+interactions = []

@@ -18,3 +18,5 @@ class RadioSetDisabledApp(App):
 
 
 app = RadioSetDisabledApp
+
+interactions = []

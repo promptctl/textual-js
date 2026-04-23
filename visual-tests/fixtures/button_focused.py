@@ -5,6 +5,8 @@ from textual.widgets import Button
 
 
 class ButtonFocusedApp(App):
+    AUTO_FOCUS = None
+
     CSS = """
     Screen {
         background: $background;

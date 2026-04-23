@@ -22,3 +22,5 @@ class MarkdownInlineLinksApp(App):
 
 
 app = MarkdownInlineLinksApp
+
+interactions = []

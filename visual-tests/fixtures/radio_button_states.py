@@ -20,3 +20,5 @@ class RadioButtonStatesApp(App):
 
 
 app = RadioButtonStatesApp
+
+interactions = []

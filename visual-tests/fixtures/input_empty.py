@@ -19,3 +19,5 @@ class InputEmptyApp(App):
 
 
 app = InputEmptyApp
+
+interactions = []

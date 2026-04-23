@@ -25,3 +25,5 @@ class ButtonDisabledApp(App):
 
 
 app = ButtonDisabledApp
+
+interactions = []

@@ -19,3 +19,5 @@ class StaticMarkupApp(App):
 
 
 app = StaticMarkupApp
+
+interactions = []

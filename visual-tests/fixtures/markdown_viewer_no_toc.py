@@ -31,3 +31,5 @@ class MarkdownViewerNoTocApp(App):
 
 
 app = MarkdownViewerNoTocApp
+
+interactions = []

@@ -25,3 +25,5 @@ class KeyPanelDefaultApp(App):
 
 
 app = KeyPanelDefaultApp
+
+interactions = []

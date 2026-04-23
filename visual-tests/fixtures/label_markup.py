@@ -17,3 +17,5 @@ class LabelMarkupApp(App):
 
 
 app = LabelMarkupApp
+
+interactions = []

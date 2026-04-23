@@ -29,3 +29,5 @@ class DataTableBasicApp(App):
 
 
 app = DataTableBasicApp
+
+interactions = []

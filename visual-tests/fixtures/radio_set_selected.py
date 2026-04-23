@@ -22,3 +22,5 @@ class RadioSetSelectedApp(App):
 
 
 app = RadioSetSelectedApp
+
+interactions = []

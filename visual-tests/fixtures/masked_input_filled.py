@@ -17,3 +17,5 @@ class MaskedInputFilledApp(App):
 
 
 app = MaskedInputFilledApp
+
+interactions = []

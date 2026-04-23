@@ -19,3 +19,5 @@ export default function StaticBasicFixture(): React.JSX.Element {
     </FixtureScreen>
   );
 }
+
+export const interactions: never[] = [];

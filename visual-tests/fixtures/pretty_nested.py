@@ -23,3 +23,5 @@ class PrettyNestedApp(App):
 
 
 app = PrettyNestedApp
+
+interactions = []

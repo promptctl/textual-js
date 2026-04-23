@@ -28,3 +28,5 @@ class DataTableWithHeaderApp(App):
 
 
 app = DataTableWithHeaderApp
+
+interactions = []

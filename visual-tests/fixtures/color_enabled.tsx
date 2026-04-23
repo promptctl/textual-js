@@ -15,3 +15,5 @@ export default function ColorEnabledFixture(): React.JSX.Element {
     </FixtureScreen>
   );
 }
+
+export const interactions: never[] = [];

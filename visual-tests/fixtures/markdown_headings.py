@@ -27,3 +27,5 @@ class MarkdownHeadingsApp(App):
 
 
 app = MarkdownHeadingsApp
+
+interactions = []

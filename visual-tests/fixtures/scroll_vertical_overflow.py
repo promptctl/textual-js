@@ -20,3 +20,5 @@ class ScrollVerticalOverflowApp(App):
 
 
 app = ScrollVerticalOverflowApp
+
+interactions = []

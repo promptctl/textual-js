@@ -17,3 +17,5 @@ class SelectClosedApp(App):
 
 
 app = SelectClosedApp
+
+interactions = []

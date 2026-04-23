@@ -25,3 +25,5 @@ class OptionListWithSeparatorsApp(App):
 
 
 app = OptionListWithSeparatorsApp
+
+interactions = []

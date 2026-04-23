@@ -21,3 +21,5 @@ class TabsBasicApp(App):
 
 
 app = TabsBasicApp
+
+interactions = []

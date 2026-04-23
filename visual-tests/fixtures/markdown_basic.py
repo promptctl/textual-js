@@ -21,3 +21,5 @@ class MarkdownBasicApp(App):
 
 
 app = MarkdownBasicApp
+
+interactions = []

@@ -18,3 +18,5 @@ class RadioSetDefaultApp(App):
 
 
 app = RadioSetDefaultApp
+
+interactions = []

@@ -22,3 +22,5 @@ class SwitchDisabledApp(App):
 
 
 app = SwitchDisabledApp
+
+interactions = []

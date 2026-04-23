@@ -25,3 +25,5 @@ class RichLogStyledApp(App):
 
 
 app = RichLogStyledApp
+
+interactions = []

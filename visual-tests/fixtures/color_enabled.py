@@ -28,3 +28,5 @@ class ColorEnabledApp(App):
 
 
 app = ColorEnabledApp
+
+interactions = []

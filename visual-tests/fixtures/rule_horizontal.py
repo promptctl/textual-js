@@ -19,3 +19,5 @@ class RuleHorizontalApp(App):
 
 
 app = RuleHorizontalApp
+
+interactions = []

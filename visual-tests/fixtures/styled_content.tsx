@@ -28,3 +28,5 @@ export default function StyledContentFixture(): React.JSX.Element {
     </FixtureScreen>
   );
 }
+
+export const interactions: never[] = [];

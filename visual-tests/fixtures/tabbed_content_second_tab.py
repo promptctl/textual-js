@@ -26,3 +26,5 @@ class TabbedContentSecondTabApp(App):
 
 app = TabbedContentSecondTabApp
 
+
+interactions = []

@@ -22,3 +22,5 @@ class PlaceholderVariantsApp(App):
 
 
 app = PlaceholderVariantsApp
+
+interactions = []

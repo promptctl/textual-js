@@ -20,3 +20,5 @@ class DigitsLargeApp(App):
 
 
 app = DigitsLargeApp
+
+interactions = []

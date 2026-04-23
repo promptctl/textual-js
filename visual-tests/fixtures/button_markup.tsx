@@ -25,3 +25,5 @@ export default function ButtonMarkupFixture(): React.JSX.Element {
     </FixtureScreen>
   );
 }
+
+export const interactions: never[] = [];

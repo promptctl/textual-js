@@ -19,3 +19,5 @@ class ProgressEmptyApp(App):
 
 
 app = ProgressEmptyApp
+
+interactions = []

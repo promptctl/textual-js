@@ -32,3 +32,5 @@ class InputInvalidApp(App):
 
 app = InputInvalidApp
 
+
+interactions = []

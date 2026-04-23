@@ -26,3 +26,5 @@ class MarkdownBlockquoteApp(App):
 
 
 app = MarkdownBlockquoteApp
+
+interactions = []

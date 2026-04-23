@@ -23,3 +23,5 @@ class RichLogBasicApp(App):
 
 
 app = RichLogBasicApp
+
+interactions = []

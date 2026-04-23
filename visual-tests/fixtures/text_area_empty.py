@@ -17,3 +17,5 @@ class TextAreaEmptyApp(App):
 
 
 app = TextAreaEmptyApp
+
+interactions = []

@@ -29,3 +29,5 @@ class DirectoryTreeBasicApp(App):
 
 
 app = DirectoryTreeBasicApp
+
+interactions = []

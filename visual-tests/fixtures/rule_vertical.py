@@ -24,3 +24,5 @@ class RuleVerticalApp(App):
 
 
 app = RuleVerticalApp
+
+interactions = []

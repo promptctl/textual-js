@@ -21,3 +21,5 @@ class TabbedContentDefaultApp(App):
 
 
 app = TabbedContentDefaultApp
+
+interactions = []

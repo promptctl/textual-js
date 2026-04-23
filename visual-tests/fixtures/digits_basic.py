@@ -17,3 +17,5 @@ class DigitsBasicApp(App):
 
 
 app = DigitsBasicApp
+
+interactions = []

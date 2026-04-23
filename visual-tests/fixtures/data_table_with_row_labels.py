@@ -24,3 +24,5 @@ class DataTableWithRowLabelsApp(App):
 
 
 app = DataTableWithRowLabelsApp
+
+interactions = []

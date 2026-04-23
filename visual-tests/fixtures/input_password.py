@@ -19,3 +19,5 @@ class InputPasswordApp(App):
 
 
 app = InputPasswordApp
+
+interactions = []

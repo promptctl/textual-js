@@ -20,3 +20,5 @@ class CheckboxStatesApp(App):
 
 
 app = CheckboxStatesApp
+
+interactions = []

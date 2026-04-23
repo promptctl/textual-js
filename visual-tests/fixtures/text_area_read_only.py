@@ -17,3 +17,5 @@ class TextAreaReadOnlyApp(App):
 
 
 app = TextAreaReadOnlyApp
+
+interactions = []

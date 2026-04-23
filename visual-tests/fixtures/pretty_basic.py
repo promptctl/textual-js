@@ -17,3 +17,5 @@ class PrettyBasicApp(App):
 
 
 app = PrettyBasicApp
+
+interactions = []

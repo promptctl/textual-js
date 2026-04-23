@@ -20,3 +20,5 @@ class FooterEmptyApp(App):
 
 
 app = FooterEmptyApp
+
+interactions = []

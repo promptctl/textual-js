@@ -17,3 +17,5 @@ class ProgressIndeterminateApp(App):
 
 
 app = ProgressIndeterminateApp
+
+interactions = []

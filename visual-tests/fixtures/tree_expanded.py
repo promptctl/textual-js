@@ -27,3 +27,5 @@ class TreeExpandedApp(App):
 
 
 app = TreeExpandedApp
+
+interactions = []

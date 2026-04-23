@@ -23,3 +23,5 @@ class TextAreaFilledApp(App):
 
 
 app = TextAreaFilledApp
+
+interactions = []

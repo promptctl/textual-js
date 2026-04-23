@@ -19,3 +19,5 @@ class InputPlaceholderOnlyApp(App):
 
 
 app = InputPlaceholderOnlyApp
+
+interactions = []

@@ -23,3 +23,5 @@ export default function SwitchStatesFixture(): React.JSX.Element {
     </FixtureScreen>
   );
 }
+
+export const interactions: never[] = [];

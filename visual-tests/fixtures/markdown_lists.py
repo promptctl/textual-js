@@ -31,3 +31,5 @@ class MarkdownListsApp(App):
 
 
 app = MarkdownListsApp
+
+interactions = []

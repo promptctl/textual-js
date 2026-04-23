@@ -22,3 +22,5 @@ class SelectionListNoneSelectedApp(App):
 
 
 app = SelectionListNoneSelectedApp
+
+interactions = []

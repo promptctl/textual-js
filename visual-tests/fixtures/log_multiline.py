@@ -27,3 +27,5 @@ class LogMultilineApp(App):
 
 
 app = LogMultilineApp
+
+interactions = []

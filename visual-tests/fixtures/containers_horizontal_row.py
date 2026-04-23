@@ -27,3 +27,5 @@ class ContainersHorizontalRowApp(App):
 
 
 app = ContainersHorizontalRowApp
+
+interactions = []

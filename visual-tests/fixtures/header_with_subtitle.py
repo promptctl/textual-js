@@ -21,3 +21,5 @@ class HeaderWithSubtitleApp(App):
 
 
 app = HeaderWithSubtitleApp
+
+interactions = []

@@ -24,3 +24,5 @@ class ScrollHorizontalOverflowApp(App):
 
 
 app = ScrollHorizontalOverflowApp
+
+interactions = []

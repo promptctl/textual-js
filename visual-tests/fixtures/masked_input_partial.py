@@ -17,3 +17,5 @@ class MaskedInputPartialApp(App):
 
 
 app = MaskedInputPartialApp
+
+interactions = []

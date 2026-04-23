@@ -19,3 +19,5 @@ class LinkBasicApp(App):
 
 
 app = LinkBasicApp
+
+interactions = []

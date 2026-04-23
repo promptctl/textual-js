@@ -19,3 +19,5 @@ class InputFilledApp(App):
 
 
 app = InputFilledApp
+
+interactions = []

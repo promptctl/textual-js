@@ -19,3 +19,5 @@ class ContainersMiddleApp(App):
 
 
 app = ContainersMiddleApp
+
+interactions = []

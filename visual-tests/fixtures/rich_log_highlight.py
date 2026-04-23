@@ -23,3 +23,5 @@ class RichLogHighlightApp(App):
 
 
 app = RichLogHighlightApp
+
+interactions = []

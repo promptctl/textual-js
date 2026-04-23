@@ -24,3 +24,5 @@ class TextAreaSyntaxPythonApp(App):
 
 
 app = TextAreaSyntaxPythonApp
+
+interactions = []

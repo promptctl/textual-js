@@ -20,3 +20,5 @@ class CheckboxDisabledApp(App):
 
 
 app = CheckboxDisabledApp
+
+interactions = []

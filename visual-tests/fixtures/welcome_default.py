@@ -17,3 +17,5 @@ class WelcomeDefaultApp(App):
 
 
 app = WelcomeDefaultApp
+
+interactions = []

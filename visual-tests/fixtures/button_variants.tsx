@@ -20,3 +20,5 @@ export default function ButtonVariantsFixture(): React.JSX.Element {
     </FixtureScreen>
   );
 }
+
+export const interactions: never[] = [];

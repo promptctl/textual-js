@@ -17,3 +17,5 @@ class SelectWithSelectionApp(App):
 
 
 app = SelectWithSelectionApp
+
+interactions = []
