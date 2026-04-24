@@ -164,8 +164,8 @@ Examples:
 Every concept has exactly one authoritative representation. All others are derived and explicitly synchronized. If two representations can diverge, the architecture is broken. Never create a second source; find and use the canonical one.
 
 Examples:
-- WRONG: A widget stores `_width` as a field AND reads width from `RenderStyles`. Two sources, will diverge.
-  RIGHT: `RenderStyles` owns width. The widget reads it from there. One source.
+- WRONG: A widget stores `_width` as a field AND reads width from `ResolvedStyles`. Two sources, will diverge.
+  RIGHT: `ResolvedStyles` owns width. The widget reads it from there. One source.
 - WRONG: Query results are cached in a separate data structure that is updated "whenever we remember to."
   RIGHT: Query caches key their invalidation on `NodeList._updates` — the single version counter for tree mutations.
 - WRONG: A watcher list is maintained both on the reactive descriptor and on the host instance.
@@ -191,7 +191,7 @@ Examples:
 - WRONG: `MessagePump` imports from `Widget` to check if the receiver is focusable.
   RIGHT: `MessagePump` knows nothing about widgets. `Widget` extends `MessagePump`. Dependency flows downward.
 - WRONG: The CSS engine calls `widget.refresh()` directly after applying styles.
-  RIGHT: The CSS engine produces `RenderStyles`. The reactive system on the widget detects the change and triggers refresh. No upward call from CSS to widget.
+  RIGHT: The CSS engine produces `ResolvedStyles`. The reactive system on the widget detects the change and triggers refresh. No upward call from CSS to widget.
 - WRONG: A layout strategy imports `App` to read the screen size.
   RIGHT: The layout strategy receives `size` as a parameter. It depends on geometry, not on App.
 

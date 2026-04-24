@@ -1,8 +1,6 @@
 import { makeAutoObservable, observable } from "mobx";
 
-import type { WidgetNode } from "../framework/widget-node.js";
 import { normalizeStyleAssignment, parseTcss, type StyleAssignmentValue } from "./stylesheet.js";
-import { ResolvedStyles } from "./resolved-styles.js";
 
 export class Styles {
   private readonly rules = observable.map<string, string>();
@@ -140,70 +138,3 @@ export function createStylesProxy<TStyles extends Styles>(styles: TStyles): TSty
   });
 }
 
-export class RenderStyles {
-  constructor(
-    readonly widget: WidgetNode,
-    readonly base: ResolvedStyles,
-    readonly inline: Styles,
-  ) {}
-
-  hasRule(name: string): boolean {
-    return this.inline.hasRule(name) || this.base.hasRule(name);
-  }
-
-  has_rule(name: string): boolean {
-    return this.hasRule(name);
-  }
-
-  clearRule(name: string): void {
-    this.inline.clearRule(name);
-  }
-
-  clear_rule(name: string): void {
-    this.clearRule(name);
-  }
-
-  getRule<TValue>(name: string): TValue | string | undefined {
-    return (this.inline.getRule(name) as TValue | undefined) ?? this.base.getRule<TValue>(name);
-  }
-
-  getRules(): Record<string, unknown> {
-    return {
-      ...Object.fromEntries(this.base.rules.entries()),
-      ...this.inline.getRules(),
-    };
-  }
-
-  get_rules(): Record<string, unknown> {
-    return this.getRules();
-  }
-
-  setRule(name: string, value: StyleAssignmentValue | null | undefined): void {
-    this.inline.setRule(name, value);
-  }
-
-  set_rule(name: string, value: StyleAssignmentValue | null | undefined): void {
-    this.setRule(name, value);
-  }
-
-  reset(): void {
-    this.inline.reset();
-  }
-
-  merge(other: Styles): void {
-    this.inline.merge(other);
-  }
-
-  mergeRules(rules: Record<string, StyleAssignmentValue | null | undefined>): void {
-    this.inline.mergeRules(rules);
-  }
-
-  merge_rules(rules: Record<string, StyleAssignmentValue | null | undefined>): void {
-    this.mergeRules(rules);
-  }
-
-  parse(css: string, readFrom?: string): this {
-    this.inline.parse(css, readFrom);
-    return this;
-  }
-}

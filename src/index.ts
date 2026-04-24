@@ -1,3 +1,5 @@
+import "./framework/mobx-config.js";
+
 export {
   App,
   type AppOptions,
@@ -228,20 +230,9 @@ export {
   type WorkerState,
 } from "./services/worker.js";
 export { RuntimeError, getActiveMessagePump } from "./services/concurrency.js";
-export {
-  Initialize,
-  ReactiveError,
-  ReactiveHost,
-  reactive,
-  reactiveVar as var,
-  reactiveSource,
-  type ReactiveBindingSource,
-  type ReactiveDefinition,
-  type ReactiveDefinitions,
-  type ReactiveOptions,
-  type ReactiveWatchOptions,
-  type ReactiveWatcher,
-} from "./reactive.js";
+// [LAW:one-source-of-truth] MobX is the project's only reactive model; it is used
+// directly by TextualFramework, WidgetNode, and services. No parallel reactive
+// abstraction is exported.
 export {
   combineBorderQuads,
   Color,
@@ -252,7 +243,6 @@ export {
   StyleValueError,
   Styles,
   StylesCache,
-  RenderStyles,
   StylesheetParseError,
   UnexpectedEnd,
   Unit,

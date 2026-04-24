@@ -29,7 +29,7 @@ Mapped from `spec/spec-src/` sections:
 
 | Spec Area | Spec File(s) | Gap Summary |
 |-----------|-------------|-------------|
-| **CSS Engine** | `04-styling-and-css-engine.md` | No CSS parser, no selector matching, no stylesheet application, no `RenderStyles`, no cascade/specificity |
+| **CSS Engine** | `04-styling-and-css-engine.md` | No CSS parser, no selector matching, no stylesheet application, no `ResolvedStyles`, no cascade/specificity |
 | **Query API** | `02-dom-reactivity-and-query.md` | No `query()`, `query_one()`, `query_ancestor()`, no `DOMQuery` chaining, no selector-based filtering |
 | **Reactive Pipeline** | `02-dom-reactivity-and-query.md` | No validators, no computed properties, no `init` watcher dispatch, no decorator-based `@reactive` |
 | **Compositor** | `05-layout-render-and-compositor.md` | No visibility map, no dirty-region tracking, no region-to-span conversion, no `CompositorUpdate` output |
@@ -80,8 +80,8 @@ Phases are ordered by dependency: each phase builds only on what prior phases de
 **Deliverables**:
 - **CSS parser**: Tokenize and parse Textual CSS (subset of CSS with Textual extensions). Produce a stylesheet AST.
 - **Selector matching**: Type, class, ID, pseudo-class, combinators (descendant, child, sibling). Match against `DOMNode.cssPath`.
-- **`RenderStyles`**: Per-widget computed style object. Properties for box model, colors, text style, layout hints (`dock`, `width`, `height`, `min-width`, `max-width`, `margin`, `padding`, etc.).
-- **Stylesheet application**: Parse `DEFAULT_CSS` and `CSS` class variables, apply cascade with specificity + rule origin, produce `RenderStyles` per node.
+- **`ResolvedStyles`**: Per-widget derived style snapshot — the single read-only output of the cascade. Properties for box model, colors, text style, layout hints (`dock`, `width`, `height`, `min-width`, `max-width`, `margin`, `padding`, etc.). The widget's `styles` field is the single writable input surface.
+- **Stylesheet application**: Parse `DEFAULT_CSS` and `CSS` class variables, apply cascade with specificity + rule origin (including inline `widget.styles` at the highest precedence), produce `ResolvedStyles` per node.
 - **`initial` reset**: Property-sensitive fallback (not blanket class-default reset — per uber-divergence resolution).
 - **Query API**: `query(selector)`, `query_one(selector)`, `query_ancestor(selector)` on DOMNode. Return `DOMQuery` with `.first()`, `.last()`, `.filter()`, `.exclude()`, `.results()`. `InvalidQueryFormat` on malformed selectors.
 - **Tests**: CSS parsing round-trips, selector matching, specificity ordering, query results, `InvalidQueryFormat` errors.
@@ -92,12 +92,12 @@ Phases are ordered by dependency: each phase builds only on what prior phases de
 
 ### Phase 3 — Style-Driven Layout & Compositor
 
-**Goal**: Layouts read from `RenderStyles` instead of hard-coded sizes. The compositor converts placements to renderable output.
+**Goal**: Layouts read from `ResolvedStyles` instead of hard-coded sizes. The compositor converts placements to renderable output.
 
 **Why now**: Depends on Phase 2 (styles exist). Required before any widget can render correctly.
 
 **Deliverables**:
-- **Style-driven sizing**: Layout strategies read `width`, `height`, `min-width`, `max-width`, `min-height`, `max-height` from `RenderStyles`. Support `fr`, `%`, `auto`, and fixed units.
+- **Style-driven sizing**: Layout strategies read `width`, `height`, `min-width`, `max-width`, `min-height`, `max-height` from `ResolvedStyles`. Support `fr`, `%`, `auto`, and fixed units.
 - **Box model**: `margin` and `padding` from styles applied during layout. `border` reserves space.
 - **Dock layout**: `dock: top | bottom | left | right` extracted from styles, widgets removed from flow and placed at edges.
 - **Scroll containers**: Widgets with `overflow: scroll | auto` get virtual-size tracking, scroll offset application in placement.

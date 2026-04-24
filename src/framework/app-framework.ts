@@ -1,3 +1,5 @@
+import "./mobx-config.js";
+
 import React from "react";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { threadId } from "node:worker_threads";

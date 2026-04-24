@@ -15,9 +15,9 @@ A `Styles` object holds a collection of CSS rule values. It supports the followi
 - **merge_rules(dict)**: Merges rules from a plain dictionary.
 - **parse(css, read_from)**: Parses a CSS string into the styles object.
 
-### RenderStyles
+### ResolvedStyles
 
-`RenderStyles` composes a base `Styles` and an inline `Styles` on top of a `DOMNode`. Properties resolve by checking inline first, then base. For example, setting `border_top` on the base and `border_left` on the inline yields the base value for top and the inline value for left when reading the composite `border` property.
+`ResolvedStyles` is the single derived read-only output produced by the cascade for each widget. The widget's `styles` field is the sole writable input surface; inline rules written there participate in the cascade at the highest precedence alongside `DEFAULT_CSS` and application stylesheets. For example, setting `border_top` via a class-level stylesheet and `border_left` via `widget.styles.set_rule("border_left", ...)` yields the stylesheet value for top and the inline value for left when reading the resulting `border` on `resolved_styles`.
 
 ### Style Properties and Accepted Types
 

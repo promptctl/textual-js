@@ -52,7 +52,7 @@ This means TCSS is an **authoring and cascade layer**, not a replacement for Ink
 - No CSS parser
 - No selector matching
 - No style cascade
-- No RenderStyles or computed style object
+- No ResolvedStyles or computed style object
 - No query API
 - Widgets have no `DEFAULT_CSS` processing (the static property exists but is unused)
 

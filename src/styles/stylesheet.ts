@@ -2157,7 +2157,7 @@ export function resolveStylesForWidget(
     }
   }
 
-  for (const [property, rawValue] of widget.inlineStyles.entries()) {
+  for (const [property, rawValue] of widget.styles.entries()) {
     const inlineDeclaration: ParsedDeclaration = {
       property,
       value: parseValue(property, rawValue),
