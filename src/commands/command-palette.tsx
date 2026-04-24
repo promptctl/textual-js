@@ -122,6 +122,7 @@ export class CommandPalette {
         searchGeneration: false,
         noMatchesTimer: false,
         confirmation: false,
+        context: false,
       } as never,
       { autoBind: true },
     );
@@ -336,14 +337,14 @@ export class CommandPalette {
     }
   }
 
-  private requireFramework(): ProviderContext["framework"] {
+  private requireFramework() {
     const context = this.context;
 
     if (context === null) {
       throw new Error("Command palette worker support requires a provider context");
     }
 
-    return context.framework;
+    return context.app.framework;
   }
 }
 
@@ -393,7 +394,7 @@ export const CommandPaletteScreen = observer(function CommandPaletteScreen({
 });
 
 function handlePaletteKey(
-  framework: ProviderContext["framework"],
+  framework: ProviderContext["app"]["framework"],
   palette: CommandPalette,
   message: Key,
 ): void {

@@ -1,3 +1,4 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { observer } from "mobx-react-lite";
@@ -9,7 +10,6 @@ import {
   InvalidQueryFormat,
   NoMatches,
   TextualApp,
-  TextualFramework,
   TooManyMatches,
   Widget,
   WidgetScope,
@@ -73,7 +73,7 @@ const QueryContainer = observer(function QueryContainer(props: {
 
 describe("DOM query API", () => {
   it("supports selector matching, combinators, pseudo-classes, and chaining", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -121,7 +121,7 @@ describe("DOM query API", () => {
   });
 
   it("supports traversal snapshots, typed singleton queries, and result-set mutations", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -185,7 +185,7 @@ describe("DOM query API", () => {
   });
 
   it("matches type selectors through ancestry and supports queryExactlyOne(type)", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>

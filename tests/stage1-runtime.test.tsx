@@ -13,7 +13,6 @@ import {
   Paste,
   SignalError,
   TextualApp,
-  TextualFramework,
   WidgetHost,
   Widget,
   WidgetScope,
@@ -78,7 +77,7 @@ describe("Stage 1 runtime seams", () => {
 
     app.batchUpdate(() => {
       depths.push(app.batchUpdateCount);
-      app.batch_update(() => {
+      app.batchUpdate(() => {
         depths.push(app.batchUpdateCount);
       });
       depths.push(app.batchUpdateCount);
@@ -90,7 +89,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("suppresses prevented message types, including callNext callbacks scheduled inside the scope", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let widget!: Widget;
     const received: string[] = [];
     const unsubscribe = framework.subscribeToMessages((message) => {
@@ -131,7 +130,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("uses exact message types for scoped and long-lived suppression", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let widget!: Widget;
     const received: string[] = [];
 
@@ -178,7 +177,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("dispatches key_<name> handlers directly and resolves aliases", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -214,7 +213,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("rejects duplicate direct key handlers across aliases and private/public methods", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const aliasInstance = render(
       <TextualApp framework={framework}>
@@ -238,7 +237,7 @@ describe("Stage 1 runtime seams", () => {
     aliasInstance.unmount();
     aliasInstance.cleanup();
 
-    const secondFramework = new TextualFramework();
+    const secondFramework = new App().framework;
     const privateInstance = render(
       <TextualApp framework={secondFramework}>
         <WidgetHost
@@ -263,7 +262,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("routes Paste messages, including empty-string pastes", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -295,7 +294,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("supports namespaced message handler resolution", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -331,7 +330,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("accepts valid @on attribute selector declarations", () => {
-    const pane = new TextualFramework();
+    const pane = new App().framework;
     const widget = new Widget({
       framework: pane,
       nodeId: "pane",
@@ -353,7 +352,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("matches positional @on selectors against the declared selector attribute", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -389,7 +388,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("throws when selector-matched message attributes are not registered widgets", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -432,7 +431,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("throws DuplicateIds for duplicate widget ids", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const first = new Widget({
       framework,
       nodeId: "first",
@@ -472,7 +471,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("cleans up signal subscriptions when a widget unmounts", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let publisher!: Widget;
     let subscriber!: Widget;
     let setMounted!: (mounted: boolean) => void;
@@ -534,7 +533,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("returned signal cleanup removes only its own subscription", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let publisher!: Widget;
     let subscriber!: Widget;
 
@@ -575,7 +574,7 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("rejects signal subscriptions from unmounted widgets", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const publisher = new Widget({
       framework,
       nodeId: "publisher",

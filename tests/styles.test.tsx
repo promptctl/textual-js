@@ -1,3 +1,4 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Box, Text } from "ink";
 import { observer } from "mobx-react-lite";
@@ -13,7 +14,6 @@ import {
   Scalar,
   Size,
   TextualApp,
-  TextualFramework,
   Unit,
   WidgetHost,
   Widget,
@@ -110,7 +110,7 @@ const DerivedStyledLabel = observer(function DerivedStyledLabel(props: {
 
 describe("styles and useStyles", () => {
   it("resolves DEFAULT_CSS and user CSS into Ink-compatible props with cascade ordering", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -163,7 +163,7 @@ describe("styles and useStyles", () => {
   });
 
   it("recalculates styles on class mutation, resolves inherited custom properties, and rerenders useStyles consumers", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const renders: string[] = [];
 
     const instance = render(
@@ -213,7 +213,7 @@ describe("styles and useStyles", () => {
   });
 
   it("applies DEFAULT_CSS class selectors to the widget itself", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -241,7 +241,7 @@ describe("styles and useStyles", () => {
   });
 
   it("treats widget.styles as a first-class Styles surface and supports class assignment properties", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -275,7 +275,7 @@ describe("styles and useStyles", () => {
   });
 
   it("lets user CSS beat DEFAULT_CSS important declarations and walks inherited initial defaults", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -315,7 +315,7 @@ describe("styles and useStyles", () => {
   });
 
   it("scopes DEFAULT_CSS by first selector token instead of raw prefix text", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -350,7 +350,7 @@ describe("styles and useStyles", () => {
   });
 
   it("applies nested selectors and lets inline styles override the cascade", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -389,7 +389,7 @@ describe("styles and useStyles", () => {
   });
 
   it("resolves important shorthand declarations against more specific longhands", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -434,7 +434,7 @@ describe("styles and useStyles", () => {
   });
 
   it("resolves initial through DEFAULT_CSS and carries custom properties through inline overrides", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -481,7 +481,7 @@ describe("styles and useStyles", () => {
   });
 
   it("recomputes pseudo-class selectors from canonical registry state", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -521,7 +521,7 @@ describe("styles and useStyles", () => {
   });
 
   it("hides visibility-hidden output while routing input to visible widgets", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -570,7 +570,7 @@ describe("styles and useStyles", () => {
   });
 
   it("resolves viewport units against terminal size instead of parent percentages", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -599,7 +599,7 @@ describe("styles and useStyles", () => {
   });
 
   it("translates the Stage 2 resolved value model to Ink props", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -645,7 +645,7 @@ describe("styles and useStyles", () => {
   });
 
   it("normalizes programmatic style assignments through the public styles surface", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -672,7 +672,7 @@ describe("styles and useStyles", () => {
   });
 
   it("rejects conflicting DEFAULT_CSS declarations for the same widget type", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     framework.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: red; }");
 

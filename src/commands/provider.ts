@@ -3,7 +3,7 @@
 
 import type { App } from "../app/app.js";
 import type { VisualInput } from "../content/index.js";
-import type { Screen, SimpleCommand, SystemCommand, TextualFramework } from "../framework/app-framework.js";
+import type { Screen, SimpleCommand, SystemCommand } from "../framework/app-framework.js";
 import type { Widget } from "../framework/widget.js";
 
 export interface CommandHitInit {
@@ -91,13 +91,11 @@ export class DiscoveryHit {
 
 export type DiscoveryHitLike = DiscoveryHit | DiscoveryHitInit;
 
-// [LAW:one-type-per-behavior] Every field names exactly one type. The former
-// `screen` / `screenEntry` duality collapsed when Screen and ScreenEntry
-// merged (the shim class had no subclassers). The former `focused` /
-// `focusedNode` duality was a sed artifact from the WidgetNode→Widget merge.
+// [LAW:one-type-per-behavior] Every field names exactly one type. Providers
+// always receive the public `App`; the framework is reachable as `app.framework`
+// for providers that need the internal runtime surface.
 export interface ProviderContext {
-  app: App | TextualFramework;
-  framework: TextualFramework;
+  app: App;
   screen: Screen | null;
   focused: Widget | null;
 }
@@ -109,8 +107,8 @@ export abstract class Provider {
     return this.requireContext().app;
   }
 
-  get framework(): TextualFramework {
-    return this.requireContext().framework;
+  get framework() {
+    return this.requireContext().app.framework;
   }
 
   get screen(): Screen | null {
@@ -214,13 +212,10 @@ export class SystemCommandsProvider extends Provider {
   }
 
   private readCommands(): SystemCommand[] {
-    // [LAW:single-enforcer] System command discovery is delegated to the app
-    // resolver; this provider only adapts that canonical list into palette hits.
-    const readCommands =
-      "get_system_commands" in this.app
-        ? this.app.get_system_commands.bind(this.app)
-        : this.framework.getSystemCommands.bind(this.framework);
-    return Array.from(readCommands(this.screen));
+    // [LAW:single-enforcer] System command discovery resolves through the
+    // framework's systemCommandResolver, which App wires to its own
+    // getSystemCommands override. One authoritative list reaches the palette.
+    return Array.from(this.app.framework.getSystemCommands(this.screen));
   }
 }
 

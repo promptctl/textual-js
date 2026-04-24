@@ -453,7 +453,6 @@ export interface WorkDecoratorOptions extends Omit<WorkerOptions, "start"> {}
 
 interface WorkerHost {
   runWorker?: <TResult>(work: WorkerCallable<TResult>, options?: WorkerOptions) => Worker<TResult>;
-  run_worker?: <TResult>(work: WorkerCallable<TResult>, options?: WorkerOptions) => Worker<TResult>;
 }
 
 type WorkMethod = (...args: unknown[]) => unknown;
@@ -499,7 +498,7 @@ function installWorkDecorator(
   const methodName = String(propertyKey);
 
   descriptor.value = function runDecoratedWorker(this: WorkerHost, ...args: unknown[]): Worker<unknown> {
-    const runner = this.runWorker ?? this.run_worker;
+    const runner = this.runWorker;
 
     if (typeof runner !== "function") {
       throw new WorkerDeclarationError("Decorated work methods require a runWorker-capable host");

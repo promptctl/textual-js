@@ -1,7 +1,9 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
   Click,
@@ -11,7 +13,6 @@ import {
   ScrollEvent,
   Size,
   TextualApp,
-  TextualFramework,
   Widget,
   WidgetHost,
   runTest,
@@ -19,7 +20,7 @@ import {
 
 describe("widget disabled state", () => {
   it("marks :disabled on the widget and cascades to descendants", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -46,7 +47,7 @@ describe("widget disabled state", () => {
   });
 
   it("suppresses mouse and key input at disabled widgets but allows scroll", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -95,7 +96,7 @@ describe("widget disabled state", () => {
   });
 
   it("clears focus when a focused descendant becomes disabled by an ancestor", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let setDisabled!: (value: boolean) => void;
 
     function Harness(): React.JSX.Element {
@@ -173,7 +174,7 @@ describe("widget disabled state", () => {
 
 describe("widget loading state", () => {
   it("marks :loading on the widget and suppresses all user input", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -260,7 +261,7 @@ describe("widget loading state", () => {
 
 describe("focus chain gating", () => {
   it("excludes disabled and loading widgets from the focus chain", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -319,7 +320,7 @@ function createTestWidget(
 
 describe("widget scroll shell", () => {
   it("clamps scroll offsets and supports page/end helpers", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const widget = createTestWidget(framework);
 
     widget.updateScreenRegion(new Region(0, 0, 8, 3));
@@ -345,7 +346,7 @@ describe("widget scroll shell", () => {
   });
 
   it("scrolls a target region into view with the minimum delta", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const widget = createTestWidget(framework);
 
     widget.updateScreenRegion(new Region(0, 0, 8, 3));
@@ -357,7 +358,7 @@ describe("widget scroll shell", () => {
   });
 
   it("resolves widget-based visibility against the viewport seam", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const parent = createTestWidget(framework, { nodeId: "parent", id: "parent" });
     const child = createTestWidget(framework, { nodeId: "child", id: "child", parentId: "parent" });
 

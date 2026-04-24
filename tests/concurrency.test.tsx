@@ -1,14 +1,15 @@
+import { App } from "../src/index.js";
 import React, { useLayoutEffect } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
   Message,
   RLock,
   RuntimeError,
   TextualApp,
-  TextualFramework,
   WidgetHost,
   Widget,
   WidgetScope,
@@ -40,7 +41,7 @@ describe("concurrency primitives", () => {
     vi.useFakeTimers();
 
     try {
-      const framework = new TextualFramework();
+      const framework = new App().framework;
       let widget!: Widget;
       const ticks: number[] = [];
 
@@ -88,7 +89,7 @@ describe("concurrency primitives", () => {
   });
 
   it("schedules callbacks for next tick, later, and after refresh", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -129,7 +130,7 @@ describe("concurrency primitives", () => {
   });
 
   it("routes callLater through the message queue and idle drain", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const observed: string[] = [];
     const unsubscribe = framework.subscribeToMessages((message) => {
       observed.push(message.constructor.name);
@@ -161,7 +162,7 @@ describe("concurrency primitives", () => {
   });
 
   it("flushes callNext from the dispatcher before later queued callbacks", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -252,7 +253,7 @@ describe("concurrency primitives", () => {
   });
 
   it("runs callAfterRefresh inside the active message pump context", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let active: TextualFramework | null = null;
 
     const instance = render(
@@ -276,11 +277,11 @@ describe("concurrency primitives", () => {
   });
 
   it("rejects callFromThread when stopped or called from the app thread", async () => {
-    const stopped = new TextualFramework();
+    const stopped = new App().framework;
 
     expect(() => stopped.callFromThread(() => "nope")).toThrow(RuntimeError);
 
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let samePumpError: unknown = null;
 
     const instance = render(

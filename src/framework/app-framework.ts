@@ -676,6 +676,7 @@ export class TextualFramework {
         handleBindingsClash: false,
         activePrevention: false,
         focusTrapNodeId: false,
+        publicApp: false,
       } as never,
       { autoBind: true },
     );
@@ -854,10 +855,6 @@ export class TextualFramework {
         }
       }
     }
-  }
-
-  batch_update<T>(callback: () => T): T {
-    return this.batchUpdate(callback);
   }
 
   private capturePreventionSnapshot(): PreventionSnapshot {
@@ -1611,10 +1608,6 @@ export class TextualFramework {
     return Array.from(this.systemCommandResolver(screen));
   }
 
-  get_system_commands(screen: Screen | null): SystemCommand[] {
-    return this.getSystemCommands(screen);
-  }
-
   private createCommandProviders(baseScreen: Screen | null): Provider[] {
     const appProviders = this.appCommandProviders ?? new Set<ProviderConstructor>([SystemCommandsProvider]);
     const screenProviders = baseScreen?.commandProviders ?? new Set<ProviderConstructor>();
@@ -1639,10 +1632,6 @@ export class TextualFramework {
     this.pushScreen(React.createElement(CommandPaletteScreen, { palette }), { name: CommandPalette.SCREEN_NAME });
     this.postAppMessage(new CommandPalette.Opened());
     return palette;
-  }
-
-  async search_commands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
-    return this.searchCommands(commands);
   }
 
   async openCommandPalette(options: CommandPaletteOptions = {}): Promise<CommandPalette> {
@@ -1679,11 +1668,15 @@ export class TextualFramework {
   }
 
   private createProviderContext(baseScreen: Screen | null, focused: Widget | null): ProviderContext {
-    const contextApp = this.publicApp ?? this;
+    // [LAW:one-source-of-truth] Providers always observe the public App; the
+    // framework is reachable via app.framework. publicApp is set in App's
+    // constructor so this must be present by the time a palette opens.
+    if (this.publicApp === null) {
+      throw new Error("Command palette requires a public App; framework-only harnesses cannot open a palette");
+    }
 
     return {
-      app: contextApp as ProviderContext["app"],
-      framework: this,
+      app: this.publicApp as ProviderContext["app"],
       screen: baseScreen,
       focused,
     };
@@ -2038,11 +2031,6 @@ export class TextualFramework {
     return registeredWorker;
   }
 
-  run_worker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    // [LAW:one-source-of-truth] App-level worker creation delegates to the same
-    // framework boundary as runAppWorker, keeping manager and error behavior shared.
-    return this.runAppWorker(work, options);
-  }
 
   private startWorker<TResult>(worker: Worker<TResult>, shouldStart: boolean): void {
     if (!shouldStart) {

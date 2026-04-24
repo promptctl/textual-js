@@ -20,7 +20,7 @@ import type { Notification } from "../services/notifications.js";
 import { Color } from "../styles/color.js";
 
 export interface TextualAppProps extends PropsWithChildren {
-  framework?: TextualFramework;
+  framework: TextualFramework;
   onReady?: (framework: TextualFramework) => void;
   css?: string;
   stylesheet?: string;
@@ -226,7 +226,7 @@ export const TextualApp = observer(function TextualApp({
   tooltipDelay,
   showTooltips,
 }: TextualAppProps): React.JSX.Element {
-  const [ownedFramework] = useState(() => framework ?? new TextualFramework());
+  const [ownedFramework] = useState(() => framework);
 
   useLayoutEffect(() => {
     onReady?.(ownedFramework);

@@ -3,6 +3,7 @@ import React from "react";
 import type { BindingDeclaration } from "../bindings/index.js";
 import {
   TextualFramework,
+  type AppDriver,
   type KeymapInput,
   type ScreenDescriptor,
   type Screen,
@@ -11,6 +12,7 @@ import {
   type SystemCommand,
   type NotifyOptions,
 } from "../framework/app-framework.js";
+import type { EnvironmentMap } from "../services/environment.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
 import { CommandPalette, type ProviderConstructor } from "../commands/index.js";
 import { Notification, type NotificationContent, type NotificationSeverity } from "../services/notifications.js";
@@ -21,10 +23,8 @@ import { runTestRoot, type RunTestOptions, type TestSession } from "../testing/r
 import { TextualApp } from "./textual-app.js";
 
 export interface AppOptions {
-  framework?: TextualFramework;
   title?: unknown;
   subTitle?: unknown;
-  sub_title?: unknown;
   css?: string;
   cssPath?: string | readonly string[];
   stylesheet?: string;
@@ -36,6 +36,11 @@ export interface AppOptions {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
+  // [LAW:one-source-of-truth] env and driver are runtime-construction inputs
+  // that App forwards to its owned framework. They are not separately stored
+  // on App; the framework is the authority for their effects.
+  env?: EnvironmentMap;
+  driver?: AppDriver;
 }
 
 export interface AppRunTestOptions extends Pick<RunTestOptions, "messageHook" | "size" | "transients"> {}
@@ -60,13 +65,20 @@ interface StoredAppOptions {
 }
 
 export class App<Result = unknown> {
+  // [LAW:one-source-of-truth] App constructs and owns its framework; callers
+  // cannot inject a foreign framework. This collapses the former dual
+  // construction path where either App or TextualFramework could root the tree.
   readonly framework: TextualFramework;
   private readonly appOptions: StoredAppOptions;
   private appTitle = "";
   private appSubTitle = "";
 
   constructor(options: AppOptions = {}) {
-    this.framework = options.framework ?? new TextualFramework();
+    this.framework = new TextualFramework({
+      env: options.env,
+      driver: options.driver,
+      cssPath: options.cssPath,
+    });
     this.framework.setPublicApp(this);
     this.appOptions = {
       css: options.css,
@@ -82,7 +94,7 @@ export class App<Result = unknown> {
       showTooltips: options.showTooltips,
     };
     this.title = options.title ?? "";
-    this.subTitle = options.subTitle ?? options.sub_title ?? "";
+    this.subTitle = options.subTitle ?? "";
   }
 
   protected compose(): React.ReactNode {
@@ -93,13 +105,7 @@ export class App<Result = unknown> {
     return [];
   }
 
-  get_system_commands(screen: unknown): Iterable<SystemCommand> {
-    // [LAW:one-source-of-truth] getSystemCommands remains the canonical JS
-    // override; the snake_case Stage 6 surface delegates to it.
-    return this.getSystemCommands(screen);
-  }
-
-  get screen_stack(): Screen[] {
+  get screenStack(): Screen[] {
     return this.framework.getScreenStack();
   }
 
@@ -107,27 +113,23 @@ export class App<Result = unknown> {
     return this.framework.activeScreen;
   }
 
-  get_screen_stack(): Screen[] {
-    return this.framework.getScreenStack();
-  }
-
-  get_default_screen(): Screen | null {
+  getDefaultScreen(): Screen | null {
     return this.framework.getScreenStack()[0] ?? null;
   }
 
-  install_screen(screen: ScreenDescriptor | (() => React.ReactElement), name: string): void {
+  installScreen(screen: ScreenDescriptor | (() => React.ReactElement), name: string): void {
     this.framework.installScreen(name, normalizeScreenFactory(screen));
   }
 
-  uninstall_screen(name: string): void {
+  uninstallScreen(name: string): void {
     this.framework.uninstallScreen(name);
   }
 
-  get_screen(name: string, expectedType?: React.ComponentType<Record<string, unknown>>): React.ReactElement {
+  getScreen(name: string, expectedType?: React.ComponentType<Record<string, unknown>>): React.ReactElement {
     return expectedType === undefined ? this.framework.getScreen(name) : this.framework.getScreen(name, expectedType);
   }
 
-  get_child_by_id(id: string) {
+  getChildById(id: string) {
     const child = this.framework.registry.getChildren(null).find((widget) => widget.id === id);
 
     if (child === undefined) {
@@ -137,7 +139,7 @@ export class App<Result = unknown> {
     return child;
   }
 
-  get_widget_by_id(id: string) {
+  getWidgetById(id: string) {
     const widget = this.framework.findWidgets(`#${id}`)[0];
 
     if (widget === undefined) {
@@ -147,7 +149,7 @@ export class App<Result = unknown> {
     return widget;
   }
 
-  push_screen(
+  pushScreen(
     descriptor: ScreenDescriptor,
     callbackOrOptions?: ((result: unknown) => void) | (ScreenOptions & { wait_for_dismiss?: boolean }),
     extraOptions?: ScreenOptions,
@@ -161,27 +163,27 @@ export class App<Result = unknown> {
     return this.framework.pushScreen(descriptor, callbackOrOptions as ((result: unknown) => void) | ScreenOptions | undefined, extraOptions);
   }
 
-  push_screen_wait(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Promise<unknown> {
+  pushScreenWait(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Promise<unknown> {
     return this.framework.pushScreenWait(descriptor, options);
   }
 
-  pop_screen(result?: unknown): Screen | null {
+  popScreen(result?: unknown): Screen | null {
     return this.framework.popScreen(result);
   }
 
-  switch_screen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Screen {
+  switchScreen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Screen {
     return this.framework.switchScreen(descriptor, options);
   }
 
-  switch_mode(name: string): void {
+  switchMode(name: string): void {
     this.framework.switchMode(name);
   }
 
-  add_mode(name: string, factory: () => React.ReactElement): void {
+  addMode(name: string, factory: () => React.ReactElement): void {
     this.framework.addMode(name, factory);
   }
 
-  remove_mode(name: string): void {
+  removeMode(name: string): void {
     this.framework.removeMode(name);
   }
 
@@ -225,24 +227,8 @@ export class App<Result = unknown> {
     this.appSubTitle = String(value);
   }
 
-  get sub_title(): string {
-    return this.subTitle;
-  }
-
-  set sub_title(value: unknown) {
-    // [LAW:one-source-of-truth] camelCase storage is the canonical JS state;
-    // the snake_case surface is a derived Stage 0 alias, not a second store.
-    this.subTitle = value;
-  }
-
   get returnValue(): Result | undefined {
     return this.framework.exitResult as Result | undefined;
-  }
-
-  get return_value(): Result | undefined {
-    // [LAW:one-source-of-truth] returnValue remains the canonical JS surface;
-    // the Stage 0 snake_case alias derives from it so the values cannot drift.
-    return this.returnValue;
   }
 
   exit(result?: Result): Result | undefined {
@@ -257,16 +243,8 @@ export class App<Result = unknown> {
     return this.framework.batchUpdate(callback);
   }
 
-  batch_update<T>(callback: () => T): T {
-    return this.batchUpdate(callback);
-  }
-
   runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
     return this.framework.runAppWorker(work, options);
-  }
-
-  run_worker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    return this.runWorker(work, options);
   }
 
   get workers(): WorkerManager {
@@ -285,10 +263,6 @@ export class App<Result = unknown> {
 
   clearNotifications(): void {
     this.framework.clearNotifications();
-  }
-
-  clear_notifications(): void {
-    this.clearNotifications();
   }
 
   _unnotify(notification: Notification): void {
@@ -315,10 +289,6 @@ export class App<Result = unknown> {
     return this.framework.ansiTheme;
   }
 
-  get ansi_theme(): AnsiTheme {
-    return this.ansiTheme;
-  }
-
   get ansiThemeDark(): AnsiTheme {
     return this.framework.ansiThemeDark;
   }
@@ -327,28 +297,12 @@ export class App<Result = unknown> {
     this.framework.ansiThemeDark = theme;
   }
 
-  get ansi_theme_dark(): AnsiTheme {
-    return this.ansiThemeDark;
-  }
-
-  set ansi_theme_dark(theme: AnsiTheme) {
-    this.ansiThemeDark = theme;
-  }
-
   get ansiThemeLight(): AnsiTheme {
     return this.framework.ansiThemeLight;
   }
 
   set ansiThemeLight(theme: AnsiTheme) {
     this.framework.ansiThemeLight = theme;
-  }
-
-  get ansi_theme_light(): AnsiTheme {
-    return this.ansiThemeLight;
-  }
-
-  set ansi_theme_light(theme: AnsiTheme) {
-    this.ansiThemeLight = theme;
   }
 
   get app_suspend_signal() {
@@ -391,10 +345,6 @@ export class App<Result = unknown> {
     return this.framework.searchCommands(commands);
   }
 
-  search_commands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
-    return this.searchCommands(commands);
-  }
-
   private resolveCommandProviders(): Iterable<ProviderConstructor> | null | undefined {
     const constructorProviders = (this.constructor as { COMMANDS?: Iterable<ProviderConstructor> }).COMMANDS;
     // [LAW:one-source-of-truth] App-level COMMANDS replacement is resolved
@@ -420,7 +370,7 @@ export class App<Result = unknown> {
 
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {
     const app = this;
-    const session = await runTestRoot(this.render(), this.framework, options);
+    const session = await runTestRoot(this.render(), this, options);
 
     return {
       framework: session.framework,
@@ -434,12 +384,6 @@ export class App<Result = unknown> {
         return app.returnValue;
       },
     };
-  }
-
-  async run_test(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {
-    // [LAW:one-source-of-truth] runTest is the canonical JS harness entrypoint.
-    // run_test is the Stage 0 alias so both surfaces share one implementation.
-    return this.runTest(options);
   }
 }
 

@@ -202,7 +202,7 @@ describe("testing harness", () => {
   it("exposes the app handle and presses multiple keys as discrete events", async () => {
     const session = await runTest(<CounterApp />);
 
-    expect(session.app).toBe(session.framework);
+    expect(session.app.framework).toBe(session.framework);
     expect(String(session.pilot)).toBe("<Pilot app=TextualFramework>");
 
     await session.pilot.press("x", "x");

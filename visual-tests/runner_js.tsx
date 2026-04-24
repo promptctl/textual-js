@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import React from "react";
 import { render } from "ink";
 
-import { TextualApp, type TextualAppProps } from "../src/index.js";
+import { App, TextualApp, type TextualAppProps } from "../src/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,14 +42,15 @@ async function main(): Promise<void> {
   }
   const Component = fixtureModule.default;
   const appProps = fixtureModule.appProps ?? {};
+  // [LAW:one-source-of-truth] App owns its framework; the runner constructs
+  // an App so the fixture-facing TextualApp receives a single canonical
+  // runtime authority rather than minting its own.
+  const app = new App();
 
-  // [LAW:one-source-of-truth] The fixture default export is the single
-  // component; real-terminal rendering wraps it in TextualApp with exported
-  // appProps and hands it to Ink's render — no test harness in the path.
   render(
     React.createElement(
       TextualApp,
-      appProps,
+      { ...appProps, framework: app.framework },
       React.createElement(Component),
     ),
   );

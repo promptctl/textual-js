@@ -1,3 +1,4 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
@@ -5,6 +6,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
   ActiveModeError,
@@ -15,7 +17,6 @@ import {
   ScreenStackError,
   ScreenSuspend,
   TextualApp,
-  TextualFramework,
   UnknownModeError,
   Widget,
   WidgetHost,
@@ -117,7 +118,7 @@ async function settleScreen(framework: TextualFramework): Promise<void> {
 
 describe("screen stack", () => {
   it("exposes the implicit default screen as the initial stack surface", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     expect(framework.getScreenStack().map((screen) => screen.id)).toEqual(["_default"]);
     expect(framework.activeScreen?.id).toBe("_default");
@@ -125,7 +126,7 @@ describe("screen stack", () => {
   });
 
   it("installs named screens, reuses cached elements, and enforces expected types", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     framework.installScreen("dialog", () => <DialogScreen />);
 
@@ -142,7 +143,7 @@ describe("screen stack", () => {
   });
 
   it("renders pushed screens instead of the default children and emits suspend/resume messages", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const events: string[] = [];
 
     const unsubscribe = framework.subscribeToMessages((message) => {
@@ -182,7 +183,7 @@ describe("screen stack", () => {
   });
 
   it("refuses to pop the last screen", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -199,7 +200,7 @@ describe("screen stack", () => {
   });
 
   it("delivers push results to the supplied callback when popped", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const results: unknown[] = [];
 
     const instance = render(
@@ -224,7 +225,7 @@ describe("screen stack", () => {
   });
 
   it("stores the covered screen's savedFocusNodeId snapshot when another screen is pushed", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -256,7 +257,7 @@ describe("screen stack", () => {
   });
 
   it("reuses the same installed screen element across repeated pushes by name", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.installScreen("dialog", () => <DialogScreen />);
 
     const instance = render(
@@ -282,7 +283,7 @@ describe("screen stack", () => {
   });
 
   it("supports pushScreenWait inside a worker and rejects it outside one", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.installScreen("dialog", () => <DialogScreen />);
 
     const instance = render(
@@ -309,7 +310,7 @@ describe("screen stack", () => {
   });
 
   it("loads static screen CSS and CSS_PATH with precedence over app CSS", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const tempDir = mkdtempSync(join(tmpdir(), "textual-js-screen-css-"));
     const cssPath = join(tempDir, "screen.tcss");
     writeFileSync(cssPath, "#screen-css-target { color: white; }");
@@ -349,7 +350,7 @@ describe("screen stack", () => {
   });
 
   it("runs built-in dismiss actions and resolves callbacks and waiters exactly once", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.installScreen("dialog", () => <DialogScreen />);
     const callbackResults: unknown[] = [];
 
@@ -385,7 +386,7 @@ describe("screen stack", () => {
   });
 
   it("switchScreen replaces the top of the stack without changing depth", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -413,7 +414,7 @@ describe("screen stack", () => {
 
 describe("screen modes", () => {
   it("maintains independent screen stacks per mode", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.addMode("secondary", () => <DialogScreen />);
 
     const instance = render(
@@ -448,7 +449,7 @@ describe("screen modes", () => {
   });
 
   it("publishes mode names and active screen entries through app-level signals", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.addMode("secondary", () => <DialogScreen />);
     const subscriber = createDetachedNode(framework, "SignalSubscriber");
     const modes: string[] = [];
@@ -476,7 +477,7 @@ describe("screen modes", () => {
   });
 
   it("rejects unknown modes, duplicate modes, and removal of the active mode", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     expect(() => framework.switchMode("ghost")).toThrow(UnknownModeError);
 

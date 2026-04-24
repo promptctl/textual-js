@@ -14,7 +14,7 @@ class ReadyApp extends App<string> {
   }
 }
 
-describe("Stage 0 App seam", () => {
+describe("App seam", () => {
   it("instantiates without arguments and coerces titles with JS string semantics", () => {
     const app = new App();
 
@@ -22,11 +22,10 @@ describe("Stage 0 App seam", () => {
     expect(app.subTitle).toBe("");
 
     app.title = null;
-    app.sub_title = [1, 2, 3];
+    app.subTitle = [1, 2, 3];
 
     expect(app.title).toBe("null");
     expect(app.subTitle).toBe("1,2,3");
-    expect(app.sub_title).toBe("1,2,3");
   });
 
   it("runs through the canonical app seam and exposes Pilot after mount", async () => {
@@ -45,16 +44,15 @@ describe("Stage 0 App seam", () => {
     await session.pilot.exit("done");
 
     expect(app.returnValue).toBe("done");
-    expect(app.return_value).toBe("done");
     expect(session.result).toBe("done");
     expect(app.framework.isRunning).toBe(false);
 
     session.unmount();
   });
 
-  it("terminates through app.exit and keeps run_test as an alias", async () => {
+  it("terminates through app.exit", async () => {
     const app = new ReadyApp();
-    const session = await app.run_test();
+    const session = await app.runTest();
 
     expect(app.framework.isRunning).toBe(true);
     expect(app.exit("stop")).toBe("stop");

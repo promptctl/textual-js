@@ -1,15 +1,16 @@
+import { App } from "../src/index.js";
 import React, { useLayoutEffect } from "react";
 import { threadId } from "node:worker_threads";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
   Content,
   Widget,
   WidgetScope,
   TextualApp,
-  TextualFramework,
   DeadlockError,
   WorkerDeclarationError,
   WorkerError,
@@ -52,7 +53,7 @@ function WorkerHarness(props: {
 
 describe("workers", () => {
   it("tracks lifecycle, progress, current worker context, and manager cleanup", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const states: string[] = [];
     let widget!: Widget;
 
@@ -95,7 +96,7 @@ describe("workers", () => {
   });
 
   it("maps aborts to cancellation and reports failures distinctly", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const states: string[] = [];
     let widget!: Widget;
 
@@ -142,7 +143,7 @@ describe("workers", () => {
   });
 
   it("cancels widget-owned workers on unmount", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let widget!: Widget;
 
     const instance = render(
@@ -174,8 +175,8 @@ describe("workers", () => {
   });
 
   it("supports run_worker aliases, pending start, callable inputs, and manager surfaces", async () => {
-    const framework = new TextualFramework();
-    const pendingWorker = framework.run_worker(async () => "pending", { start: false, name: "pending" });
+    const framework = new App().framework;
+    const pendingWorker = framework.runAppWorker(async () => "pending", { start: false, name: "pending" });
 
     expect(pendingWorker.state).toBe("pending");
     expect(framework.workers.has(pendingWorker)).toBe(true);
@@ -184,8 +185,8 @@ describe("workers", () => {
     framework.workers.start_all();
     await expect(pendingWorker.wait()).resolves.toBe("pending");
 
-    const promiseWorker = framework.run_worker(Promise.resolve("promise"), { name: "promise" });
-    const syncThreadWorker = framework.run_worker(() => {
+    const promiseWorker = framework.runAppWorker(Promise.resolve("promise"), { name: "promise" });
+    const syncThreadWorker = framework.runAppWorker(() => {
       return globalThis.process ? 1 : 0;
     }, { thread: true, name: "sync", description: Content.styled("sync worker", "bold") });
 
@@ -201,11 +202,11 @@ describe("workers", () => {
   });
 
   it("runs sync and async thread workers on a worker thread", async () => {
-    const framework = new TextualFramework();
-    const syncThreadWorker = framework.run_worker(() => {
+    const framework = new App().framework;
+    const syncThreadWorker = framework.runAppWorker(() => {
       return require("node:worker_threads").threadId as number;
     }, { thread: true, name: "sync-thread" });
-    const asyncThreadWorker = framework.run_worker(async () => {
+    const asyncThreadWorker = framework.runAppWorker(async () => {
       return require("node:worker_threads").threadId as number;
     }, { thread: true, name: "async-thread" });
 
@@ -215,18 +216,18 @@ describe("workers", () => {
   });
 
   it("defaults exitOnError to true but suppresses app error forwarding when disabled", async () => {
-    const defaultFramework = new TextualFramework();
+    const defaultFramework = new App().framework;
     defaultFramework.setCaptureUnhandledErrors(true);
-    const defaultWorker = defaultFramework.run_worker(async () => {
+    const defaultWorker = defaultFramework.runAppWorker(async () => {
       throw new Error("default failure");
     }, { name: "default-failure" });
 
     await expect(defaultWorker.wait()).rejects.toBeInstanceOf(WorkerFailed);
     await expect(defaultFramework.whenIdle()).rejects.toBeInstanceOf(WorkerFailed);
 
-    const suppressedFramework = new TextualFramework();
+    const suppressedFramework = new App().framework;
     suppressedFramework.setCaptureUnhandledErrors(true);
-    const suppressedWorker = suppressedFramework.run_worker(async () => {
+    const suppressedWorker = suppressedFramework.runAppWorker(async () => {
       throw new Error("suppressed failure");
     }, { name: "suppressed-failure", exitOnError: false });
 
@@ -239,7 +240,7 @@ describe("workers", () => {
       constructor(readonly framework: TextualFramework) {}
 
       runWorker(callable: never, options = {}) {
-        return this.framework.run_worker(callable, options);
+        return this.framework.runAppWorker(callable, options);
       }
 
       async asyncTask(value: string): Promise<string> {
@@ -287,7 +288,7 @@ describe("workers", () => {
       work(InvalidHost.prototype, "sync", invalidDescriptor);
     }).toThrow(WorkerDeclarationError);
 
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const host = new DecoratedWorkerHost(framework);
 
     await expect((host.asyncTask("ok") as unknown as { wait: () => Promise<unknown> }).wait()).resolves.toBe("async:ok");
@@ -301,11 +302,11 @@ describe("workers", () => {
   });
 
   it("allows nested workers and surfaces self-wait deadlocks as worker failures", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const results: string[] = [];
 
-    const parent = framework.run_worker(async () => {
-      framework.run_worker(async () => {
+    const parent = framework.runAppWorker(async () => {
+      framework.runAppWorker(async () => {
         results.push("child");
       }, { name: "child" });
       results.push("parent");
@@ -316,7 +317,7 @@ describe("workers", () => {
 
     expect(new Set(results)).toEqual(new Set(["parent", "child"]));
 
-    const selfWaiter = framework.run_worker(async () => {
+    const selfWaiter = framework.runAppWorker(async () => {
       await getCurrentWorker().wait();
     }, { name: "self" });
 

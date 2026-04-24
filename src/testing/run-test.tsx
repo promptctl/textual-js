@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink-testing-library";
 
 import type { Message } from "../events/message.js";
+import { App } from "../app/app.js";
 import { TextualApp, type TextualAppProps } from "../app/textual-app.js";
 import { TextualFramework } from "../framework/app-framework.js";
 import { Size } from "../geometry/index.js";
@@ -378,7 +379,7 @@ async function settleFramework(framework: TextualFramework): Promise<void> {
 }
 
 export interface TestSession {
-  app: TextualFramework;
+  app: App;
   framework: TextualFramework;
   pilot: Pilot;
   cleanup: () => void;
@@ -390,9 +391,10 @@ export interface TestSession {
 
 export async function runTestRoot(
   root: React.ReactElement,
-  framework: TextualFramework,
+  app: App,
   options: RunTestOptions = {},
 ): Promise<TestSession> {
+  const framework = app.framework;
   const size = options.size ?? { width: 80, height: 24 };
 
   // [LAW:one-source-of-truth] The requested test size is installed on the
@@ -439,7 +441,7 @@ export async function runTestRoot(
   };
 
   return {
-    app: framework,
+    app,
     framework,
     pilot: new Pilot(framework),
     cleanup: unmount,
@@ -453,16 +455,16 @@ export async function runTestRoot(
 }
 
 export async function runTest(component: AppInput, options: RunTestOptions = {}): Promise<TestSession> {
-  const framework = new TextualFramework();
+  const app = new App();
   const root = (
     <TextualApp
       {...options.appProps}
-      framework={framework}
+      framework={app.framework}
       showTooltips={options.transients?.tooltips ?? false}
     >
       {resolveComponent(component, options.props ?? {})}
     </TextualApp>
   );
 
-  return runTestRoot(root, framework, options);
+  return runTestRoot(root, app, options);
 }

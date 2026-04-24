@@ -1,8 +1,9 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 
-import { Footer, TextualFramework, WidgetHost, runTest } from "../src/index.js";
+import { Footer, WidgetHost, runTest } from "../src/index.js";
 
 describe("footer active bindings", () => {
   it("renders focused widget bindings before app bindings", async () => {
@@ -136,7 +137,7 @@ describe("footer active bindings", () => {
         </WidgetHost>
         <Footer />
       </>,
-      { appProps: { framework: new TextualFramework() } },
+      { appProps: { framework: new App().framework } },
     );
 
     expect(session.lastFrame()).toContain("f1 First");

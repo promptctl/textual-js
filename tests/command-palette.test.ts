@@ -14,7 +14,6 @@ import {
   Provider,
   Static,
   SystemCommandsProvider,
-  TextualFramework,
   WidgetHost,
   WorkerCancelled,
   runTest,
@@ -95,10 +94,9 @@ function createPalette(
   providers: Provider[],
   options?: { runOnSelect?: boolean; run_on_select?: boolean },
 ): CommandPalette {
-  const framework = new TextualFramework();
+  const app = new App();
   return new CommandPalette(providers, {
-    app: framework,
-    framework,
+    app,
     screen: null,
     focused: null,
   }, options);
@@ -128,7 +126,7 @@ describe("command palette provider model", () => {
     createPalette([provider]);
 
     expect(provider.context).not.toBeNull();
-    expect(provider.context?.app).toBeInstanceOf(TextualFramework);
+    expect(provider.context?.app).toBeInstanceOf(App);
     expect(provider.context?.screen).toBeNull();
     expect(provider.context?.focused).toBeNull();
   });
@@ -174,7 +172,7 @@ describe("command palette provider composition", () => {
   ScreenWithCommands.COMMANDS = new Set([ScreenProvider]);
 
   it("uses SystemCommandsProvider by default", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const palette = await framework.openCommandPalette();
 
@@ -182,7 +180,7 @@ describe("command palette provider composition", () => {
   });
 
   it("replaces default system providers with app COMMANDS and adds screen COMMANDS", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.setAppCommandProviders(new Set([AppProvider]));
     framework.pushScreen(ScreenWithCommands);
 
@@ -219,7 +217,7 @@ describe("command palette provider composition", () => {
 
     await session.framework.openCommandPalette();
 
-    expect(contexts[0]?.app).toBe(session.framework);
+    expect(contexts[0]?.app).toBe(session.app);
     expect(contexts[0]?.screen).toBe(session.framework.getScreenStack()[0]);
     expect(contexts[0]?.focused?.typeName).toBe("Focused");
 
@@ -403,7 +401,7 @@ describe("command palette options", () => {
     CommandPalette.run_on_select = false;
 
     const palette = createPalette([]);
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
 
     expect(palette.runOnSelect).toBe(false);
@@ -423,7 +421,7 @@ describe("command palette options", () => {
   });
 
   it("reports open state from the active screen name", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     expect(CommandPalette.isOpen(framework)).toBe(false);
 
@@ -435,7 +433,7 @@ describe("command palette options", () => {
   });
 
   it("ignores non-palette screens when checking open state", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     framework.pushScreen(React.createElement(React.Fragment), { name: "dialog" });
     expect(CommandPalette.isOpen(framework)).toBe(false);
@@ -532,7 +530,7 @@ describe("command palette screen interaction", () => {
   });
 
   it("cancels palette-owned workers without disturbing unrelated app workers", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const unrelated = framework.runAppWorker(async (signal) => {
       await new Promise((_resolve, reject) => {
         signal.addEventListener("abort", () => {

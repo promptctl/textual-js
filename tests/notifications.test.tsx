@@ -11,7 +11,6 @@ import {
   Notifications,
   Color,
   TextualApp,
-  TextualFramework,
   Widget,
   WidgetScope,
   useWidget,
@@ -103,7 +102,7 @@ describe("notifications and themes", () => {
   });
 
   it("funnels widget notifications into the app store, posts Notify, and reapplies theme CSS variables", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let widget!: Widget;
     const observedThemes: string[] = [];
     const notifyMessages: Notification[] = [];
@@ -169,8 +168,8 @@ describe("notifications and themes", () => {
   });
 
   it("exposes app notification, worker, feature, and app-level signal surfaces", () => {
-    const framework = new TextualFramework({ env: { TEXTUAL: "devtools, debug" } });
-    const app = new App({ framework });
+    const app = new App({ env: { TEXTUAL: "devtools, debug" } });
+    const framework = app.framework;
     const notification = app.notify("public", { timeout: 0 });
 
     expect(app.workers).toBe(framework.workers);
@@ -186,7 +185,7 @@ describe("notifications and themes", () => {
   });
 
   it("stores theme palette values as Color and exposes derived CSS variables", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const activeTheme = framework.registerTheme({
       name: "custom-color-theme",
       dark: false,
@@ -220,7 +219,7 @@ describe("notifications and themes", () => {
     vi.useFakeTimers();
 
     try {
-      const framework = new TextualFramework();
+      const framework = new App().framework;
 
       const instance = render(
         <TextualApp framework={framework}>

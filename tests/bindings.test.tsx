@@ -1,7 +1,9 @@
+import { App } from "../src/index.js";
 import React, { useEffect } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
   ActionError,
@@ -11,7 +13,6 @@ import {
   type BindingNamespace,
   SkipAction,
   TextualApp,
-  TextualFramework,
   WidgetHost,
   makeBindings,
   parseAction,
@@ -114,7 +115,7 @@ describe("binding normalization", () => {
 
 describe("binding dispatch", () => {
   it("runs widget bindings before ancestor bindings before screen before app", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -175,7 +176,7 @@ describe("binding dispatch", () => {
   });
 
   it("fires the hard-coded ctrl+q priority binding before the key reaches widget handlers", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -214,7 +215,7 @@ describe("binding dispatch", () => {
   });
 
   it("respects checkAction gates: true enables, null disables, false hides", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let callCount = 0;
 
     const instance = render(
@@ -256,7 +257,7 @@ describe("binding dispatch", () => {
     };
 
     try {
-      const framework = new TextualFramework();
+      const framework = new App().framework;
       const instance = render(
         <TextualApp framework={framework}>
           <WidgetHost
@@ -288,7 +289,7 @@ describe("binding dispatch", () => {
   });
 
   it("consumes disabled bindings instead of bubbling past them", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -330,7 +331,7 @@ describe("binding dispatch", () => {
   });
 
   it("lets SkipAction fall through to the next binding in the chain", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -372,7 +373,7 @@ describe("binding dispatch", () => {
   });
 
   it("lets SkipAction fall through after a keymap remap", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     framework.setKeymap({ primary: "f6" });
@@ -416,7 +417,7 @@ describe("binding dispatch", () => {
   });
 
   it("replaces the full keymap, merges updates, and publishes bindings_updated_signal", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const onUpdate = vi.fn();
     const order: string[] = [];
 
@@ -467,7 +468,7 @@ describe("binding dispatch", () => {
   });
 
   it("applies pre-mount keymaps once the app starts", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     framework.updateKeymap({ save: "f7" });
@@ -503,7 +504,7 @@ describe("binding dispatch", () => {
   });
 
   it("ignores unknown keymap ids and deactivates the original binding key after remap", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -541,7 +542,7 @@ describe("binding dispatch", () => {
   });
 
   it("remaps shared binding ids on both parent and child bindings", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     framework.setKeymap({ save: "f8" });
@@ -593,7 +594,7 @@ describe("binding dispatch", () => {
   });
 
   it("remaps only the binding ids present in the keymap", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     framework.setKeymap({ ancestor_save: "f9" });
@@ -646,7 +647,7 @@ describe("binding dispatch", () => {
   });
 
   it("reports per-namespace key clashes only once for the active chain", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const clashes: Array<{ clashes: BindingClash[]; namespace: BindingNamespace }> = [];
     const clashSpy = vi
       .spyOn(framework, "handleBindingsClash")
@@ -689,7 +690,7 @@ describe("binding dispatch", () => {
   });
 
   it("fires the hard-coded ctrl+c quit binding when nothing lower handles it", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -719,7 +720,7 @@ describe("binding dispatch", () => {
   });
 
   it("routes the hard-coded ctrl+p binding to action_command_palette", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const order: string[] = [];
 
     const instance = render(
@@ -749,7 +750,7 @@ describe("binding dispatch", () => {
   });
 
   it("keeps the hard-coded ctrl+p binding as a safe no-op by default", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -771,7 +772,7 @@ describe("binding dispatch", () => {
   });
 
   it("resolves namespace.action targets independent of the caller", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const log: string[] = [];
 
     framework.setAppBindings([]);

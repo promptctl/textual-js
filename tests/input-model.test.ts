@@ -1,8 +1,7 @@
+import { App } from "../src/index.js";
 import { describe, expect, it } from "vitest";
 
 import { InputModel as Input, InputChanged, InputSubmitted, createInputActions } from "../src/widgets/input.js";
-import { TextualFramework } from "../src/index.js";
-
 describe("Input model", () => {
   it("constructs with default empty value", () => {
     const input = new Input();
@@ -441,7 +440,7 @@ describe("Input messages", () => {
 
 describe("Input framework action routing", () => {
   it("exposes movement commands through the canonical action dispatcher", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const input = new Input({ value: "hello world" });
     const actions = createInputActions(input);
 
@@ -462,7 +461,7 @@ describe("Input framework action routing", () => {
   });
 
   it("exposes delete commands through the canonical action dispatcher", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const input = new Input({ value: "hello world" });
     const actions = createInputActions(input);
 

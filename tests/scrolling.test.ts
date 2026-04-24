@@ -1,6 +1,8 @@
+import { App } from "../src/index.js";
 import { describe, expect, it } from "vitest";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
-import { Offset, Region, Size, TextualFramework, Widget } from "../src/index.js";
+import { Offset, Region, Size, Widget } from "../src/index.js";
 
 describe("scroll geometry", () => {
   it("computes zero offset when the target is already within the window", () => {
@@ -122,7 +124,7 @@ describe("scroll animation level infrastructure", () => {
   }
 
   it("records animated scroll targets for full and basic levels", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const widget = createScrollWidget(framework);
 
     framework.setAnimationLevel("full");
@@ -139,7 +141,7 @@ describe("scroll animation level infrastructure", () => {
   });
 
   it("suppresses animated scroll metadata when animation level is none", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const widget = createScrollWidget(framework);
 
     framework.setAnimationLevel("none");

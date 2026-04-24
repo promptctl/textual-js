@@ -2,8 +2,10 @@ import React, { useLayoutEffect, useState } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
+  App,
   Click,
   AppBlur,
   AppFocus,
@@ -17,7 +19,6 @@ import {
   _get_environ_port,
   runTest,
   TextualApp,
-  TextualFramework,
   type AppDriver,
   type AnsiTheme,
   WidgetHost,
@@ -107,7 +108,7 @@ function createDetachedWidget(framework: TextualFramework, options: Partial<Cons
 
 describe("TextualApp and widget registry", () => {
   it("renders inside ink-testing-library and exposes framework services", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -129,7 +130,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("registers on mount and deregisters on unmount", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -153,7 +154,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("accepts app-level css through the stage-0 startup surface", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp
@@ -179,7 +180,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("exposes an app-level dispatch surface through TextualApp context", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let appContext!: TextualFramework;
     const senders: unknown[] = [];
 
@@ -218,7 +219,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("clears focus on app blur and restores it on app focus", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const events: string[] = [];
 
     const unsubscribe = framework.subscribeToMessages((message) => {
@@ -253,7 +254,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("leaves focus cleared when the blurred widget is removed before app focus returns", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let setVisible!: (visible: boolean) => void;
 
     const instance = render(
@@ -284,7 +285,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("allows loading before mount and exposes the loading cover after registration", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const widget = createDetachedWidget(framework, { id: "loading-before-mount" });
 
     expect(() => {
@@ -299,7 +300,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("disables scrollbar availability when loading is true", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const widget = createDetachedWidget(framework, { id: "scroll-shell" });
     framework.registerWidget(widget);
 
@@ -320,7 +321,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("does not render widget children until the mount lifecycle has completed", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const events: string[] = [];
     let resolveMount!: () => void;
     const mountGate = new Promise<void>((resolve) => {
@@ -371,7 +372,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("shuts down without deadlocking during teardown with live workers, timers, and nested widgets", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     function TeardownHarness(): React.JSX.Element {
       return (
@@ -426,7 +427,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("preserves explicit focus changes made while the app is blurred", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework} autoFocus="#focus-a">
@@ -546,7 +547,7 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("selects ANSI themes from dark/light mode and publishes app theme changes", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     let widget!: Widget;
     const observedThemes: string[] = [];
     const customDark: AnsiTheme = { name: "custom-dark", colors: Array.from({ length: 16 }, () => "#111111") };
@@ -604,7 +605,7 @@ describe("TextualApp and widget registry", () => {
         calls.push("driver:resume");
       },
     };
-    const framework = new TextualFramework({ driver });
+    const framework = new App({ driver }).framework;
     let widget!: Widget;
 
     const instance = render(
@@ -632,14 +633,14 @@ describe("TextualApp and widget registry", () => {
 
     expect(calls).toEqual(["signal:suspend", "driver:suspend", "body", "driver:resume", "signal:resume"]);
 
-    const unsupported = new TextualFramework({
+    const unsupported = new App({
       driver: {
         canSuspend: true,
         isHeadless: true,
         suspendApplicationMode: () => undefined,
         resumeApplicationMode: () => undefined,
       },
-    });
+    }).framework;
 
     await expect(unsupported.suspend(() => undefined)).rejects.toBeInstanceOf(SuspendNotSupported);
 
@@ -649,8 +650,9 @@ describe("TextualApp and widget registry", () => {
     instance.cleanup();
   });
 
-  it("opens search_commands with command entries and handles empty command lists", async () => {
-    const framework = new TextualFramework();
+  it("opens searchCommands with command entries and handles empty command lists", async () => {
+    const app = new App();
+    const framework = app.framework;
     const selected: string[] = [];
 
     const instance = render(
@@ -661,7 +663,7 @@ describe("TextualApp and widget registry", () => {
 
     await framework.whenIdle();
 
-    const palette = await framework.search_commands([
+    const palette = await framework.searchCommands([
       ["Open File", () => {
         selected.push("open");
       }, "Open a file"],
@@ -679,7 +681,7 @@ describe("TextualApp and widget registry", () => {
     results[0]?.command();
     expect(selected).toEqual(["open"]);
 
-    const emptyPalette = await framework.search_commands([]);
+    const emptyPalette = await framework.searchCommands([]);
     expect(await emptyPalette.search("anything")).toEqual([]);
 
     instance.unmount();
@@ -687,9 +689,9 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("parses TEXTUAL feature flags and environment helper values", () => {
-    const empty = new TextualFramework({ env: { TEXTUAL: "" } });
-    const debug = new TextualFramework({ env: { TEXTUAL: "devtools, debug" } });
-    const debugWithoutDevtools = new TextualFramework({ env: { TEXTUAL: "debug" } });
+    const empty = new App({ env: { TEXTUAL: "" } }).framework;
+    const debug = new App({ env: { TEXTUAL: "devtools, debug" } }).framework;
+    const debugWithoutDevtools = new App({ env: { TEXTUAL: "debug" } }).framework;
 
     expect(empty.features.size).toBe(0);
     expect(empty.devtools).toBeNull();

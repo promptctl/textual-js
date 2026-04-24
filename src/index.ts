@@ -119,8 +119,6 @@ export {
   type SimpleCommand,
   StylesheetError,
   SuspendNotSupported,
-  type TextualFrameworkOptions,
-  TextualFramework,
   TextualProvider,
   UnknownModeError,
   Widget,

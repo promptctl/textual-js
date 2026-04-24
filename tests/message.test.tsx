@@ -1,8 +1,9 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Idle, Message, MouseMove, on, Resize, TextualApp, TextualFramework, WidgetHost } from "../src/index.js";
+import { Idle, Message, MouseMove, on, Resize, TextualApp, WidgetHost } from "../src/index.js";
 import { render } from "ink-testing-library";
 
 class Ping extends Message {}
@@ -48,7 +49,7 @@ describe("message dispatch", () => {
   });
 
   it("resolves widget handlers and bubbles through the registered tree", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -93,7 +94,7 @@ describe("message dispatch", () => {
   });
 
   it("coalesces replaceable queued messages", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: number[] = [];
 
     const instance = render(
@@ -130,7 +131,7 @@ describe("message dispatch", () => {
   });
 
   it("coalesces built-in queue messages to their latest value", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -177,7 +178,7 @@ describe("message dispatch", () => {
   });
 
   it("dispatches compose, mount, and unmount lifecycle messages", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -213,7 +214,7 @@ describe("message dispatch", () => {
   });
 
   it("runs an idle pass after startup drains the initial lifecycle queue", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -243,7 +244,7 @@ describe("message dispatch", () => {
   });
 
   it("tracks sender and message metadata", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const senders: unknown[] = [];
 
     const instance = render(
@@ -279,7 +280,7 @@ describe("message dispatch", () => {
   });
 
   it("publishes messages to subscribers even when noDispatch short-circuits handlers", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
     const observed: string[] = [];
     const unsubscribe = framework.subscribeToMessages((message) => {
@@ -316,7 +317,7 @@ describe("message dispatch", () => {
   });
 
   it("stops remaining local handlers after preventDefault while still bubbling", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -362,7 +363,7 @@ describe("message dispatch", () => {
   });
 
   it("runs selector-filtered on handlers before convention handlers and avoids double-dispatch", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -400,7 +401,7 @@ describe("message dispatch", () => {
   });
 
   it("deduplicates overlapping on registrations for inherited message types", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
     const handler = on(Ping, on(ChildPing, () => {
       received.push("handled");
@@ -432,7 +433,7 @@ describe("message dispatch", () => {
   });
 
   it("runs derived and base decorated prototype handlers in order", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -459,7 +460,7 @@ describe("message dispatch", () => {
   });
 
   it("drains reentrant postMessage calls in queue order without recursive dispatch", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(

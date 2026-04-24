@@ -1,9 +1,11 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
-import { TextualApp, TextualFramework, WidgetHost, runTest } from "../src/index.js";
+import { TextualApp, WidgetHost, runTest } from "../src/index.js";
 
 function FocusHarness(): React.JSX.Element {
   return (
@@ -58,7 +60,7 @@ async function settleFocus(framework: TextualFramework): Promise<void> {
 
 describe("focus manager", () => {
   it("tracks :focus pseudo-class and emits Focus/Blur on transitions", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const received: string[] = [];
 
     const instance = render(
@@ -106,7 +108,7 @@ describe("focus manager", () => {
   });
 
   it("cycles focus through the focus chain with focusNext and focusPrevious", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -132,7 +134,7 @@ describe("focus manager", () => {
   });
 
   it("supports selector-filtered focus navigation and clears focus when no candidate matches", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -216,7 +218,7 @@ describe("focus manager", () => {
   });
 
   it("restores focus to the previous screen after pop and mode return", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     framework.addMode("secondary", () => <DialogRestoreScreen />);
 
     const instance = render(
@@ -262,7 +264,7 @@ describe("focus manager", () => {
   });
 
   it("applies app and screen auto-focus selectors with screen precedence", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
 
     const instance = render(
       <TextualApp framework={framework} autoFocus="Label">

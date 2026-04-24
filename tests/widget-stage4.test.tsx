@@ -1,7 +1,9 @@
+import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
 
 import {
   BadWidgetName,
@@ -13,7 +15,6 @@ import {
   Show,
   Size,
   TextualApp,
-  TextualFramework,
   Widget,
   WidgetHost,
   Widget,
@@ -50,7 +51,7 @@ function createNode(
 
 describe("public Widget base surface", () => {
   it("requires a framework on construction and validates class names", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     class Parent extends Widget {}
     class Child extends Widget {}
 
@@ -72,7 +73,7 @@ describe("public Widget base surface", () => {
   });
 
   it("mounts, moves, removes, sorts, and looks up direct children", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
     const first = createNode(framework, { nodeId: "first", id: "first", typeName: "Leaf" });
     const second = createNode(framework, { nodeId: "second", id: "second", typeName: "Leaf" });
@@ -103,7 +104,7 @@ describe("public Widget base surface", () => {
   });
 
   it("mount_all accepts iterables and preserves mount placement/error contracts", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const mountedParent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
     const detachedParent = createNode(framework, { nodeId: "detached", id: "detached", typeName: "Parent" });
     const existing = createNode(framework, { nodeId: "existing", id: "existing", typeName: "Leaf" });
@@ -125,7 +126,7 @@ describe("public Widget base surface", () => {
   });
 
   it("resolves _find_mount_point for indices, selectors, widget references, and spec error cases", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
     const alpha = createNode(framework, { nodeId: "alpha", id: "alpha", typeName: "Alpha" });
     const beta = createNode(framework, { nodeId: "beta", id: "beta", typeName: "Beta" });
@@ -153,7 +154,7 @@ describe("public Widget base surface", () => {
       }
     }
 
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const parent = createNode(framework, { nodeId: "parent", id: "parent" });
     const first = createNode(framework, { nodeId: "first", id: "first", parentId: "parent", typeName: "Leaf" });
     const second = createNode(framework, { nodeId: "second", id: "second", parentId: "parent", typeName: "Leaf" });
@@ -189,7 +190,7 @@ describe("Stage 4 focus and visibility policy", () => {
       return <Text>unused</Text>;
     }
 
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const instance = render(
       <TextualApp framework={framework}>
         <WidgetHost typeName="Container" canFocusChildren={false}>
@@ -216,7 +217,7 @@ describe("Stage 4 focus and visibility policy", () => {
   });
 
   it("reassigns focus when the focused widget is removed", () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const first = createNode(framework, { nodeId: "first", id: "first", focusable: true });
     const second = createNode(framework, { nodeId: "second", id: "second", focusable: true });
 
@@ -229,7 +230,7 @@ describe("Stage 4 focus and visibility policy", () => {
   });
 
   it("emits Show and Hide when visible changes", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const events: string[] = [];
     const widget = createNode(framework, {
       nodeId: "visible",
@@ -281,7 +282,7 @@ describe("Stage 4 focus and visibility policy", () => {
   });
 
   it("traps focus to a subtree only when focus is already inside it and restores the full chain on release", async () => {
-    const framework = new TextualFramework();
+    const framework = new App().framework;
     const instance = render(
       <TextualApp framework={framework}>
         <WidgetHost typeName="Dialog" id="dialog">
