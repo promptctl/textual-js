@@ -3,7 +3,7 @@ import { computed, type IComputedValue } from "mobx";
 import { parseTcss } from "../styles/stylesheet.js";
 import { parseSelectorList, type ParsedSelector } from "../styles/selectors.js";
 import type { TextualFramework } from "./app-framework.js";
-import type { WidgetNode } from "./widget-node.js";
+import type { Widget } from "./widget.js";
 
 export class NoMatches extends Error {}
 
@@ -15,7 +15,7 @@ export class DeclarationError extends Error {}
 
 export type QueryTypeConstraint = string | (abstract new (...args: never[]) => unknown);
 
-export function matchesQueryTypeConstraint(widget: WidgetNode, typeConstraint: QueryTypeConstraint | undefined): boolean {
+export function matchesQueryTypeConstraint(widget: Widget, typeConstraint: QueryTypeConstraint | undefined): boolean {
   if (typeConstraint === undefined) {
     return true;
   }
@@ -24,7 +24,7 @@ export function matchesQueryTypeConstraint(widget: WidgetNode, typeConstraint: Q
   return widget.matchesType(resolvedTypeName);
 }
 
-export function ensureQueryType(widget: WidgetNode, typeConstraint: QueryTypeConstraint | undefined): WidgetNode {
+export function ensureQueryType(widget: Widget, typeConstraint: QueryTypeConstraint | undefined): Widget {
   if (!matchesQueryTypeConstraint(widget, typeConstraint)) {
     throw new WrongType(`Query matched "${widget.typeName}", not the requested type`);
   }
@@ -32,15 +32,15 @@ export function ensureQueryType(widget: WidgetNode, typeConstraint: QueryTypeCon
   return widget;
 }
 
-export class DOMQuery implements Iterable<WidgetNode> {
+export class DOMQuery implements Iterable<Widget> {
   private static readonly simpleCache = new Map<string, ParsedSelector[][]>();
   private readonly selectorFilters: ParsedSelector[][];
   private readonly selectorExcludes: ParsedSelector[][];
-  private readonly resultsComputed: IComputedValue<WidgetNode[]>;
+  private readonly resultsComputed: IComputedValue<Widget[]>;
 
   constructor(
     private readonly framework: TextualFramework,
-    private readonly root: WidgetNode,
+    private readonly root: Widget,
     private readonly mode: "descendants" | "children",
     filters: ParsedSelector[][] = [],
     excludes: ParsedSelector[][] = [],
@@ -50,7 +50,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
     this.resultsComputed = computed(() => this.computeResults());
   }
 
-  [Symbol.iterator](): Iterator<WidgetNode> {
+  [Symbol.iterator](): Iterator<Widget> {
     return this.results()[Symbol.iterator]();
   }
 
@@ -62,19 +62,19 @@ export class DOMQuery implements Iterable<WidgetNode> {
     return this.length === 0;
   }
 
-  at(index: number): WidgetNode | undefined {
+  at(index: number): Widget | undefined {
     return this.results()[index];
   }
 
-  slice(start?: number, end?: number): WidgetNode[] {
+  slice(start?: number, end?: number): Widget[] {
     return this.results().slice(start, end);
   }
 
-  reversed(): WidgetNode[] {
+  reversed(): Widget[] {
     return [...this.results()].reverse();
   }
 
-  first(typeConstraint?: QueryTypeConstraint): WidgetNode {
+  first(typeConstraint?: QueryTypeConstraint): Widget {
     const [first] = this.results();
 
     if (first === undefined) {
@@ -84,7 +84,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
     return ensureQueryType(first, typeConstraint);
   }
 
-  last(typeConstraint?: QueryTypeConstraint): WidgetNode {
+  last(typeConstraint?: QueryTypeConstraint): Widget {
     const matches = this.results();
     const last = matches[matches.length - 1];
 
@@ -95,7 +95,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
     return ensureQueryType(last, typeConstraint);
   }
 
-  onlyOne(typeConstraint?: QueryTypeConstraint): WidgetNode {
+  onlyOne(typeConstraint?: QueryTypeConstraint): Widget {
     const matches = this.results(typeConstraint);
 
     if (matches.length === 0) {
@@ -117,7 +117,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
     return new DOMQuery(this.framework, this.root, this.mode, this.selectorFilters, [...this.selectorExcludes, DOMQuery.parseSelectors(selectorText)]);
   }
 
-  results(typeConstraint?: QueryTypeConstraint): WidgetNode[] {
+  results(typeConstraint?: QueryTypeConstraint): Widget[] {
     const matches = this.resultsComputed.get();
 
     return typeConstraint === undefined
@@ -180,7 +180,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
     return this;
   }
 
-  focus(): WidgetNode | null {
+  focus(): Widget | null {
     const focusable = this.results().find((widget) => widget.focusable);
     this.framework.focusWidget(focusable?.nodeId ?? null);
     return focusable ?? null;
@@ -196,7 +196,7 @@ export class DOMQuery implements Iterable<WidgetNode> {
     return this;
   }
 
-  private computeResults(): WidgetNode[] {
+  private computeResults(): Widget[] {
     // [LAW:one-source-of-truth] DOMQuery invalidates from the registry version,
     // the same mutation signal used by mount, unmount, and identity updates.
     void this.framework.registry.version;

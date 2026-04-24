@@ -5,7 +5,7 @@ import type { Message } from "../events/message.js";
 import { TextualApp, type TextualAppProps } from "../app/textual-app.js";
 import { TextualFramework } from "../framework/app-framework.js";
 import { Size } from "../geometry/index.js";
-import type { WidgetNode } from "../framework/widget-node.js";
+import type { Widget } from "../framework/widget.js";
 
 export class OutOfBounds extends Error {}
 
@@ -23,7 +23,7 @@ export interface RunTestOptions {
 }
 
 type AppInput = React.ReactElement | React.ComponentType<Record<string, unknown>>;
-type PointerTarget = string | WidgetNode | React.ComponentType<unknown> | undefined;
+type PointerTarget = string | Widget | React.ComponentType<unknown> | undefined;
 type PointerOffset = { x: number; y: number };
 type PointerInput = PointerTarget | number | PointerOptions | undefined;
 
@@ -38,13 +38,13 @@ interface ResolvedPointerTarget {
   screenY: number;
   x: number;
   y: number;
-  targetNode?: WidgetNode;
+  targetNode?: Widget;
   hitIntendedTarget: boolean;
 }
 
 interface ResolvedWidgetPointerRegion {
-  effectiveRegion: WidgetNode["effectiveScreenRegion"];
-  visibleRegion: WidgetNode["visibleScreenRegion"];
+  effectiveRegion: Widget["effectiveScreenRegion"];
+  visibleRegion: Widget["visibleScreenRegion"];
 }
 
 export function camelToSnake(name: string): string {
@@ -65,7 +65,7 @@ function resolveComponent(input: AppInput, props: Record<string, unknown>): Reac
   return React.createElement(input as React.ComponentType<Record<string, unknown>>, props);
 }
 
-function isWidgetNode(target: PointerTarget): target is WidgetNode {
+function isWidget(target: PointerTarget): target is Widget {
   return typeof target === "object" && target !== null && "nodeId" in target;
 }
 
@@ -239,8 +239,8 @@ export class Pilot {
     return this.resolveHitAtPoint(intendedNode, absoluteX, absoluteY);
   }
 
-  private resolveTargetNode(target: Exclude<PointerTarget, undefined>): WidgetNode {
-    if (isWidgetNode(target)) {
+  private resolveTargetNode(target: Exclude<PointerTarget, undefined>): Widget {
+    if (isWidget(target)) {
       return target;
     }
 
@@ -270,7 +270,7 @@ export class Pilot {
     }
   }
 
-  private assertTargetRegionIsReachable(target: WidgetNode): ResolvedWidgetPointerRegion {
+  private assertTargetRegionIsReachable(target: Widget): ResolvedWidgetPointerRegion {
     const visibleRegion = target.visibleScreenRegion;
 
     // [LAW:single-enforcer] Pointer reachability is validated at this boundary
@@ -285,7 +285,7 @@ export class Pilot {
     };
   }
 
-  private assertReachableCoordinate(x: number, y: number, visibleRegion: WidgetNode["visibleScreenRegion"]): void {
+  private assertReachableCoordinate(x: number, y: number, visibleRegion: Widget["visibleScreenRegion"]): void {
     this.assertBounds(x, y);
 
     if (!visibleRegion.contains(x, y)) {
@@ -294,7 +294,7 @@ export class Pilot {
   }
 
   private resolveHitAtPoint(
-    intendedNode: WidgetNode | undefined,
+    intendedNode: Widget | undefined,
     absoluteX: number,
     absoluteY: number,
   ): ResolvedPointerTarget {

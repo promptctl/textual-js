@@ -21,7 +21,7 @@ import {
   type AppDriver,
   type AnsiTheme,
   WidgetHost,
-  WidgetNode,
+  Widget,
   WidgetScope,
   useTextual,
   useWidget,
@@ -39,7 +39,7 @@ function AppDispatcher(props: { onReady: (framework: TextualFramework) => void }
   return null;
 }
 
-function AppServiceHarness(props: { onReady: (framework: TextualFramework, widget: WidgetNode) => void }): React.JSX.Element {
+function AppServiceHarness(props: { onReady: (framework: TextualFramework, widget: Widget) => void }): React.JSX.Element {
   const framework = useTextual();
   const widget = useWidget({
     id: "app-service-harness",
@@ -86,8 +86,8 @@ async function settleApp(framework: TextualFramework): Promise<void> {
   await framework.whenIdle();
 }
 
-function createDetachedWidget(framework: TextualFramework, options: Partial<ConstructorParameters<typeof WidgetNode>[0]> = {}): WidgetNode {
-  return new WidgetNode({
+function createDetachedWidget(framework: TextualFramework, options: Partial<ConstructorParameters<typeof Widget>[0]> = {}): Widget {
+  return new Widget({
     framework,
     nodeId: options.nodeId ?? `widget-${Math.random()}`,
     parentId: options.parentId ?? null,
@@ -381,7 +381,7 @@ describe("TextualApp and widget registry", () => {
             id="inner"
             handlers={{
               onMount: (message) => {
-                const widget = message.sender as WidgetNode;
+                const widget = message.sender as Widget;
                 const signal = widget.createSignal<string>("teardown");
                 signal.subscribe(widget, () => undefined, true);
                 widget.setInterval("heartbeat", 60_000, () => undefined);
@@ -547,7 +547,7 @@ describe("TextualApp and widget registry", () => {
 
   it("selects ANSI themes from dark/light mode and publishes app theme changes", async () => {
     const framework = new TextualFramework();
-    let widget!: WidgetNode;
+    let widget!: Widget;
     const observedThemes: string[] = [];
     const customDark: AnsiTheme = { name: "custom-dark", colors: Array.from({ length: 16 }, () => "#111111") };
     const customLight: AnsiTheme = { name: "custom-light", colors: Array.from({ length: 16 }, () => "#eeeeee") };
@@ -605,7 +605,7 @@ describe("TextualApp and widget registry", () => {
       },
     };
     const framework = new TextualFramework({ driver });
-    let widget!: WidgetNode;
+    let widget!: Widget;
 
     const instance = render(
       <TextualApp framework={framework}>

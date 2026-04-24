@@ -1,7 +1,7 @@
 import { makeAutoObservable, observable } from "mobx";
 
 import type { Message } from "../events/message.js";
-import type { WidgetNode } from "./widget-node.js";
+import type { Widget } from "./widget.js";
 
 export type WidgetMessageHandler<TMessage extends Message = Message> = (message: TMessage) => unknown | Promise<unknown>;
 
@@ -22,8 +22,8 @@ export interface WidgetIdentity {
   typeName: string;
 }
 
-export class NodeList implements Iterable<WidgetNode> {
-  private readonly items = observable.array<WidgetNode>([]);
+export class NodeList implements Iterable<Widget> {
+  private readonly items = observable.array<Widget>([]);
 
   constructor() {
     makeAutoObservable(
@@ -35,7 +35,7 @@ export class NodeList implements Iterable<WidgetNode> {
     );
   }
 
-  [Symbol.iterator](): Iterator<WidgetNode> {
+  [Symbol.iterator](): Iterator<Widget> {
     return this.items[Symbol.iterator]();
   }
 
@@ -47,15 +47,15 @@ export class NodeList implements Iterable<WidgetNode> {
     return this.items.length === 0;
   }
 
-  at(index: number): WidgetNode | undefined {
+  at(index: number): Widget | undefined {
     return this.items[index];
   }
 
-  slice(start?: number, end?: number): WidgetNode[] {
+  slice(start?: number, end?: number): Widget[] {
     return this.items.slice(start, end);
   }
 
-  index(widget: WidgetNode): number {
+  index(widget: Widget): number {
     const index = this.items.indexOf(widget);
 
     if (index === -1) {
@@ -65,11 +65,11 @@ export class NodeList implements Iterable<WidgetNode> {
     return index;
   }
 
-  has(widget: WidgetNode): boolean {
+  has(widget: Widget): boolean {
     return this.items.includes(widget);
   }
 
-  toArray(): WidgetNode[] {
+  toArray(): Widget[] {
     return [...this.items];
   }
 
@@ -77,13 +77,13 @@ export class NodeList implements Iterable<WidgetNode> {
     return this.items.length;
   }
 
-  _append(widget: WidgetNode): void {
+  _append(widget: Widget): void {
     if (!this.items.includes(widget)) {
       this.items.push(widget);
     }
   }
 
-  _insert(index: number, widget: WidgetNode): void {
+  _insert(index: number, widget: Widget): void {
     const existingIndex = this.items.indexOf(widget);
 
     if (existingIndex !== -1) {
@@ -93,7 +93,7 @@ export class NodeList implements Iterable<WidgetNode> {
     this.items.splice(Math.max(0, index), 0, widget);
   }
 
-  _remove(widget: WidgetNode): void {
+  _remove(widget: Widget): void {
     const index = this.items.indexOf(widget);
 
     if (index !== -1) {
@@ -107,7 +107,7 @@ export class NodeList implements Iterable<WidgetNode> {
 }
 
 export class WidgetRegistry {
-  private readonly entries = observable.map<string, WidgetNode>();
+  private readonly entries = observable.map<string, Widget>();
   private readonly cssIds = observable.map<string, string>();
   private readonly order = observable.array<string>([]);
   private readonly childrenByParent = observable.map<string, NodeList>();
@@ -144,9 +144,9 @@ export class WidgetRegistry {
     return created;
   }
 
-  // [LAW:one-source-of-truth] WidgetNode is the canonical identity object for a
+  // [LAW:one-source-of-truth] Widget is the canonical identity object for a
   // mounted widget. The registry only indexes those nodes; it doesn't mirror them.
-  register(widget: WidgetNode): void {
+  register(widget: Widget): void {
     const previous = this.entries.get(widget.nodeId);
 
     if (widget.id !== undefined) {
@@ -199,31 +199,31 @@ export class WidgetRegistry {
     this.version += 1;
   }
 
-  get(nodeId: string): WidgetNode | undefined {
+  get(nodeId: string): Widget | undefined {
     return this.entries.get(nodeId);
   }
 
-  getByCssId(cssId: string): WidgetNode | undefined {
+  getByCssId(cssId: string): Widget | undefined {
     const nodeId = this.cssIds.get(cssId);
     return nodeId === undefined ? undefined : this.entries.get(nodeId);
   }
 
-  list(): WidgetNode[] {
+  list(): Widget[] {
     return this.order
       .map((nodeId) => this.entries.get(nodeId))
-      .filter((widget): widget is WidgetNode => widget !== undefined);
+      .filter((widget): widget is Widget => widget !== undefined);
   }
 
   getChildNodeList(parentId: string | null): NodeList {
     return this.childList(parentId);
   }
 
-  getChildren(parentId: string | null): WidgetNode[] {
+  getChildren(parentId: string | null): Widget[] {
     return this.childList(parentId).toArray();
   }
 
-  getDescendants(nodeId: string): WidgetNode[] {
-    const descendants: WidgetNode[] = [];
+  getDescendants(nodeId: string): Widget[] {
+    const descendants: Widget[] = [];
     const visit = (parentId: string): void => {
       for (const child of this.getChildren(parentId)) {
         descendants.push(child);
@@ -238,7 +238,7 @@ export class WidgetRegistry {
     return descendants;
   }
 
-  getPreviousSibling(nodeId: string): WidgetNode | undefined {
+  getPreviousSibling(nodeId: string): Widget | undefined {
     const widget = this.entries.get(nodeId);
 
     if (widget === undefined) {
@@ -251,7 +251,7 @@ export class WidgetRegistry {
     return index <= 0 ? undefined : siblings[index - 1];
   }
 
-  getPreviousSiblings(nodeId: string): WidgetNode[] {
+  getPreviousSiblings(nodeId: string): Widget[] {
     const widget = this.entries.get(nodeId);
 
     if (widget === undefined) {
@@ -271,7 +271,7 @@ export class WidgetRegistry {
     return siblings.findIndex((sibling) => sibling.nodeId === nodeId);
   }
 
-  getNextSiblings(nodeId: string): WidgetNode[] {
+  getNextSiblings(nodeId: string): Widget[] {
     const widget = this.entries.get(nodeId);
 
     if (widget === undefined) {
@@ -288,7 +288,7 @@ export class WidgetRegistry {
     return this.getChildren(nodeId).length > 0;
   }
 
-  getDefaultTarget(preferredNodeId: string | null): WidgetNode | undefined {
+  getDefaultTarget(preferredNodeId: string | null): Widget | undefined {
     const preferredEntry = preferredNodeId === null ? undefined : this.entries.get(preferredNodeId);
 
     if (preferredEntry !== undefined) {

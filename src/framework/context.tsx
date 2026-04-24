@@ -17,7 +17,7 @@ import type { Message } from "../events/message.js";
 import { Content, type VisualInput } from "../content/index.js";
 import { TextualFramework, type ActiveBinding } from "./app-framework.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
-import { WidgetNode } from "./widget-node.js";
+import { Widget } from "./widget.js";
 import type { ResolvedStyles } from "../styles/resolved-styles.js";
 import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
 import type { TimerOptions } from "../services/timer.js";
@@ -30,12 +30,12 @@ import { Region } from "../geometry/region.js";
 
 const TextualFrameworkContext = createContext<TextualFramework | null>(null);
 const ParentWidgetContext = createContext<string | null>(null);
-const CurrentWidgetContext = createContext<WidgetNode | null>(null);
+const CurrentWidgetContext = createContext<Widget | null>(null);
 
-let nextWidgetNodeId = 1;
+let nextWidgetId = 1;
 
-function createWidgetNodeId(): string {
-  return `widget-${nextWidgetNodeId++}`;
+function createWidgetId(): string {
+  return `widget-${nextWidgetId++}`;
 }
 
 export interface TextualProviderProps extends PropsWithChildren {
@@ -91,7 +91,7 @@ export interface UseWidgetResult {
   lifecycleReady: boolean;
   focus: () => void;
   postMessage: (message: Message) => boolean;
-  handle: WidgetNode;
+  handle: Widget;
 }
 
 function normalizeClasses(classes: UseWidgetOptions["classes"]): string[] {
@@ -116,10 +116,10 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const actionsRef = useRef(options.actions) as MutableRefObject<WidgetActions | undefined>;
   const bindingsRef = useRef<Binding[]>(makeBindings(options.bindings ?? []));
   const [lifecycleReady, setLifecycleReady] = useState(false);
-  const widgetRef = useRef<WidgetNode>(
-    new WidgetNode({
+  const widgetRef = useRef<Widget>(
+    new Widget({
       framework,
-      nodeId: createWidgetNodeId(),
+      nodeId: createWidgetId(),
       parentId,
       id: options.id,
       classes: normalizeClasses(options.classes),
@@ -325,7 +325,7 @@ const WidgetVisibilityBoundary = observer(function WidgetVisibilityBoundary({
   widget,
 }: {
   children: React.ReactNode;
-  widget: WidgetNode;
+  widget: Widget;
 }): React.JSX.Element {
   return widget.isVisible ? <>{children}</> : <Transform transform={concealOutput}>{children}</Transform>;
 });
@@ -387,7 +387,7 @@ export const WidgetHost = observer(function WidgetHost({
 });
 
 export interface WidgetScopeProps extends PropsWithChildren {
-  widget: WidgetNode;
+  widget: Widget;
 }
 
 export const WidgetScope = observer(function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
@@ -438,7 +438,7 @@ function measureWidgetRegion(node: DOMElement): Region {
 export const StylesReader = observer(function StylesReader({
   children,
 }: {
-  children: (styles: ResolvedStyles, widget: WidgetNode) => React.JSX.Element;
+  children: (styles: ResolvedStyles, widget: Widget) => React.JSX.Element;
 }): React.JSX.Element {
   const widget = useContext(CurrentWidgetContext);
 
@@ -449,7 +449,7 @@ export const StylesReader = observer(function StylesReader({
   return children(widget.resolvedStyles, widget);
 });
 
-export function useCurrentWidget(): WidgetNode {
+export function useCurrentWidget(): Widget {
   const widget = useContext(CurrentWidgetContext);
 
   if (widget === null) {
@@ -459,7 +459,7 @@ export function useCurrentWidget(): WidgetNode {
   return widget;
 }
 
-export function useStyles(widget?: WidgetNode): ResolvedStyles {
+export function useStyles(widget?: Widget): ResolvedStyles {
   const styles = (widget ?? useCurrentWidget()).resolvedStyles;
   const [, setVersion] = useState(0);
 
@@ -472,7 +472,7 @@ export function useStyles(widget?: WidgetNode): ResolvedStyles {
   return styles;
 }
 
-export function useBindings(widget?: WidgetNode): ActiveBinding[] {
+export function useBindings(widget?: Widget): ActiveBinding[] {
   const framework = useTextual();
   const bindingWidget = widget ?? useCurrentWidget();
   const [, setVersion] = useState(0);

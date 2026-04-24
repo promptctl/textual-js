@@ -11,7 +11,7 @@ import {
   TextualApp,
   TextualFramework,
   TooManyMatches,
-  WidgetNode,
+  Widget,
   WidgetScope,
   WrongType,
   useWidget,
@@ -91,9 +91,9 @@ describe("DOM query API", () => {
 
     await framework.whenIdle();
 
-    const root = framework.registry.getByCssId("root") as WidgetNode;
-    const second = framework.registry.getByCssId("second") as WidgetNode;
-    const two = framework.registry.getByCssId("two") as WidgetNode;
+    const root = framework.registry.getByCssId("root") as Widget;
+    const second = framework.registry.getByCssId("second") as Widget;
+    const two = framework.registry.getByCssId("two") as Widget;
     two.focus();
 
     expect(root.query(".item").results().map((widget) => widget.id)).toEqual(["one", "two"]);
@@ -139,8 +139,8 @@ describe("DOM query API", () => {
 
     await framework.whenIdle();
 
-    const root = framework.registry.getByCssId("root") as WidgetNode;
-    const two = framework.registry.getByCssId("two") as WidgetNode;
+    const root = framework.registry.getByCssId("root") as Widget;
+    const two = framework.registry.getByCssId("two") as Widget;
 
     expect(root.walkChildren({ method: "depth" }).map((widget) => widget.id)).toEqual([
       "first",
@@ -171,7 +171,7 @@ describe("DOM query API", () => {
 
     root.query("#one").setStyles("background: red;");
     await framework.whenIdle();
-    expect((framework.registry.getByCssId("one") as WidgetNode).resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
+    expect((framework.registry.getByCssId("one") as Widget).resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
 
     expect(root.query(".item").focus()?.id).toBe("two");
     expect(framework.focusedNodeId).toBe(two.nodeId);
@@ -199,7 +199,7 @@ describe("DOM query API", () => {
 
     await framework.whenIdle();
 
-    const rootHandle = framework.registry.getByCssId("typed-root") as WidgetNode;
+    const rootHandle = framework.registry.getByCssId("typed-root") as Widget;
 
     expect(rootHandle.query("View").results().map((widget) => widget.id)).toContain("typed-child");
     expect(rootHandle.query("TypedBase").results().map((widget) => widget.id)).toContain("typed-child");

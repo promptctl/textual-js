@@ -6,7 +6,7 @@ import { render } from "ink-testing-library";
 
 import {
   Content,
-  WidgetNode,
+  Widget,
   WidgetScope,
   TextualApp,
   TextualFramework,
@@ -23,7 +23,7 @@ import {
 } from "../src/index.js";
 
 function WorkerHarness(props: {
-  onReady: (widget: WidgetNode) => void;
+  onReady: (widget: Widget) => void;
   onStateChange?: (message: WorkerStateChanged) => void;
 }): React.JSX.Element {
   const widget = useWidget({
@@ -54,7 +54,7 @@ describe("workers", () => {
   it("tracks lifecycle, progress, current worker context, and manager cleanup", async () => {
     const framework = new TextualFramework();
     const states: string[] = [];
-    let widget!: WidgetNode;
+    let widget!: Widget;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -97,7 +97,7 @@ describe("workers", () => {
   it("maps aborts to cancellation and reports failures distinctly", async () => {
     const framework = new TextualFramework();
     const states: string[] = [];
-    let widget!: WidgetNode;
+    let widget!: Widget;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -143,7 +143,7 @@ describe("workers", () => {
 
   it("cancels widget-owned workers on unmount", async () => {
     const framework = new TextualFramework();
-    let widget!: WidgetNode;
+    let widget!: Widget;
 
     const instance = render(
       <TextualApp framework={framework}>

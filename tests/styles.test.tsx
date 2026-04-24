@@ -16,7 +16,7 @@ import {
   TextualFramework,
   Unit,
   WidgetHost,
-  WidgetNode,
+  Widget,
   WidgetScope,
   useStyles,
   useWidget,
@@ -146,7 +146,7 @@ describe("styles and useStyles", () => {
     await framework.whenIdle();
     await Promise.resolve();
 
-    const styled = framework.registry.getByCssId("styled") as WidgetNode;
+    const styled = framework.registry.getByCssId("styled") as Widget;
 
     expect(styled.resolvedStyles.getRule("background")).toEqual(Color.parse("yellow"));
     expect(styled.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
@@ -195,7 +195,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const dynamic = framework.registry.getByCssId("dynamic") as WidgetNode;
+    const dynamic = framework.registry.getByCssId("dynamic") as Widget;
 
     expect(dynamic.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
     expect(instance.lastFrame()).toContain("dynamic:");
@@ -232,7 +232,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("self-scoped") as WidgetNode;
+    const widget = framework.registry.getByCssId("self-scoped") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("orange"));
 
@@ -251,11 +251,11 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("styles-surface") as WidgetNode;
+    const widget = framework.registry.getByCssId("styles-surface") as Widget;
     const inlineStyles = widget.styles as Styles;
 
     inlineStyles.set_rule("background", "red");
-    (widget as WidgetNode & { classes: string }).classes = "alpha beta";
+    (widget as Widget & { classes: string }).classes = "alpha beta";
     await framework.whenIdle();
 
     expect(inlineStyles.has_rule("background")).toBe(true);
@@ -305,7 +305,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const derived = framework.registry.getByCssId("derived-default") as WidgetNode;
+    const derived = framework.registry.getByCssId("derived-default") as Widget;
 
     expect(derived.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
     expect(derived.resolvedStyles.getRule("background")).toEqual(Color.parse("green"));
@@ -340,7 +340,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("button-scope") as WidgetNode;
+    const widget = framework.registry.getByCssId("button-scope") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toBeUndefined();
     expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
@@ -375,7 +375,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("inline") as WidgetNode;
+    const widget = framework.registry.getByCssId("inline") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
 
@@ -418,7 +418,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("cascade") as WidgetNode;
+    const widget = framework.registry.getByCssId("cascade") as Widget;
 
     expect(widget.resolvedStyles.getRule("border-left")).toEqual({ style: "round", color: Color.parse("green") });
     expect(widget.resolvedStyles.box.borderColor).toBe(normalizeColor("green"));
@@ -465,8 +465,8 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const root = framework.registry.getByCssId("styled-root") as WidgetNode;
-    const child = framework.registry.getByCssId("initial") as WidgetNode;
+    const root = framework.registry.getByCssId("styled-root") as Widget;
+    const child = framework.registry.getByCssId("initial") as Widget;
 
     expect(child.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
     expect(child.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
@@ -509,8 +509,8 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const first = framework.registry.getByCssId("first-pseudo") as WidgetNode;
-    const last = framework.registry.getByCssId("last-pseudo") as WidgetNode;
+    const first = framework.registry.getByCssId("first-pseudo") as Widget;
+    const last = framework.registry.getByCssId("last-pseudo") as Widget;
 
     expect(first.resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
     expect(last.resolvedStyles.getRule("color")).toEqual(Color.parse("blue"));
@@ -589,7 +589,7 @@ describe("styles and useStyles", () => {
     framework.setTerminalSize(new Size(200, 80));
     await framework.whenIdle();
 
-    const viewport = framework.registry.getByCssId("viewport") as WidgetNode;
+    const viewport = framework.registry.getByCssId("viewport") as Widget;
 
     expect(viewport.resolvedStyles.box.width).toBe(100);
     expect(viewport.resolvedStyles.box.height).toBe(20);
@@ -623,7 +623,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("bridge") as WidgetNode;
+    const widget = framework.registry.getByCssId("bridge") as Widget;
 
     expect(widget.resolvedStyles.box.marginTop).toBe(2);
     expect(widget.resolvedStyles.box.paddingLeft).toBe(3);
@@ -655,7 +655,7 @@ describe("styles and useStyles", () => {
 
     await framework.whenIdle();
 
-    const widget = framework.registry.getByCssId("programmatic") as WidgetNode;
+    const widget = framework.registry.getByCssId("programmatic") as Widget;
     widget.styles.width = "25%";
     widget.styles.grid_columns = [new Scalar(1, Unit.FRACTION, Unit.PERCENT), new Scalar(50, Unit.PERCENT, Unit.PERCENT)];
     await framework.whenIdle();

@@ -15,7 +15,7 @@ import {
   TextualApp,
   TextualFramework,
   WidgetHost,
-  WidgetNode,
+  Widget,
   WidgetScope,
   formatKey,
   getKeyDisplay,
@@ -35,7 +35,7 @@ class NamespacedPing extends Message {
 class PanePing extends Message {
   static override readonly ALLOW_SELECTOR_MATCH = new Set(["pane"]);
 
-  constructor(readonly pane: WidgetNode) {
+  constructor(readonly pane: Widget) {
     super();
   }
 }
@@ -43,13 +43,13 @@ class PanePing extends Message {
 class ControlPing extends Message {
   static override readonly selectorAttribute = "control";
 
-  constructor(readonly control: WidgetNode) {
+  constructor(readonly control: Widget) {
     super();
   }
 }
 
 function HandleHarness(props: {
-  onReady: (widget: WidgetNode) => void;
+  onReady: (widget: Widget) => void;
   onRender?: () => void;
   id?: string;
 }): React.JSX.Element {
@@ -91,7 +91,7 @@ describe("Stage 1 runtime seams", () => {
 
   it("suppresses prevented message types, including callNext callbacks scheduled inside the scope", async () => {
     const framework = new TextualFramework();
-    let widget!: WidgetNode;
+    let widget!: Widget;
     const received: string[] = [];
     const unsubscribe = framework.subscribeToMessages((message) => {
       if (message instanceof Ping) {
@@ -132,7 +132,7 @@ describe("Stage 1 runtime seams", () => {
 
   it("uses exact message types for scoped and long-lived suppression", async () => {
     const framework = new TextualFramework();
-    let widget!: WidgetNode;
+    let widget!: Widget;
     const received: string[] = [];
 
     const instance = render(
@@ -332,7 +332,7 @@ describe("Stage 1 runtime seams", () => {
 
   it("accepts valid @on attribute selector declarations", () => {
     const pane = new TextualFramework();
-    const widget = new WidgetNode({
+    const widget = new Widget({
       framework: pane,
       nodeId: "pane",
       parentId: null,
@@ -406,7 +406,7 @@ describe("Stage 1 runtime seams", () => {
 
     await framework.whenIdle();
     const observer = framework.registry.list()[0]!;
-    framework.postMessage(observer.nodeId, new ControlPing("not-widget" as unknown as WidgetNode));
+    framework.postMessage(observer.nodeId, new ControlPing("not-widget" as unknown as Widget));
 
     await expect(framework.whenIdle()).rejects.toThrow(/not a widget/);
 
@@ -433,7 +433,7 @@ describe("Stage 1 runtime seams", () => {
 
   it("throws DuplicateIds for duplicate widget ids", async () => {
     const framework = new TextualFramework();
-    const first = new WidgetNode({
+    const first = new Widget({
       framework,
       nodeId: "first",
       parentId: null,
@@ -449,7 +449,7 @@ describe("Stage 1 runtime seams", () => {
       loading: false,
       tooltip: null,
     });
-    const second = new WidgetNode({
+    const second = new Widget({
       framework,
       nodeId: "second",
       parentId: null,
@@ -473,8 +473,8 @@ describe("Stage 1 runtime seams", () => {
 
   it("cleans up signal subscriptions when a widget unmounts", async () => {
     const framework = new TextualFramework();
-    let publisher!: WidgetNode;
-    let subscriber!: WidgetNode;
+    let publisher!: Widget;
+    let subscriber!: Widget;
     let setMounted!: (mounted: boolean) => void;
 
     function SignalHarness(): React.JSX.Element {
@@ -535,8 +535,8 @@ describe("Stage 1 runtime seams", () => {
 
   it("returned signal cleanup removes only its own subscription", async () => {
     const framework = new TextualFramework();
-    let publisher!: WidgetNode;
-    let subscriber!: WidgetNode;
+    let publisher!: Widget;
+    let subscriber!: Widget;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -576,7 +576,7 @@ describe("Stage 1 runtime seams", () => {
 
   it("rejects signal subscriptions from unmounted widgets", () => {
     const framework = new TextualFramework();
-    const publisher = new WidgetNode({
+    const publisher = new Widget({
       framework,
       nodeId: "publisher",
       parentId: null,
@@ -591,7 +591,7 @@ describe("Stage 1 runtime seams", () => {
       loading: false,
       tooltip: null,
     });
-    const subscriber = new WidgetNode({
+    const subscriber = new Widget({
       framework,
       nodeId: "subscriber",
       parentId: null,

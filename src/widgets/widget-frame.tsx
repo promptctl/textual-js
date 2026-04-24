@@ -2,7 +2,7 @@ import React from "react";
 import { Box, type BoxProps } from "ink";
 
 import { Content, renderContent } from "../content/index.js";
-import type { WidgetNode } from "../framework/widget-node.js";
+import type { Widget } from "../framework/widget.js";
 import type { ResolvedStyles, BorderValue } from "../styles/index.js";
 import { colorToInkValue } from "../styles/index.js";
 
@@ -36,7 +36,7 @@ function renderAlignedLabel(
 }
 
 export interface WidgetFrameProps {
-  widget: WidgetNode;
+  widget: Widget;
   styles: ResolvedStyles;
   children: React.ReactNode;
   boxProps?: Partial<BoxProps>;

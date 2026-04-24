@@ -9,7 +9,7 @@ import {
   OutOfBounds,
   Region,
   StylesheetError,
-  WidgetNode,
+  Widget,
   WidgetHost,
   WidgetScope,
   WorkerFailed,
@@ -83,7 +83,7 @@ function TooltipOnMount(props: { message: string }): null {
   return null;
 }
 
-function ScrollPointerItem(props: { onReady: (item: WidgetNode) => void }): React.JSX.Element {
+function ScrollPointerItem(props: { onReady: (item: Widget) => void }): React.JSX.Element {
   const item = useWidget({
     id: "item",
     typeName: "Item",
@@ -157,7 +157,7 @@ function WorkerFailureOnMount(): React.JSX.Element {
   );
 }
 
-function ResizeProbe(props: { onReady: (widget: WidgetNode) => void }): React.JSX.Element {
+function ResizeProbe(props: { onReady: (widget: Widget) => void }): React.JSX.Element {
   const widget = useWidget({
     id: "resize-probe",
     typeName: "ResizeProbe",
@@ -176,12 +176,12 @@ function ResizeProbe(props: { onReady: (widget: WidgetNode) => void }): React.JS
   );
 }
 
-function ScrollPointerHarness(props: { onReady: (viewport: WidgetNode, item: WidgetNode) => void }): React.JSX.Element {
+function ScrollPointerHarness(props: { onReady: (viewport: Widget, item: Widget) => void }): React.JSX.Element {
   const viewport = useWidget({
     id: "viewport",
     typeName: "Viewport",
   });
-  const [item, setItem] = useState<WidgetNode | null>(null);
+  const [item, setItem] = useState<Widget | null>(null);
 
   useLayoutEffect(() => {
     if (item !== null) {
@@ -382,8 +382,8 @@ describe("testing harness", () => {
   });
 
   it("raises OutOfBounds when selector targets are scrolled out of view", async () => {
-    let viewport!: WidgetNode;
-    let item!: WidgetNode;
+    let viewport!: Widget;
+    let item!: Widget;
     const session = await runTest(
       <ScrollPointerHarness
         onReady={(nextViewport, nextItem) => {
@@ -442,7 +442,7 @@ describe("testing harness", () => {
   });
 
   it("treats the requested runTest size as the initial size authority and updates layout on resize", async () => {
-    let widget!: WidgetNode;
+    let widget!: Widget;
     const session = await runTest(
       <ResizeProbe
         onReady={(nextWidget) => {

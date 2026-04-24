@@ -172,7 +172,6 @@ export {
   NoMatches,
   TooManyMatches,
   WrongType,
-  WidgetNode,
   StylesReader,
   WidgetScope,
   useCurrentWidget,
@@ -231,7 +230,7 @@ export {
 } from "./services/worker.js";
 export { RuntimeError, getActiveMessagePump } from "./services/concurrency.js";
 // [LAW:one-source-of-truth] MobX is the project's only reactive model; it is used
-// directly by TextualFramework, WidgetNode, and services. No parallel reactive
+// directly by TextualFramework, Widget, and services. No parallel reactive
 // abstraction is exported.
 export {
   combineBorderQuads,

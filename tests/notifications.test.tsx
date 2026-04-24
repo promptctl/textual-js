@@ -12,12 +12,12 @@ import {
   Color,
   TextualApp,
   TextualFramework,
-  WidgetNode,
+  Widget,
   WidgetScope,
   useWidget,
 } from "../src/index.js";
 
-function NotificationHarness(props: { onReady: (widget: WidgetNode) => void }): React.JSX.Element {
+function NotificationHarness(props: { onReady: (widget: Widget) => void }): React.JSX.Element {
   const widget = useWidget({
     id: "notification-harness",
     typeName: "NotificationHarness",
@@ -104,7 +104,7 @@ describe("notifications and themes", () => {
 
   it("funnels widget notifications into the app store, posts Notify, and reapplies theme CSS variables", async () => {
     const framework = new TextualFramework();
-    let widget!: WidgetNode;
+    let widget!: Widget;
     const observedThemes: string[] = [];
     const notifyMessages: Notification[] = [];
 

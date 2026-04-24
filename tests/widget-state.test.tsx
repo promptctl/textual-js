@@ -12,7 +12,7 @@ import {
   Size,
   TextualApp,
   TextualFramework,
-  WidgetNode,
+  Widget,
   WidgetHost,
   runTest,
 } from "../src/index.js";
@@ -297,9 +297,9 @@ describe("focus chain gating", () => {
 
 function createTestWidget(
   framework: TextualFramework,
-  options: Partial<ConstructorParameters<typeof WidgetNode>[0]> = {},
-): WidgetNode {
-  return new WidgetNode({
+  options: Partial<ConstructorParameters<typeof Widget>[0]> = {},
+): Widget {
+  return new Widget({
     framework,
     nodeId: options.nodeId ?? `widget-${Math.random()}`,
     parentId: options.parentId ?? null,

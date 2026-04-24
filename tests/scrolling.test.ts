@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Offset, Region, Size, TextualFramework, WidgetNode } from "../src/index.js";
+import { Offset, Region, Size, TextualFramework, Widget } from "../src/index.js";
 
 describe("scroll geometry", () => {
   it("computes zero offset when the target is already within the window", () => {
@@ -99,8 +99,8 @@ describe("scrollbar-gutter CSS property", () => {
 });
 
 describe("scroll animation level infrastructure", () => {
-  function createScrollWidget(framework: TextualFramework): WidgetNode {
-    const widget = new WidgetNode({
+  function createScrollWidget(framework: TextualFramework): Widget {
+    const widget = new Widget({
       framework,
       nodeId: "scroll-target",
       parentId: null,

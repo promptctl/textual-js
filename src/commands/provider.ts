@@ -5,7 +5,6 @@ import type { App } from "../app/app.js";
 import type { VisualInput } from "../content/index.js";
 import type { ScreenEntry, SimpleCommand, SystemCommand, TextualFramework } from "../framework/app-framework.js";
 import type { Screen, Widget } from "../framework/widget.js";
-import type { WidgetNode } from "../framework/widget-node.js";
 
 export interface CommandHitInit {
   score: number;
@@ -97,8 +96,8 @@ export interface ProviderContext {
   framework: TextualFramework;
   screen: Screen | ScreenEntry | null;
   screenEntry: ScreenEntry | null;
-  focused: Widget | WidgetNode | null;
-  focusedNode: WidgetNode | null;
+  focused: Widget | Widget | null;
+  focusedNode: Widget | null;
 }
 
 export abstract class Provider {
@@ -124,7 +123,7 @@ export abstract class Provider {
     return this.requireContext().focused;
   }
 
-  get focusedNode(): WidgetNode | null {
+  get focusedNode(): Widget | null {
     return this.requireContext().focusedNode;
   }
 

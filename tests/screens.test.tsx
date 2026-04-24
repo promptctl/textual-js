@@ -17,7 +17,7 @@ import {
   TextualApp,
   TextualFramework,
   UnknownModeError,
-  WidgetNode,
+  Widget,
   WidgetHost,
   Worker,
 } from "../src/index.js";
@@ -56,8 +56,8 @@ function ScreenWithCss(): React.JSX.Element {
 
 let nextDetachedNodeId = 1;
 
-function createDetachedNode(framework: TextualFramework, typeName = "DetachedNode"): WidgetNode {
-  const node = new WidgetNode({
+function createDetachedNode(framework: TextualFramework, typeName = "DetachedNode"): Widget {
+  const node = new Widget({
     framework,
     nodeId: `detached-node-${nextDetachedNodeId++}`,
     parentId: null,
@@ -80,7 +80,7 @@ function createDetachedWorker<TResult>(
   framework: TextualFramework,
   work: () => Promise<TResult> | TResult,
 ): Worker<TResult> {
-  const node = new WidgetNode({
+  const node = new Widget({
     framework,
     nodeId: `detached-worker-${nextDetachedNodeId++}`,
     parentId: null,

@@ -91,7 +91,7 @@ import {
   type ParsedStylesheet,
   parseTcss,
 } from "../styles/index.js";
-import { WidgetNode } from "./widget-node.js";
+import { Widget } from "./widget.js";
 import {
   discoverOnHandlers,
   getSelectorAttribute,
@@ -139,7 +139,7 @@ export interface RegisterWidgetTypeOptions {
 
 interface QueuedMessage {
   targetId: string | null;
-  targetNode?: WidgetNode;
+  targetNode?: Widget;
   message: Message;
 }
 
@@ -1189,7 +1189,7 @@ export class TextualFramework {
     }
   }
 
-  registerWidget(widget: WidgetNode): void {
+  registerWidget(widget: Widget): void {
     this.closedQueues.delete(widget.nodeId);
     this.unmountingQueues.delete(widget.nodeId);
     this.registry.register(widget);
@@ -1213,7 +1213,7 @@ export class TextualFramework {
     }
   }
 
-  notifyWillUnmount(widget: WidgetNode): void {
+  notifyWillUnmount(widget: Widget): void {
     this.unmountingQueues.add(widget.nodeId);
     this.workers.cancelNode(widget.nodeId);
     this.clearNodeTimers(widget.nodeId);
@@ -1260,14 +1260,14 @@ export class TextualFramework {
     this.applyFocusChange(nodeId, { markBlurOverride: true });
   }
 
-  clearFocusWithin(container: WidgetNode): void {
+  clearFocusWithin(container: Widget): void {
     const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
 
     if (focused === undefined) {
       return;
     }
 
-    let current: WidgetNode | undefined = focused;
+    let current: Widget | undefined = focused;
 
     while (current !== undefined) {
       if (current.nodeId === container.nodeId) {
@@ -1279,7 +1279,7 @@ export class TextualFramework {
     }
   }
 
-  trapFocus(widget: WidgetNode, enabled = true): void {
+  trapFocus(widget: Widget, enabled = true): void {
     if (enabled && this.focusedNodeId !== null && this.isNodeWithin(this.registry.get(this.focusedNodeId), widget)) {
       this.focusTrapNodeId = widget.nodeId;
       this.notifyBindingsUpdated();
@@ -1292,7 +1292,7 @@ export class TextualFramework {
     }
   }
 
-  getFocusChain(): WidgetNode[] {
+  getFocusChain(): Widget[] {
     const trap = this.focusTrapNodeId === null ? undefined : this.registry.get(this.focusTrapNodeId);
 
     return this.registry.list().filter((widget) => {
@@ -1302,15 +1302,15 @@ export class TextualFramework {
     });
   }
 
-  focusNext(selector?: string | Function): WidgetNode | null {
+  focusNext(selector?: string | Function): Widget | null {
     return this.moveFocus(1, selector);
   }
 
-  focusPrevious(selector?: string | Function): WidgetNode | null {
+  focusPrevious(selector?: string | Function): Widget | null {
     return this.moveFocus(-1, selector);
   }
 
-  private moveFocus(direction: 1 | -1, selector?: string | Function): WidgetNode | null {
+  private moveFocus(direction: 1 | -1, selector?: string | Function): Widget | null {
     const chain = this.filterFocusChain(selector);
 
     if (chain.length === 0) {
@@ -1625,7 +1625,7 @@ export class TextualFramework {
       .map((ProviderClass) => new ProviderClass());
   }
 
-  private getFocusedWidget(): WidgetNode | null {
+  private getFocusedWidget(): Widget | null {
     return this.focusedNodeId === null ? null : this.registry.get(this.focusedNodeId) ?? null;
   }
 
@@ -1678,7 +1678,7 @@ export class TextualFramework {
     command?.();
   }
 
-  private createProviderContext(baseScreen: ScreenEntry | null, focused: WidgetNode | null): ProviderContext {
+  private createProviderContext(baseScreen: ScreenEntry | null, focused: Widget | null): ProviderContext {
     const contextApp = this.publicApp ?? this;
 
     return {
@@ -1710,7 +1710,7 @@ export class TextualFramework {
     return parseSelectorList(selectorText);
   }
 
-  matchesSelector(widget: WidgetNode, selector: ParsedSelector): boolean {
+  matchesSelector(widget: Widget, selector: ParsedSelector): boolean {
     return selectorMatchesWidget(this, widget, selector);
   }
 
@@ -1728,7 +1728,7 @@ export class TextualFramework {
 
   recalculateStyles(): void {
     const visit = (
-      widget: WidgetNode,
+      widget: Widget,
       inheritedCustomProperties: Record<string, string>,
       inheritedTextStyle: unknown,
     ): void => {
@@ -1944,7 +1944,7 @@ export class TextualFramework {
     };
   }
 
-  findWidgets(selectorText: string): WidgetNode[] {
+  findWidgets(selectorText: string): Widget[] {
     const trimmedSelector = selectorText.trim();
 
     if (trimmedSelector.startsWith("#") && !trimmedSelector.includes(" ")) {
@@ -1957,7 +1957,7 @@ export class TextualFramework {
     return this.registry.list().filter((widget) => selectors.some((selector) => this.matchesSelector(widget, selector)));
   }
 
-  hitTest(screenX: number, screenY: number): WidgetNode | undefined {
+  hitTest(screenX: number, screenY: number): Widget | undefined {
     const widgets = this.registry.list();
     const candidates = widgets.filter(
       (widget) =>
@@ -1979,11 +1979,11 @@ export class TextualFramework {
       .at(-1);
   }
 
-  isNodeMounted(widget: WidgetNode): boolean {
+  isNodeMounted(widget: Widget): boolean {
     return this.registry.get(widget.nodeId) === widget;
   }
 
-  createSignal<TValue>(owner: WidgetNode, description = ""): Signal<TValue> {
+  createSignal<TValue>(owner: Widget, description = ""): Signal<TValue> {
     const signal = new Signal<TValue>(
       () => this.isNodeMounted(owner),
       (node) => this.isNodeMounted(node),
@@ -1995,7 +1995,7 @@ export class TextualFramework {
   }
 
   runWorker<TResult>(
-    node: WidgetNode,
+    node: Widget,
     work: WorkerCallable<TResult>,
     options: WorkerOptions = {},
   ): Worker<TResult> {
@@ -2060,15 +2060,15 @@ export class TextualFramework {
     });
   }
 
-  setTimer(node: WidgetNode, name: string, delayMs: number, callback: TimerCallback): void {
+  setTimer(node: Widget, name: string, delayMs: number, callback: TimerCallback): void {
     this.installTimer(node, name, delayMs, callback, false, {});
   }
 
-  setInterval(node: WidgetNode, name: string, intervalMs: number, callback: TimerCallback, options: TimerOptions = {}): void {
+  setInterval(node: Widget, name: string, intervalMs: number, callback: TimerCallback, options: TimerOptions = {}): void {
     this.installTimer(node, name, intervalMs, callback, true, options);
   }
 
-  clearTimer(node: WidgetNode, name: string): void {
+  clearTimer(node: Widget, name: string): void {
     const key = this.timerKey(node.nodeId, name);
     const timer = this.timers.get(key);
 
@@ -2076,15 +2076,15 @@ export class TextualFramework {
     this.timers.delete(key);
   }
 
-  pauseTimer(node: WidgetNode, name: string): void {
+  pauseTimer(node: Widget, name: string): void {
     this.timers.get(this.timerKey(node.nodeId, name))?.pause();
   }
 
-  resumeTimer(node: WidgetNode, name: string): void {
+  resumeTimer(node: Widget, name: string): void {
     this.timers.get(this.timerKey(node.nodeId, name))?.resume();
   }
 
-  resetTimer(node: WidgetNode, name: string): void {
+  resetTimer(node: Widget, name: string): void {
     this.timers.get(this.timerKey(node.nodeId, name))?.reset();
   }
 
@@ -2180,7 +2180,7 @@ export class TextualFramework {
     try {
       const activePump = getActiveMessagePump();
 
-      if (activePump === this || (activePump instanceof WidgetNode && activePump.framework === this)) {
+      if (activePump === this || (activePump instanceof Widget && activePump.framework === this)) {
         throw new RuntimeError("callFromThread must be called from a foreign thread");
       }
     } catch (error) {
@@ -2275,7 +2275,7 @@ export class TextualFramework {
     }
   }
 
-  handleWidgetTooltipChange(widget: WidgetNode): void {
+  handleWidgetTooltipChange(widget: Widget): void {
     if (this.hoveredNodeId !== widget.nodeId) {
       return;
     }
@@ -2286,7 +2286,7 @@ export class TextualFramework {
   private resolvePointerTarget(
     screenX: number,
     screenY: number,
-  ): { x: number; y: number; targetNode?: WidgetNode } {
+  ): { x: number; y: number; targetNode?: Widget } {
     const targetNode = this.hitTest(screenX, screenY);
 
     if (targetNode === undefined) {
@@ -2300,15 +2300,15 @@ export class TextualFramework {
     };
   }
 
-  private resolvePointerDispatchTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
+  private resolvePointerDispatchTarget(targetNode: Widget | undefined): Widget | undefined {
     return targetNode ?? this.resolveActiveScreenRootTarget() ?? this.resolveDefaultDispatchTarget();
   }
 
-  private resolveActiveScreenRootTarget(): WidgetNode | undefined {
+  private resolveActiveScreenRootTarget(): Widget | undefined {
     return this.registry.getChildren(null).find((widget) => widget.isInteractive);
   }
 
-  private resolvePointerFocusTarget(targetNode: WidgetNode | undefined): WidgetNode | undefined {
+  private resolvePointerFocusTarget(targetNode: Widget | undefined): Widget | undefined {
     // [LAW:single-enforcer] Disabled/loading pointer focus gating shares the
     // framework pointer boundary with event suppression instead of widget code.
     if (targetNode?.isDisabledEffective || targetNode?.isLoadingEffective) {
@@ -2329,10 +2329,10 @@ export class TextualFramework {
   }
 
   private postResolvedPointerMessage(
-    dispatchTarget: WidgetNode | undefined,
-    resolved: { x: number; y: number; targetNode?: WidgetNode },
+    dispatchTarget: Widget | undefined,
+    resolved: { x: number; y: number; targetNode?: Widget },
     createMessage: (x: number, y: number) => Message,
-  ): WidgetNode | undefined {
+  ): Widget | undefined {
     if (dispatchTarget === undefined) {
       return undefined;
     }
@@ -2343,7 +2343,7 @@ export class TextualFramework {
       : undefined;
   }
 
-  private markPendingPointerClick(dispatchTarget: WidgetNode | undefined): void {
+  private markPendingPointerClick(dispatchTarget: Widget | undefined): void {
     const pendingClick = this.pendingPointerClick;
 
     if (
@@ -2376,7 +2376,7 @@ export class TextualFramework {
     return chain;
   }
 
-  private updateHoveredNode(targetNode: WidgetNode | undefined, pointer: PointerLocation): void {
+  private updateHoveredNode(targetNode: Widget | undefined, pointer: PointerLocation): void {
     const nextHoveredNodeId = targetNode?.nodeId ?? null;
     const hoveredChanged = this.hoveredNodeId !== nextHoveredNodeId;
 
@@ -2500,7 +2500,7 @@ export class TextualFramework {
     }
   }
 
-  private handleWidgetWillUnmount(widget: WidgetNode): void {
+  private handleWidgetWillUnmount(widget: Widget): void {
     if (this.hoveredNodeId === widget.nodeId) {
       this.hoveredNodeId = null;
       this.hideTooltip();
@@ -3013,7 +3013,7 @@ export class TextualFramework {
     return this.rewriteBindings(screen.bindings, createScreenBindingNamespace(screen));
   }
 
-  private resolveBindingsForNode(node: WidgetNode): Binding[] {
+  private resolveBindingsForNode(node: Widget): Binding[] {
     return this.rewriteBindings(node.bindings, createWidgetBindingNamespace(node));
   }
 
@@ -3110,7 +3110,7 @@ export class TextualFramework {
     return false;
   }
 
-  dispatchNodeKeyBindings(node: WidgetNode, key: string): boolean {
+  dispatchNodeKeyBindings(node: Widget, key: string): boolean {
     for (const binding of this.resolveBindingsForNode(node)) {
       if (binding.priority !== true && binding.key === key) {
         if (this.dispatchBindingAction(binding.action, { actions: node.actions })) {
@@ -3213,8 +3213,8 @@ export class TextualFramework {
     const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
 
     if (focused !== undefined) {
-      const ancestry: WidgetNode[] = [];
-      let current: WidgetNode | undefined = focused;
+      const ancestry: Widget[] = [];
+      let current: Widget | undefined = focused;
 
       while (current !== undefined) {
         ancestry.unshift(current);
@@ -3233,7 +3233,7 @@ export class TextualFramework {
     return chain;
   }
 
-  private resolveDefaultDispatchTarget(): WidgetNode | undefined {
+  private resolveDefaultDispatchTarget(): Widget | undefined {
     const interactiveWidgets = this.registry.list().filter((entry) => entry.isInteractive);
 
     // [LAW:one-source-of-truth] Focus/default dispatch target resolution lives
@@ -3348,7 +3348,7 @@ export class TextualFramework {
         }
 
         if (message instanceof Key && !message.isPropagationStopped) {
-          const keyConsumer = message.sender instanceof WidgetNode ? message.sender : undefined;
+          const keyConsumer = message.sender instanceof Widget ? message.sender : undefined;
           const consumedByDescendant =
             keyConsumer !== undefined &&
             keyConsumer.nodeId !== currentNode.nodeId &&
@@ -3531,11 +3531,11 @@ export class TextualFramework {
     return selectorMatches && attributeMatches;
   }
 
-  private matchesSelectorGroup(target: WidgetNode | null, selectors: readonly ParsedSelector[]): boolean {
+  private matchesSelectorGroup(target: Widget | null, selectors: readonly ParsedSelector[]): boolean {
     return target !== null && selectors.some((selector) => this.matchesSelector(target, selector));
   }
 
-  private getDefaultOnSelectorTarget(message: Message): WidgetNode | null {
+  private getDefaultOnSelectorTarget(message: Message): Widget | null {
     const selectorAttribute = getSelectorAttribute(message.constructor as MessageConstructor);
 
     if (selectorAttribute === null) {
@@ -3548,17 +3548,17 @@ export class TextualFramework {
     return this.resolveOnSelectorTarget(messageAttributes[selectorAttribute], selectorAttribute);
   }
 
-  private getOnAttributeTarget(message: Message, attribute: string): WidgetNode | null {
+  private getOnAttributeTarget(message: Message, attribute: string): Widget | null {
     const messageAttributes = message as Message & Record<string, unknown>;
     return this.resolveOnSelectorTarget(messageAttributes[attribute], attribute);
   }
 
-  private resolveOnSelectorTarget(value: unknown, attribute: string): WidgetNode | null {
+  private resolveOnSelectorTarget(value: unknown, attribute: string): Widget | null {
     if (value === null || value === undefined) {
       return null;
     }
 
-    if (!(value instanceof WidgetNode)) {
+    if (!(value instanceof Widget)) {
       throw new Error(`Message selector attribute "${attribute}" is not a widget`);
     }
 
@@ -3577,7 +3577,7 @@ export class TextualFramework {
     return `${selectorSignature}::${attributeSignature}`;
   }
 
-  private enqueueLifecycleMessages(widget: WidgetNode): void {
+  private enqueueLifecycleMessages(widget: Widget): void {
     this.enqueueDirectMessage(widget, new Compose({ bubble: false }));
     this.enqueueDirectMessage(widget, new Mount({ bubble: false }));
   }
@@ -3610,7 +3610,7 @@ export class TextualFramework {
     }
   }
 
-  private enqueueDirectMessage(targetNode: WidgetNode, message: Message): void {
+  private enqueueDirectMessage(targetNode: Widget, message: Message): void {
     this.queue.push({
       targetId: null,
       targetNode,
@@ -3619,7 +3619,7 @@ export class TextualFramework {
     this.scheduleDrain();
   }
 
-  private withSender(message: Message, sender: WidgetNode | undefined): Message {
+  private withSender(message: Message, sender: Widget | undefined): Message {
     return message.setSender(message.sender ?? sender ?? null);
   }
 
@@ -3673,9 +3673,9 @@ export class TextualFramework {
     screen.lastFocusedAddress = focused === undefined ? null : this.captureFocusAddress(focused);
   }
 
-  private captureFocusAddress(widget: WidgetNode): FocusAddress {
+  private captureFocusAddress(widget: Widget): FocusAddress {
     const segments: number[] = [];
-    let current: WidgetNode | undefined = widget;
+    let current: Widget | undefined = widget;
 
     // [LAW:one-source-of-truth] Focus restore captures one structural address
     // derived from registry order. No alternate identity path participates.
@@ -3708,7 +3708,7 @@ export class TextualFramework {
     });
   }
 
-  private resolveFocusTarget(address: FocusAddress | null, allowAutoFocus: boolean): WidgetNode | null {
+  private resolveFocusTarget(address: FocusAddress | null, allowAutoFocus: boolean): Widget | null {
     const chain = this.getFocusChain();
 
     if (chain.length === 0) {
@@ -3726,7 +3726,7 @@ export class TextualFramework {
     return this.resolveAutoFocusTarget(chain);
   }
 
-  private filterFocusChain(selector?: string | Function): WidgetNode[] {
+  private filterFocusChain(selector?: string | Function): Widget[] {
     const chain = this.getFocusChain();
 
     if (selector === undefined) {
@@ -3742,7 +3742,7 @@ export class TextualFramework {
     return chain.filter((widget) => selectors.some((candidate) => this.matchesSelector(widget, candidate)));
   }
 
-  private ancestorsAllowFocus(widget: WidgetNode): boolean {
+  private ancestorsAllowFocus(widget: Widget): boolean {
     let current = widget.parent;
 
     while (current !== undefined) {
@@ -3756,7 +3756,7 @@ export class TextualFramework {
     return true;
   }
 
-  private isNodeWithin(widget: WidgetNode | undefined, ancestor: WidgetNode): boolean {
+  private isNodeWithin(widget: Widget | undefined, ancestor: Widget): boolean {
     let current = widget;
 
     while (current !== undefined) {
@@ -3770,7 +3770,7 @@ export class TextualFramework {
     return false;
   }
 
-  private resolveAutoFocusTarget(chain: WidgetNode[]): WidgetNode | null {
+  private resolveAutoFocusTarget(chain: Widget[]): Widget | null {
     const selector = this.getEffectiveAutoFocusSelector();
 
     if (selector === null || selector === "") {
@@ -3785,7 +3785,7 @@ export class TextualFramework {
     return chain.find((widget) => selectors.some((candidate) => this.matchesSelector(widget, candidate))) ?? null;
   }
 
-  private resolveExactFocusTarget(address: FocusAddress): WidgetNode | null {
+  private resolveExactFocusTarget(address: FocusAddress): Widget | null {
     const chain = this.getFocusChain();
 
     for (const widget of chain) {
@@ -3811,8 +3811,8 @@ export class TextualFramework {
     return this.appAutoFocus;
   }
 
-  private findNearestFocusCandidate(chain: WidgetNode[], address: FocusAddress): WidgetNode | null {
-    let best: WidgetNode | null = null;
+  private findNearestFocusCandidate(chain: Widget[], address: FocusAddress): Widget | null {
+    let best: Widget | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
 
     for (const widget of chain) {
@@ -3849,7 +3849,7 @@ export class TextualFramework {
   }
 
   private installTimer(
-    node: WidgetNode,
+    node: Widget,
     name: string,
     delayMs: number,
     callback: TimerCallback,
@@ -4012,7 +4012,7 @@ function createScreenBindingNamespace(screen: ScreenEntry): BindingNamespace {
   };
 }
 
-function createWidgetBindingNamespace(widget: WidgetNode): BindingNamespace {
+function createWidgetBindingNamespace(widget: Widget): BindingNamespace {
   return {
     kind: "widget",
     key: `widget:${widget.nodeId}`,
@@ -4045,7 +4045,7 @@ function clonePreventionSnapshot(snapshot: PreventionSnapshot): Map<string | nul
   );
 }
 
-function shouldSuppressAtNode(node: WidgetNode, message: Message): boolean {
+function shouldSuppressAtNode(node: Widget, message: Message): boolean {
   if (node.isLoadingEffective) {
     return isUserInputMessage(message);
   }
@@ -4131,7 +4131,7 @@ function focusAddressesEqual(left: FocusAddress, right: FocusAddress): boolean {
   );
 }
 
-function widgetDepth(widget: WidgetNode): number {
+function widgetDepth(widget: Widget): number {
   let depth = 0;
   let current = widget.parent;
 

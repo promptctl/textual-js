@@ -7,7 +7,7 @@ import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, scalarToInkVal
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
 import type { TextualFramework } from "../framework/app-framework.js";
-import type { WidgetNode } from "../framework/widget-node.js";
+import type { Widget } from "../framework/widget.js";
 
 export type StylesheetOrigin = "default" | "user";
 
@@ -2116,7 +2116,7 @@ function rulesToInk(
 
 export function resolveStylesForWidget(
   framework: TextualFramework,
-  widget: WidgetNode,
+  widget: Widget,
   parentCustomProperties: Record<string, string>,
   inheritedTextStyle?: unknown,
 ): ResolvedInkStyles {

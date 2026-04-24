@@ -10,7 +10,7 @@ import {
   TextualApp,
   TextualFramework,
   WidgetHost,
-  WidgetNode,
+  Widget,
   WidgetScope,
   getActiveMessagePump,
   useWidget,
@@ -18,7 +18,7 @@ import {
 
 class NextTickPing extends Message {}
 
-function TimerHarness(props: { onReady: (widget: WidgetNode) => void }): React.JSX.Element {
+function TimerHarness(props: { onReady: (widget: Widget) => void }): React.JSX.Element {
   const widget = useWidget({
     id: "timer-harness",
     typeName: "TimerHarness",
@@ -41,7 +41,7 @@ describe("concurrency primitives", () => {
 
     try {
       const framework = new TextualFramework();
-      let widget!: WidgetNode;
+      let widget!: Widget;
       const ticks: number[] = [];
 
       const instance = render(

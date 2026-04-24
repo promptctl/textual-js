@@ -3,7 +3,7 @@ import { Segment, type Measurable, type RenderOptions, type Renderable } from "r
 import { Box, Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 
-import { WidgetScope, type VisualInput, type WidgetNode, runTest, useWidget } from "../src/index.js";
+import { WidgetScope, type VisualInput, type Widget, runTest, useWidget } from "../src/index.js";
 
 function createTestRenderable(text: string): Renderable & Measurable {
   return {
@@ -21,7 +21,7 @@ function TooltipLeaf(props: {
   id: string;
   label: string;
   tooltip?: VisualInput | null;
-  onReady?: (widget: WidgetNode) => void;
+  onReady?: (widget: Widget) => void;
 }): React.JSX.Element {
   const widget = useWidget({
     typeName: "TooltipLeaf",
@@ -43,7 +43,7 @@ function TooltipLeaf(props: {
 }
 
 function ToggleTooltipHarness(props: {
-  onWidgetReady?: (widget: WidgetNode) => void;
+  onWidgetReady?: (widget: Widget) => void;
   onToggleReady?: (setMounted: (mounted: boolean) => void) => void;
 }): React.JSX.Element {
   const [mounted, setMounted] = useState(true);
@@ -201,7 +201,7 @@ describe("tooltip and hover lifecycle", () => {
   });
 
   it("clears the tooltip when the source display becomes none", async () => {
-    let widget!: WidgetNode;
+    let widget!: Widget;
     const session = await runTest(
       <TooltipLeaf
         id="target"

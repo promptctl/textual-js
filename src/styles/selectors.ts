@@ -1,7 +1,7 @@
 import * as csstree from "css-tree";
 
 import type { TextualFramework } from "../framework/app-framework.js";
-import type { WidgetNode } from "../framework/widget-node.js";
+import type { Widget } from "../framework/widget.js";
 
 export interface SelectorSpecificity {
   ids: number;
@@ -198,7 +198,7 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
   }
 }
 
-function matchesSegment(segment: ParsedSelectorSegment, widget: WidgetNode): boolean {
+function matchesSegment(segment: ParsedSelectorSegment, widget: Widget): boolean {
   return segment.selectors.every((selector) => {
     if (selector.type === "universal") {
       return true;
@@ -222,7 +222,7 @@ function matchesSegment(segment: ParsedSelectorSegment, widget: WidgetNode): boo
 
 function matchSelectorFrom(
   framework: TextualFramework,
-  widget: WidgetNode,
+  widget: Widget,
   selector: ParsedSelector,
   segmentIndex: number,
 ): boolean {
@@ -265,6 +265,6 @@ function matchSelectorFrom(
   return false;
 }
 
-export function matchesSelector(framework: TextualFramework, widget: WidgetNode, selector: ParsedSelector): boolean {
+export function matchesSelector(framework: TextualFramework, widget: Widget, selector: ParsedSelector): boolean {
   return matchSelectorFrom(framework, widget, selector, selector.segments.length - 1);
 }

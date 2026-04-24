@@ -16,7 +16,7 @@ import {
   TextualFramework,
   Widget,
   WidgetHost,
-  WidgetNode,
+  Widget,
   find_first_enabled,
   find_last_enabled,
   find_next_enabled,
@@ -27,9 +27,9 @@ import {
 
 function createNode(
   framework: TextualFramework,
-  options: Partial<ConstructorParameters<typeof WidgetNode>[0]> = {},
-): WidgetNode {
-  return new WidgetNode({
+  options: Partial<ConstructorParameters<typeof Widget>[0]> = {},
+): Widget {
+  return new Widget({
     framework,
     nodeId: options.nodeId ?? `node-${Math.random()}`,
     parentId: options.parentId ?? null,
@@ -110,7 +110,7 @@ describe("public Widget base surface", () => {
     const first = createNode(framework, { nodeId: "first", id: "first", typeName: "Leaf" });
     const second = createNode(framework, { nodeId: "second", id: "second", typeName: "Leaf" });
 
-    function* widgets(): Iterable<WidgetNode> {
+    function* widgets(): Iterable<Widget> {
       yield first;
       yield second;
     }

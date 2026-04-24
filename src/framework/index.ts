@@ -66,17 +66,14 @@ export {
   BadIdentifier,
   BadWidgetName,
   MountError,
-  WidgetError,
-  WidgetNode,
-  type ScrollAnimationState,
-  type ScrollToOptions,
-  type WalkChildrenOptions,
-  type WidgetNodeInit,
-} from "./widget-node.js";
-export {
   ModalScreen,
   Screen,
   Widget,
+  WidgetError,
+  type ScrollAnimationState,
+  type ScrollToOptions,
+  type WalkChildrenOptions,
+  type WidgetInit,
   type WidgetOptions,
 } from "./widget.js";
 export {
