@@ -8,3 +8,4 @@ visual-tests/snapshots/python/*
 visual-tests/.venv/
 visual-tests/uv.lock
 __pycache__/
+.claude/
