@@ -145,7 +145,7 @@ env -u NO_COLOR \
     -cr "#121212" \
     +bc \
     -T "$title" \
-    -e bash -c "cd ${project_dir} && exec ${runner_command}" &
+    -e bash -c "cd ${project_dir} && sleep 0.5 && exec ${runner_command}" &
 xterm_pid="$!"
 
 # ── Locate the xterm window ──────────────────────────────────────────────
@@ -188,8 +188,22 @@ shoot() {
   import -window "$window_id" "$1"
 }
 
+# wait_for_stability <timeout_ms> <reject_sha>
+#
+# Polls screenshots every 250ms. A stable frame requires both:
+#   (a) stable_needed consecutive identical SHAs, AND
+#   (b) the SHA differs from reject_sha.
+#
+# (b) closes the "stable but wrong frame" class of bug. Before the runner
+# produces content, xterm shows a blank window that is itself perfectly
+# stable across frames — without the reject_sha guard, the detector locks
+# in on this pre-content frame, and the final screenshot captures blank
+# xterm instead of fixture output. By passing the pre-render (or
+# pre-interaction) SHA as reject_sha, we force the detector to wait for an
+# actual screen transition before counting stability.
 wait_for_stability() {
   local timeout_ms="$1"
+  local reject_sha="$2"
   local min_settle_ms=1500
   local interval_ms=250
   local stable_needed=5
@@ -205,6 +219,11 @@ wait_for_stability() {
     return 1
   fi
 
+  # reject_sha == "" is the "settle-only" mode, used by the `wait`
+  # interaction which is definitionally post-render and has no change
+  # requirement. The initial-render and post-interaction callers must
+  # always pass a real SHA so the detector cannot lock in on the wrong
+  # pre-frame.
   local stable=0
   local prev_sha=""
 
@@ -219,7 +238,7 @@ wait_for_stability() {
       continue
     fi
 
-    if [[ "$sha" == "$prev_sha" && -n "$prev_sha" ]]; then
+    if [[ "$sha" == "$prev_sha" && -n "$prev_sha" && "$sha" != "$reject_sha" ]]; then
       stable=$(( stable + 1 ))
       if (( stable >= stable_needed - 1 )); then
         cp "$next_shot" "$prev_shot"
@@ -232,11 +251,18 @@ wait_for_stability() {
     prev_sha="$sha"
   done
 
-  echo "fatal: fixture ${side}/${fixture} never stabilized within ${timeout_ms}ms" >&2
+  echo "fatal: fixture ${side}/${fixture} never diverged from baseline ${reject_sha:0:12} within ${timeout_ms}ms" >&2
   return 1
 }
 
-wait_for_stability 12000
+# [LAW:single-enforcer] The 0.5s sleep in the xterm command guarantees
+# the runner has not yet imported or rendered when we capture this blank.
+# Any "stable" frame equal to this baseline means the runner never drew —
+# never a real fixture render. wait_for_stability rejects that outcome.
+shoot "$next_shot"
+blank_xterm_sha="$(sha256sum "$next_shot" | awk '{print $1}')"
+
+wait_for_stability 12000 "$blank_xterm_sha"
 
 # ── Drive interactions ───────────────────────────────────────────────────
 # Each interaction reads its row from the TSV with no further parsing. After
@@ -262,13 +288,13 @@ if [[ -s "$interactions_tsv" ]]; then
       key)
         xdotool windowfocus --sync "$window_id"
         xdotool key --window "$window_id" --clearmodifiers "$arg1"
-        wait_for_stability 6000
+        wait_for_stability 6000 "$pre_sha"
         assert_screen_changed "key '${arg1}'" "$pre_sha"
         ;;
       type)
         xdotool windowfocus --sync "$window_id"
         xdotool type --window "$window_id" --clearmodifiers --delay 5 -- "$arg1"
-        wait_for_stability 6000
+        wait_for_stability 6000 "$pre_sha"
         assert_screen_changed "type '${arg1}'" "$pre_sha"
         ;;
       hover)
@@ -277,19 +303,22 @@ if [[ -s "$interactions_tsv" ]]; then
         # emits a motion event, even if the cursor was already nearby.
         xdotool mousemove --window "$window_id" 0 0
         xdotool mousemove --window "$window_id" "$px" "$py"
-        wait_for_stability 6000
+        wait_for_stability 6000 "$pre_sha"
         assert_screen_changed "hover (${arg1},${arg2})" "$pre_sha"
         ;;
       click)
         read -r px py <<<"$(cell_to_px "$arg1" "$arg2")"
         xdotool mousemove --window "$window_id" "$px" "$py"
         xdotool click "$arg3"
-        wait_for_stability 6000
+        wait_for_stability 6000 "$pre_sha"
         assert_screen_changed "click (${arg1},${arg2}) button=${arg3}" "$pre_sha"
         ;;
       wait)
         sleep "$(awk -v ms="$arg1" 'BEGIN { printf "%.3f", ms/1000 }')"
-        wait_for_stability 6000
+        # `wait` runs only after initial render has already stabilized, so
+        # the settle-only mode (empty reject_sha) cannot accidentally lock
+        # in on a pre-render blank frame.
+        wait_for_stability 6000 ""
         # `wait` may legitimately produce no screen change (it's a settle
         # request, not an action). Skip the assert.
         ;;
