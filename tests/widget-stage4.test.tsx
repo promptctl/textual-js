@@ -49,19 +49,26 @@ function createNode(
 }
 
 describe("public Widget base surface", () => {
-  it("constructs detached widgets with child ownership and validates class names", () => {
+  it("requires a framework on construction and validates class names", () => {
+    const framework = new TextualFramework();
     class Parent extends Widget {}
     class Child extends Widget {}
-    const child = new Child({ id: "child" });
-    const parent = new Parent(child, { id: "parent" });
+
+    const child = new Child({ framework, id: "child" });
+    const parent = new Parent({ framework, id: "parent" });
 
     expect(parent.is_mounted).toBe(false);
     expect(parent.is_attached).toBe(false);
-    expect(parent.children.toArray()).toEqual([child]);
+    expect(parent.children.toArray()).toEqual([]);
+    expect(child.parentId).toBeNull();
+
+    // [LAW:one-source-of-truth] A widget without a framework has no runtime
+    // to belong to, so construction rejects it at the single boundary.
     expect(() => new Widget("bad" as never)).toThrow(TypeError);
+    expect(() => new Widget({} as never)).toThrow();
 
     class lowercase extends Widget {}
-    expect(() => new lowercase()).toThrow(BadWidgetName);
+    expect(() => new lowercase({ framework })).toThrow(BadWidgetName);
   });
 
   it("mounts, moves, removes, sorts, and looks up direct children", () => {
@@ -167,7 +174,7 @@ describe("public Widget base surface", () => {
     expect(second.hasClass("-loading")).toBe(true);
     expect(second._cover_widget).not.toBeNull();
 
-    const rendered = new RenderWidget();
+    const rendered = new RenderWidget({ framework });
     expect(rendered.render_str("[bold]x[/]").plain).toBe("x");
     expect(rendered.get_content_width()).toBe(5);
     expect(rendered.get_content_height()).toBe(2);

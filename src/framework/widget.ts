@@ -1,17 +1,16 @@
 import type { BindingDeclaration } from "../bindings/index.js";
 import type { ContentInput, VisualInput } from "../content/index.js";
 import { TextualFramework } from "./app-framework.js";
-import { NodeList, type WidgetActions, type WidgetHandlers } from "./widget-registry.js";
+import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { BadWidgetName, MountError, WidgetError, WidgetNode, type WidgetNodeInit } from "./widget-node.js";
 
-const detachedFramework = new TextualFramework();
 let nextPublicWidgetId = 1;
 
 export interface WidgetOptions {
+  framework: TextualFramework;
   id?: string;
   classes?: string | readonly string[];
   name?: string;
-  framework?: TextualFramework;
   handlers?: WidgetHandlers;
   actions?: WidgetActions;
   bindings?: BindingDeclaration[];
@@ -25,6 +24,13 @@ export interface WidgetOptions {
   borderSubtitle?: ContentInput | null;
 }
 
+// [LAW:one-source-of-truth] Widget is a thin public subclass of WidgetNode.
+// Parent/child ownership lives in framework.registry; there is no staging
+// buffer and no singleton framework. A framework must be passed at construction
+// so every widget has exactly one runtime from birth.
+//
+// Slice N+1 will merge this class into WidgetNode so the project has a single
+// widget type, per design-docs/true-north-arch-refactor.md §2.
 export class Widget extends WidgetNode {
   static DEFAULT_CSS = "";
   static CSS = "";
@@ -35,27 +41,18 @@ export class Widget extends WidgetNode {
   static inheritCss = true;
   static inheritBindings = true;
 
-  private readonly constructorChildren = new NodeList();
+  constructor(options: WidgetOptions) {
+    if (options === undefined || options === null || typeof options !== "object") {
+      throw new TypeError("Widget constructor options must be an object");
+    }
 
-  constructor(...args: Array<Widget | WidgetOptions>) {
-    const { children, options } = splitWidgetConstructorArgs(args);
+    if (!(options.framework instanceof TextualFramework)) {
+      throw new WidgetError("Widget requires a framework");
+    }
+
     const typeName = options.name ?? new.target.name;
-
     super(createWidgetNodeInit(typeName, options, new.target as typeof Widget));
     validatePublicWidgetName(typeName);
-
-    for (const child of children) {
-      if (child === this) {
-        throw new WidgetError("A widget cannot own itself");
-      }
-
-      child.parentId = this.nodeId;
-      this.constructorChildren._append(child);
-    }
-  }
-
-  override get children(): NodeList {
-    return this.framework.isNodeMounted(this) ? super.children : this.constructorChildren;
   }
 
   get is_mounted(): boolean {
@@ -81,32 +78,9 @@ export class ModalScreen<Result = unknown> extends Screen<Result> {
   override readonly isModal: boolean = true;
 }
 
-function splitWidgetConstructorArgs(args: Array<Widget | WidgetOptions>): { children: Widget[]; options: WidgetOptions } {
-  const last = args.at(-1);
-  const hasOptions = last !== undefined && !(last instanceof Widget);
-
-  if (hasOptions && (typeof last !== "object" || last === null)) {
-    throw new TypeError("Widget constructor options must be an object");
-  }
-
-  const options = hasOptions ? (last as WidgetOptions) : {};
-  const childArgs = hasOptions ? args.slice(0, -1) : args;
-  const children = childArgs.map((child) => {
-    if (!(child instanceof Widget)) {
-      throw new TypeError("Widget constructor children must be Widget instances");
-    }
-
-    return child;
-  });
-
-  // [LAW:one-source-of-truth] Constructor child ownership is represented by
-  // the child list; invalid child data is rejected at this single boundary.
-  return { children, options };
-}
-
 function createWidgetNodeInit(typeName: string, options: WidgetOptions, typeSource: typeof Widget): WidgetNodeInit {
   return {
-    framework: options.framework ?? detachedFramework,
+    framework: options.framework,
     nodeId: `public-widget-${nextPublicWidgetId++}`,
     parentId: null,
     id: options.id,
