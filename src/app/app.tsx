@@ -5,7 +5,7 @@ import {
   TextualFramework,
   type KeymapInput,
   type ScreenDescriptor,
-  type ScreenEntry,
+  type Screen,
   type ScreenOptions,
   type SimpleCommand,
   type SystemCommand,
@@ -99,19 +99,19 @@ export class App<Result = unknown> {
     return this.getSystemCommands(screen);
   }
 
-  get screen_stack(): ScreenEntry[] {
+  get screen_stack(): Screen[] {
     return this.framework.getScreenStack();
   }
 
-  get screen(): ScreenEntry | null {
+  get screen(): Screen | null {
     return this.framework.activeScreen;
   }
 
-  get_screen_stack(): ScreenEntry[] {
+  get_screen_stack(): Screen[] {
     return this.framework.getScreenStack();
   }
 
-  get_default_screen(): ScreenEntry | null {
+  get_default_screen(): Screen | null {
     return this.framework.getScreenStack()[0] ?? null;
   }
 
@@ -151,7 +151,7 @@ export class App<Result = unknown> {
     descriptor: ScreenDescriptor,
     callbackOrOptions?: ((result: unknown) => void) | (ScreenOptions & { wait_for_dismiss?: boolean }),
     extraOptions?: ScreenOptions,
-  ): ScreenEntry | Promise<unknown> {
+  ): Screen | Promise<unknown> {
     if (typeof callbackOrOptions !== "function" && callbackOrOptions?.wait_for_dismiss === true) {
       const { wait_for_dismiss, ...options } = callbackOrOptions;
       void wait_for_dismiss;
@@ -165,11 +165,11 @@ export class App<Result = unknown> {
     return this.framework.pushScreenWait(descriptor, options);
   }
 
-  pop_screen(result?: unknown): ScreenEntry | null {
+  pop_screen(result?: unknown): Screen | null {
     return this.framework.popScreen(result);
   }
 
-  switch_screen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): ScreenEntry {
+  switch_screen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Screen {
     return this.framework.switchScreen(descriptor, options);
   }
 

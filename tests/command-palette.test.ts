@@ -100,9 +100,7 @@ function createPalette(
     app: framework,
     framework,
     screen: null,
-    screenEntry: null,
     focused: null,
-    focusedNode: null,
   }, options);
 }
 

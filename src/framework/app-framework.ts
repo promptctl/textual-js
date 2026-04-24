@@ -212,7 +212,7 @@ export interface ScreenOptions {
   scopedCss?: boolean;
 }
 
-export interface ScreenEntry {
+export interface Screen {
   id: string;
   name: string | null;
   element: React.ReactElement | null;
@@ -259,7 +259,7 @@ export interface AppSignals {
   app_suspend_signal: Signal<void>;
   app_resume_signal: Signal<void>;
   mode_change_signal: Signal<string>;
-  screen_change_signal: Signal<ScreenEntry | null>;
+  screen_change_signal: Signal<Screen | null>;
   bindings_updated_signal: Signal<void>;
 }
 
@@ -321,7 +321,7 @@ export interface SystemCommand {
   discover: boolean;
 }
 
-export type SystemCommandResolver = (screen: ScreenEntry | null) => Iterable<SystemCommand>;
+export type SystemCommandResolver = (screen: Screen | null) => Iterable<SystemCommand>;
 
 export class ScreenStackError extends Error {}
 
@@ -535,7 +535,7 @@ export class TextualFramework {
   captureUnhandledErrors = false;
   activeMode = DEFAULT_MODE;
   animationLevel: AnimationLevel = "full";
-  private readonly modeStacks = new Map<string, ScreenEntry[]>();
+  private readonly modeStacks = new Map<string, Screen[]>();
   private readonly modeFactories = new Map<string, () => React.ReactElement>();
   private readonly installedScreens = new Map<string, ScreenFactoryRecord>();
   private readonly queue: QueuedMessage[] = [];
@@ -608,7 +608,7 @@ export class TextualFramework {
       app_suspend_signal: this.createFrameworkSignal<void>(),
       app_resume_signal: this.createFrameworkSignal<void>(),
       mode_change_signal: this.createFrameworkSignal<string>(),
-      screen_change_signal: this.createFrameworkSignal<ScreenEntry | null>(),
+      screen_change_signal: this.createFrameworkSignal<Screen | null>(),
       bindings_updated_signal: this.createFrameworkSignal<void>(),
     };
 
@@ -1607,15 +1607,15 @@ export class TextualFramework {
     this.publicApp = app;
   }
 
-  getSystemCommands(screen: ScreenEntry | null): SystemCommand[] {
+  getSystemCommands(screen: Screen | null): SystemCommand[] {
     return Array.from(this.systemCommandResolver(screen));
   }
 
-  get_system_commands(screen: ScreenEntry | null): SystemCommand[] {
+  get_system_commands(screen: Screen | null): SystemCommand[] {
     return this.getSystemCommands(screen);
   }
 
-  private createCommandProviders(baseScreen: ScreenEntry | null): Provider[] {
+  private createCommandProviders(baseScreen: Screen | null): Provider[] {
     const appProviders = this.appCommandProviders ?? new Set<ProviderConstructor>([SystemCommandsProvider]);
     const screenProviders = baseScreen?.commandProviders ?? new Set<ProviderConstructor>();
 
@@ -1678,16 +1678,14 @@ export class TextualFramework {
     command?.();
   }
 
-  private createProviderContext(baseScreen: ScreenEntry | null, focused: Widget | null): ProviderContext {
+  private createProviderContext(baseScreen: Screen | null, focused: Widget | null): ProviderContext {
     const contextApp = this.publicApp ?? this;
 
     return {
       app: contextApp as ProviderContext["app"],
       framework: this,
       screen: baseScreen,
-      screenEntry: baseScreen,
       focused,
-      focusedNode: focused,
     };
   }
 
@@ -2616,7 +2614,7 @@ export class TextualFramework {
       if (factory !== undefined) {
         // [LAW:one-source-of-truth] The mode's factory is the sole producer of
         // its base screen; the mode name is not doubled up as the screen name.
-        const entry = this.createScreenEntry(factory(), {});
+        const entry = this.createScreen(factory(), {});
         this.modeStacks.set(name, [entry]);
       }
     }
@@ -2632,7 +2630,7 @@ export class TextualFramework {
     this.notifyBindingsUpdated();
   }
 
-  get activeScreen(): ScreenEntry | null {
+  get activeScreen(): Screen | null {
     // [LAW:dataflow-not-control-flow] Reading screenStackVersion hooks MobX into
     // mutations of a plain-Map-backed stack, so observer()s re-render on changes.
     void this.screenStackVersion;
@@ -2656,7 +2654,7 @@ export class TextualFramework {
     return stack.filter((entry) => !entry.implicit).length;
   }
 
-  getScreenStack(mode?: string): ScreenEntry[] {
+  getScreenStack(mode?: string): Screen[] {
     void this.screenStackVersion;
     return (this.modeStacks.get(mode ?? this.activeMode) ?? []).slice();
   }
@@ -2678,10 +2676,10 @@ export class TextualFramework {
     return activeBindings;
   }
 
-  pushScreen(descriptor: ScreenDescriptor, callbackOrOptions?: ((result: unknown) => void) | ScreenOptions, extraOptions?: ScreenOptions): ScreenEntry {
+  pushScreen(descriptor: ScreenDescriptor, callbackOrOptions?: ((result: unknown) => void) | ScreenOptions, extraOptions?: ScreenOptions): Screen {
     const { callback, options } = normalizePushArgs(callbackOrOptions, extraOptions);
     const element = this.resolveScreenElement(descriptor, options.name);
-    const entry = this.createScreenEntry(element, { ...options, callback });
+    const entry = this.createScreen(element, { ...options, callback });
 
     this.clearPointerState();
     this.suspendCurrentScreen();
@@ -2708,7 +2706,7 @@ export class TextualFramework {
     });
   }
 
-  popScreen(result?: unknown): ScreenEntry | null {
+  popScreen(result?: unknown): Screen | null {
     const stack = this.modeStacks.get(this.activeMode) ?? [];
 
     if (stack.length <= 1) {
@@ -2732,11 +2730,11 @@ export class TextualFramework {
     return popped;
   }
 
-  dismissScreen(result?: unknown): ScreenEntry | null {
+  dismissScreen(result?: unknown): Screen | null {
     return this.popScreen(result);
   }
 
-  switchScreen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): ScreenEntry {
+  switchScreen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Screen {
     const stack = this.modeStacks.get(this.activeMode) ?? [];
 
     if (stack.length === 0) {
@@ -2753,7 +2751,7 @@ export class TextualFramework {
     this.clearPointerState();
     this.suspendCurrentScreen();
 
-    const entry = this.createScreenEntry(element, options);
+    const entry = this.createScreen(element, options);
     this.clearScreenWaiters(current);
     stack[stack.length - 1] = entry;
     this.modeStacks.set(this.activeMode, stack);
@@ -2838,15 +2836,15 @@ export class TextualFramework {
     return descriptor;
   }
 
-  private createScreenEntry(
+  private createScreen(
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
-  ): ScreenEntry {
+  ): Screen {
     const screenType = element.type as { AUTO_FOCUS?: string | null; BINDINGS?: Iterable<BindingDeclaration> };
     const bindings = makeBindings([...(screenType.BINDINGS ?? []), ...(options.bindings ?? [])]);
     const screenStyles = this.readScreenStylesheetState(element, options);
     const staticAutoFocus = screenType.AUTO_FOCUS;
-    const entry: ScreenEntry = {
+    const entry: Screen = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
       element,
@@ -2869,7 +2867,7 @@ export class TextualFramework {
     return entry;
   }
 
-  private mergeScreenActions(entry: ScreenEntry, actions: WidgetActions | undefined): WidgetActions {
+  private mergeScreenActions(entry: Screen, actions: WidgetActions | undefined): WidgetActions {
     const builtins: WidgetActions = {
       action_dismiss: (result?: unknown) => {
         void entry;
@@ -3009,7 +3007,7 @@ export class TextualFramework {
     return this.rewriteBindings(this.appBindings, createAppBindingNamespace());
   }
 
-  private resolveBindingsForScreen(screen: ScreenEntry): Binding[] {
+  private resolveBindingsForScreen(screen: Screen): Binding[] {
     return this.rewriteBindings(screen.bindings, createScreenBindingNamespace(screen));
   }
 
@@ -3667,7 +3665,7 @@ export class TextualFramework {
     this.notifyBindingsUpdated();
   }
 
-  private saveScreenFocusSnapshot(screen: ScreenEntry): void {
+  private saveScreenFocusSnapshot(screen: Screen): void {
     const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
     screen.savedFocusNodeId = focused?.nodeId ?? null;
     screen.lastFocusedAddress = focused === undefined ? null : this.captureFocusAddress(focused);
@@ -3827,7 +3825,7 @@ export class TextualFramework {
     return best;
   }
 
-  private resolveScreenResult(screen: ScreenEntry, result: unknown): void {
+  private resolveScreenResult(screen: Screen, result: unknown): void {
     const callback = screen.callback;
     const waiters = screen.waiters.splice(0);
 
@@ -3839,7 +3837,7 @@ export class TextualFramework {
     }
   }
 
-  private clearScreenWaiters(screen: ScreenEntry | undefined): void {
+  private clearScreenWaiters(screen: Screen | undefined): void {
     if (screen === undefined) {
       return;
     }
@@ -3949,7 +3947,7 @@ export interface ActionTargetDescriptor {
 
 type ActionDispatchResult = "handled" | "consumed" | "unhandled";
 
-function createImplicitEntry(): ScreenEntry {
+function createImplicitEntry(): Screen {
   return {
     id: "_default",
     name: null,
@@ -4003,7 +4001,7 @@ function createAppBindingNamespace(): BindingNamespace {
   };
 }
 
-function createScreenBindingNamespace(screen: ScreenEntry): BindingNamespace {
+function createScreenBindingNamespace(screen: Screen): BindingNamespace {
   return {
     kind: "screen",
     key: `screen:${screen.id}`,

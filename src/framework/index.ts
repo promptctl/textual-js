@@ -29,7 +29,7 @@ export {
   type RegisterWidgetOptions,
   type RegisterWidgetTypeOptions,
   type ScreenDescriptor,
-  type ScreenEntry,
+  type Screen,
   type ScreenOptions,
   type WidgetTypeMetadata,
 } from "./app-framework.js";
@@ -66,8 +66,6 @@ export {
   BadIdentifier,
   BadWidgetName,
   MountError,
-  ModalScreen,
-  Screen,
   Widget,
   WidgetError,
   type ScrollAnimationState,

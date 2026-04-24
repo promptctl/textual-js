@@ -1361,23 +1361,6 @@ export class Widget {
   }
 }
 
-// [LAW:one-source-of-truth] Screen is the canonical screen runtime object.
-// It is a Widget with screen-stack membership semantics, not a separate
-// identity type. Active-screen resolution lives in TextualFramework.
-export class Screen<Result = unknown> extends Widget {
-  static AUTO_FOCUS: string | null = null;
-  static BINDINGS: readonly BindingDeclaration[] = [];
-  readonly isModal: boolean = false;
-
-  dismiss(result?: Result): void {
-    this.framework.dismissScreen(result);
-  }
-}
-
-export class ModalScreen<Result = unknown> extends Screen<Result> {
-  override readonly isModal: boolean = true;
-}
-
 function optionsToInit(options: WidgetOptions, typeSource: typeof Widget): WidgetInit {
   if (options === null || typeof options !== "object") {
     throw new TypeError("Widget constructor options must be an object");

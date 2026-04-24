@@ -434,7 +434,7 @@ function handlePaletteKey(
   }
 }
 
-function isLocalClickInsideWidget(message: Click, widget: ProviderContext["focusedNode"]): boolean {
+function isLocalClickInsideWidget(message: Click, widget: ProviderContext["focused"]): boolean {
   if (widget === null) {
     return false;
   }

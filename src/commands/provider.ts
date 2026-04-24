@@ -3,8 +3,8 @@
 
 import type { App } from "../app/app.js";
 import type { VisualInput } from "../content/index.js";
-import type { ScreenEntry, SimpleCommand, SystemCommand, TextualFramework } from "../framework/app-framework.js";
-import type { Screen, Widget } from "../framework/widget.js";
+import type { Screen, SimpleCommand, SystemCommand, TextualFramework } from "../framework/app-framework.js";
+import type { Widget } from "../framework/widget.js";
 
 export interface CommandHitInit {
   score: number;
@@ -91,13 +91,15 @@ export class DiscoveryHit {
 
 export type DiscoveryHitLike = DiscoveryHit | DiscoveryHitInit;
 
+// [LAW:one-type-per-behavior] Every field names exactly one type. The former
+// `screen` / `screenEntry` duality collapsed when Screen and ScreenEntry
+// merged (the shim class had no subclassers). The former `focused` /
+// `focusedNode` duality was a sed artifact from the WidgetNode→Widget merge.
 export interface ProviderContext {
   app: App | TextualFramework;
   framework: TextualFramework;
-  screen: Screen | ScreenEntry | null;
-  screenEntry: ScreenEntry | null;
-  focused: Widget | Widget | null;
-  focusedNode: Widget | null;
+  screen: Screen | null;
+  focused: Widget | null;
 }
 
 export abstract class Provider {
@@ -111,20 +113,12 @@ export abstract class Provider {
     return this.requireContext().framework;
   }
 
-  get screen(): ProviderContext["screen"] {
+  get screen(): Screen | null {
     return this.requireContext().screen;
   }
 
-  get screenEntry(): ScreenEntry | null {
-    return this.requireContext().screenEntry;
-  }
-
-  get focused(): ProviderContext["focused"] {
+  get focused(): Widget | null {
     return this.requireContext().focused;
-  }
-
-  get focusedNode(): Widget | null {
-    return this.requireContext().focusedNode;
   }
 
   startup(): Promise<void> | void {
