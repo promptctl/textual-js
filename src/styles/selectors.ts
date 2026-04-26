@@ -2,6 +2,7 @@ import * as csstree from "css-tree";
 
 import type { TextualFramework } from "../framework/app-framework.js";
 import type { Widget } from "../framework/widget.js";
+import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
 
 export interface SelectorSpecificity {
   ids: number;
@@ -30,24 +31,6 @@ export class InvalidQueryFormat extends Error {}
 
 const TEXTUAL_IDENTIFIER = /^-*[A-Za-z_][A-Za-z0-9_-]*$/;
 const TEXTUAL_TYPE_NAME = /^[A-Z][A-Za-z0-9-]*$/;
-const KNOWN_PSEUDO_CLASSES = new Set([
-  "blur",
-  "can-focus",
-  "dark",
-  "disabled",
-  "enabled",
-  "empty",
-  "even",
-  "first-child",
-  "first-of-type",
-  "focus",
-  "focus-within",
-  "hover",
-  "last-child",
-  "last-of-type",
-  "light",
-  "odd",
-]);
 
 function validateIdentifier(name: string, selectorText: string): void {
   if (!TEXTUAL_IDENTIFIER.test(name)) {
@@ -84,7 +67,7 @@ function closestPseudoClass(name: string): string | undefined {
 
     return previous[right.length]!;
   };
-  const scored = [...KNOWN_PSEUDO_CLASSES]
+  const scored = [...PSEUDO_CLASS_NAMES]
     .map((candidate) => ({ candidate, score: distance(name, candidate) }))
     .sort((left, right) => left.score - right.score || left.candidate.localeCompare(right.candidate));
   const best = scored[0];
@@ -92,7 +75,7 @@ function closestPseudoClass(name: string): string | undefined {
 }
 
 function validatePseudoClass(name: string): void {
-  if (KNOWN_PSEUDO_CLASSES.has(name)) {
+  if (PSEUDO_CLASS_NAMES.has(name)) {
     return;
   }
 

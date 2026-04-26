@@ -12,6 +12,7 @@ import type { NotifyOptions } from "./app-framework.js";
 import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
+import { PSEUDO_CLASSES } from "../styles/pseudo-classes.js";
 import { ResolvedStyles } from "../styles/resolved-styles.js";
 import { type StyleAssignmentValue } from "../styles/stylesheet.js";
 import { createStylesProxy, Styles } from "../styles/styles.js";
@@ -907,82 +908,11 @@ export class Widget {
   }
 
   hasPseudoClass(name: string): boolean {
-    if (name === "focus") {
-      return this.isFocused;
-    }
-
-    if (name === "blur") {
-      return !this.isFocused;
-    }
-
-    if (name === "disabled") {
-      return this.isDisabledEffective;
-    }
-
-    if (name === "enabled") {
-      return !this.isDisabledEffective;
-    }
-
-    if (name === "loading") {
-      return this.isLoadingEffective;
-    }
-
-    if (name === "can-focus") {
-      return this.focusable;
-    }
-
-    if (name === "focus-within") {
-      let currentNode =
-        this.framework.focusedNodeId === null ? undefined : this.framework.registry.get(this.framework.focusedNodeId);
-
-      while (currentNode !== undefined) {
-        if (currentNode.nodeId === this.nodeId) {
-          return true;
-        }
-
-        currentNode = currentNode.parent;
-      }
-    }
-
-    if (name === "hover") {
-      return this.isHovered;
-    }
-
-    if (name === "dark") {
-      return this.framework.dark;
-    }
-
-    if (name === "light") {
-      return !this.framework.dark;
-    }
-
-    if (name === "first-child") {
-      return this.framework.registry.getSiblingIndex(this.nodeId) === 0;
-    }
-
-    if (name === "last-child") {
-      return this.framework.registry.getNextSiblings(this.nodeId).length === 0;
-    }
-
-    if (name === "first-of-type") {
-      return this.framework.registry.getPreviousSiblings(this.nodeId).every((sibling) => !sibling.matchesType(this.typeName));
-    }
-
-    if (name === "last-of-type") {
-      return this.framework.registry.getNextSiblings(this.nodeId).every((sibling) => !sibling.matchesType(this.typeName));
-    }
-
-    if (name === "even" || name === "odd") {
-      const index = this.framework.registry.getSiblingIndex(this.nodeId);
-      const position = index + 1;
-      return index >= 0 && (name === "even" ? position % 2 === 0 : position % 2 === 1);
-    }
-
-    if (name === "empty") {
-      return !this.framework.registry.hasChildren(this.nodeId);
-    }
-
-    return this.pseudoClasses.get(name) ?? false;
+    // [LAW:dataflow-not-control-flow] Built-in pseudo-classes resolve through
+    // PSEUDO_CLASSES; ad-hoc widget-set pseudo-classes resolve through the
+    // instance map. The two sources are unioned by data flow (?? chain), not
+    // by branching on name.
+    return PSEUDO_CLASSES[name]?.(this) ?? this.pseudoClasses.get(name) ?? false;
   }
 
   get_pseudo_class_state(): PseudoClasses {

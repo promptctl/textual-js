@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { Spacing } from "../geometry/index.js";
 import { Color } from "./color.js";
+import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
 import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, scalarToInkValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
@@ -263,25 +264,6 @@ const POINTER_VALUES = [
   "zoom-out",
 ] as const;
 
-const KNOWN_PSEUDO_CLASSES = new Set([
-  "blur",
-  "can-focus",
-  "dark",
-  "disabled",
-  "enabled",
-  "empty",
-  "even",
-  "first-child",
-  "first-of-type",
-  "focus",
-  "focus-within",
-  "hover",
-  "last-child",
-  "last-of-type",
-  "light",
-  "odd",
-]);
-
 function bestSuggestion(input: string, candidates: Iterable<string>): string | undefined {
   const normalized = input.trim().toLowerCase().replaceAll("_", "-");
   const distance = (left: string, right: string): number => {
@@ -481,8 +463,8 @@ export function tokenizeTcss(source: string, readFrom: readonly [string, string]
       }
       const pseudoName = source.slice(start + 1, index);
 
-      if (!KNOWN_PSEUDO_CLASSES.has(pseudoName)) {
-        const suggestion = bestSuggestion(pseudoName, KNOWN_PSEUDO_CLASSES);
+      if (!PSEUDO_CLASS_NAMES.has(pseudoName)) {
+        const suggestion = bestSuggestion(pseudoName, PSEUDO_CLASS_NAMES);
         const suffix = suggestion === undefined ? "" : `; did you mean "${suggestion}"?`;
         throw new TokenError(`unknown pseudo-class '${pseudoName}'${suffix}`, indexToLocation(source, start));
       }
