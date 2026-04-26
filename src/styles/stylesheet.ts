@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { Spacing } from "../geometry/index.js";
 import { Color } from "./color.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
-import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, scalarToInkValue, StyleValueError, Unit } from "./scalar.js";
+import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, scalarToInkValue, scalarToRawValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
 import type { TextualFramework } from "../framework/app-framework.js";
@@ -1849,30 +1849,6 @@ function expandedDeclarationEntries(declaration: ParsedDeclaration): ParsedDecla
   }
 
   return [declaration];
-}
-
-function scalarToRawValue(value: Scalar): string {
-  if (value.unit === "cells") {
-    return String(value.value);
-  }
-
-  if (value.unit === "auto") {
-    return "auto";
-  }
-
-  if (value.unit === "fraction") {
-    return `${value.value}fr`;
-  }
-
-  if (value.unit === "width") {
-    return `${value.value}w`;
-  }
-
-  if (value.unit === "height") {
-    return `${value.value}h`;
-  }
-
-  return `${value.value}%`;
 }
 
 function compareCascade(left: CascadeValue, right: CascadeValue): number {
