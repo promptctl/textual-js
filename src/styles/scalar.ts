@@ -54,6 +54,53 @@ function assertScalarAxis(axis: ScalarAxis): void {
   }
 }
 
+// [LAW:one-source-of-truth] UNIT_DESCRIPTORS is the canonical per-unit
+// behavior table. Conversion to Ink values, raw CSS strings, and axis
+// normalization all read from this single record; no consumer of Scalar
+// may branch on .unit.
+interface UnitDescriptor {
+  toInk(scalar: Scalar, viewport: ScalarViewport, fractionBasis: number): number | string;
+  toRaw(scalar: Scalar): string;
+  normalize(scalar: Scalar, axis: ScalarAxis): Scalar;
+}
+
+const identityNormalize: UnitDescriptor["normalize"] = (scalar) => scalar;
+
+const UNIT_DESCRIPTORS: Readonly<Record<Unit, UnitDescriptor>> = {
+  [Unit.CELLS]: {
+    toInk: (scalar) => scalar.value,
+    toRaw: (scalar) => String(scalar.value),
+    normalize: identityNormalize,
+  },
+  [Unit.AUTO]: {
+    toInk: () => "auto",
+    toRaw: () => "auto",
+    normalize: identityNormalize,
+  },
+  [Unit.FRACTION]: {
+    // [LAW:one-way-deps] The Ink bridge emits concrete cell counts; grid
+    // fraction semantics are resolved before values cross into Ink props.
+    toInk: (scalar, _viewport, fractionBasis) => Math.round(scalar.value * fractionBasis),
+    toRaw: (scalar) => `${scalar.value}fr`,
+    normalize: identityNormalize,
+  },
+  [Unit.WIDTH]: {
+    toInk: (scalar, viewport) => Math.round((viewport.width * scalar.value) / 100),
+    toRaw: (scalar) => `${scalar.value}w`,
+    normalize: identityNormalize,
+  },
+  [Unit.HEIGHT]: {
+    toInk: (scalar, viewport) => Math.round((viewport.height * scalar.value) / 100),
+    toRaw: (scalar) => `${scalar.value}h`,
+    normalize: identityNormalize,
+  },
+  [Unit.PERCENT]: {
+    toInk: (scalar) => `${scalar.value}%`,
+    toRaw: (scalar) => `${scalar.value}%`,
+    normalize: (scalar, axis) => new Scalar(scalar.value, axisToPercentUnit(axis), axisToPercentUnit(axis)),
+  },
+};
+
 export function parseScalar(input: string, axis: ScalarAxis): Scalar {
   assertScalarAxis(axis);
   const value = input.trim();
@@ -111,35 +158,13 @@ export function normalizeScalar(input: string | number | Scalar, axis: ScalarAxi
     throw new StyleValueError(`Invalid scalar value "${String(input)}"`);
   }
 
-  if (scalar.unit === Unit.PERCENT) {
-    return new Scalar(scalar.value, axisToPercentUnit(axis), axisToPercentUnit(axis));
-  }
-
-  return scalar;
+  return UNIT_DESCRIPTORS[scalar.unit].normalize(scalar, axis);
 }
 
 export function scalarToInkValue(value: Scalar, viewport: ScalarViewport, fractionBasis = 1): number | string {
-  if (value.unit === Unit.CELLS) {
-    return value.value;
-  }
+  return UNIT_DESCRIPTORS[value.unit].toInk(value, viewport, fractionBasis);
+}
 
-  if (value.unit === Unit.AUTO) {
-    return "auto";
-  }
-
-  if (value.unit === Unit.FRACTION) {
-    // [LAW:one-way-deps] The Ink bridge emits concrete cell counts; grid
-    // fraction semantics are resolved before values cross into Ink props.
-    return Math.round(value.value * fractionBasis);
-  }
-
-  if (value.unit === Unit.WIDTH) {
-    return Math.round((viewport.width * value.value) / 100);
-  }
-
-  if (value.unit === Unit.HEIGHT) {
-    return Math.round((viewport.height * value.value) / 100);
-  }
-
-  return `${value.value}%`;
+export function scalarToRawValue(value: Scalar): string {
+  return UNIT_DESCRIPTORS[value.unit].toRaw(value);
 }
