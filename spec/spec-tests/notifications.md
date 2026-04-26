@@ -9,7 +9,7 @@ A `Notification` is created with a required `message` string. It supports the fo
 - **message**: The notification text. Stored exactly as provided.
 - **title**: An optional string; defaults to `""` (empty string) when not specified.
 - **severity**: One of the severity levels (see below); defaults to `"information"`.
-- **timeout**: Duration in seconds before the notification expires. Has a class-level default (`Notification.timeout`). Can be overridden per notification.
+- **timeout**: Duration before the notification expires. Has a class-level default (`Notification.timeout`). Can be overridden per notification. **Known divergence — units**: upstream uses seconds; textual-js uses milliseconds to conform to JS ecosystem conventions.
 - **identity**: A unique string identifier automatically assigned at creation. Every notification instance receives a distinct identity, even when constructed with identical arguments.
 - **has_expired**: A boolean property that returns `True` once the notification's timeout has elapsed since creation, `False` otherwise.
 

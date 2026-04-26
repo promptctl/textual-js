@@ -1,327 +1,348 @@
-# Layout, Rendering, and Compositor
+# Layout and Rendering
 
-## Layout Abstraction
+## Overview
 
-`textual.layout.Layout` (in `layout.py`) is the abstract base for arrangement
-strategies. Subclasses implement:
+Layout and rendering are handled by **Ink** (Yoga flexbox) and **React's reconciler**. The framework does not implement its own layout engine, compositor, or terminal renderer. This spec describes the behavioral contracts that the framework layer enforces on top of Ink's layout, and how the TCSS cascade feeds into Ink's rendering pipeline.
 
-- `arrange(parent, children, size, greedy=True) -> list[WidgetPlacement]` —
-  produce placements for layout (non-docked, non-split) children within a given
-  container size. Strategies call `parent.pre_layout(self)` first.
-- `get_content_width(widget, container, viewport) -> int` and
-  `get_content_height(widget, container, viewport, width) -> int` — compute
-  auto content extents by arranging at a probe size and taking the bounding
-  region of the result (`arrangement.total_region`). `get_content_width` calls
-  `widget.arrange(..., optimal=True)` so non-greedy sizing is used.
-- `render_keyline(container) -> StripRenderable` — draws rectangles around
-  visible children on a `Canvas` using the container's `keyline` style.
+// [LAW:single-enforcer] Ink and React own rendering, layout, and tree diffing. The framework layer produces style props and observable state; it does not directly write to the terminal.
 
-`WidgetPlacement` is a `NamedTuple` of `(region, offset, margin, widget, order,
-fixed, overlay, absolute)`. Classmethods provide `translate` (bulk shift of
-non-absolute placements), `apply_absolute` (reset origin for `absolute`
-entries, mutating in place), and `get_bounds` (union of margin-grown regions).
-`process_offset` applies per-widget absolute positioning and `constrain_x` /
-`constrain_y` clamping against the container region.
+## Rendering Modes
 
-`DockArrangeResult` (defined in `layout.py`) carries the placements, the set
-of participating widgets, a `scroll_spacing` Spacing, and a lazily-built
-`SpatialMap` for visibility queries. `total_region` grows the spatial map's
-total region to account for right/bottom scroll spacing, and
-`get_visible_placements(region)` uses the spatial map plus an overlap test
-that respects `fixed` placements.
+Widgets render through one of two modes:
 
-`LAYOUT_MAP` in `textual.layouts.factory` registers the built-in strategies
-(`horizontal`, `vertical`, `grid`, `stream`); `get_layout(name)` instantiates
-one or raises `MissingLayout`.
+- **Compose mode**: the widget returns a JSX child tree. Ink/Yoga arranges the children directly. This is the default for containers and chrome widgets such as `Button`, `Switch`, and general layout containers.
+- **Line API mode**: the widget renders line-by-line. Each visible line is a rich-js `Strip` composed of `Segment`s carrying rich-js `Style`. The framework converts each `Strip` to Ink `<Text>` runs inside a one-line `<Box>`. This mode is used by widgets such as `TextArea`, `Input`, `DataTable`, `Tree`, `OptionList`, `Log`, `RichLog`, and `Markdown`.
 
-## Global Arrange Pipeline
+See spec 09 for the shared base contract line-based widgets implement.
 
-`textual._arrange.arrange(widget, children, size, viewport, optimal=False)`
-drives per-container arrangement. The phases (applied per layer) are:
+## Layout Model
 
-1. Filter children by `display` and group the survivors by `styles.layer`
-   (`_build_layers`). Each layer is arranged independently.
-2. Within a layer, partition into split vs non-split widgets via
-   `styles.is_split`. If any split widgets are present,
-   `_arrange_split_widgets` shrinks the initial view region by consuming
-   top/bottom/left/right slices (using each split widget's box model); the
-   split placements go out with `fixed=True` and `order=1`. Otherwise the
-   layer's dock region starts as the full `size.region`.
-3. The spacing between the original size and the post-split dock region is
-   recorded as `split_spacing`.
-4. Partition the remaining widgets into dock vs layout widgets via
-   `styles.is_docked`. `_arrange_dock_widgets` resolves each dock widget's
-   box model, places it along its `styles.dock` edge (top/right/bottom/left),
-   shrinks the dock region by the accumulated per-edge maxima, and emits
-   placements with `order=TOP_Z` and `fixed=True`. `greedy` is derived from
-   `not optimal`.
-5. The remaining layout widgets are arranged by calling
-   `widget.layout.arrange(widget, layout_widgets, dock_region.size,
-   greedy=not optimal)`. The result is passed through
-   `widget.process_layout(...)` before being consumed.
-6. `scroll_spacing` is accumulated via `grow_maximum(dock_spacing)` across
-   layers so that scrollable area reductions from docks are preserved.
-7. If the container has non-default `align_horizontal`/`align_vertical`,
-   the bounding region of the layout placements is aligned within the
-   container using `styles._align_size`, taking the widget's auto-size
-   extrema into account. A `placement_offset` (dock region offset plus
-   alignment) is applied via `WidgetPlacement.translate`, which skips any
-   widget whose `absolute_offset` is set.
-8. `WidgetPlacement.apply_absolute` resets the origin of placements marked
-   `absolute`.
+Ink provides Yoga flexbox layout via `<Box>` component props. The framework's TCSS engine resolves styles per widget (see spec 04), translates them to Ink layout props, and the widget passes them to `<Box>`:
 
-`arrange` returns `DockArrangeResult(placements, set(display_widgets),
-scroll_spacing)`. The spatial map is built on first access.
+```tsx
+const MyWidget = observer(() => {
+  const styles = useStyles();
+  return (
+    <Box {...styles.box}>
+      <Text {...styles.text}>Content</Text>
+    </Box>
+  );
+});
+```
 
-// [LAW:dataflow-not-control-flow] Arrangement is a fixed multi-stage
-// transform; style values vary the outputs, not the stage order.
+Yoga handles all dimension calculation, flex distribution, margin/padding, and alignment. The framework does not second-guess Yoga's results.
 
-## Built-in Layout Strategies
+### TCSS-to-Ink Layout Mapping
 
-### Vertical (`layouts/vertical.py`)
+| TCSS property | Ink/Yoga prop | Notes |
+|---------------|---------------|-------|
+| `width` | `width` | Supports cells, `fr`, `%`, `auto`. `fr` resolved by framework before passing to Ink. |
+| `height` | `height` | Same as width |
+| `min-width` | `minWidth` | — |
+| `max-width` | `maxWidth` | — |
+| `min-height` | `minHeight` | — |
+| `max-height` | `maxHeight` | — |
+| `padding` | `paddingTop/Right/Bottom/Left` | All four sides |
+| `margin` | `marginTop/Right/Bottom/Left` | All four sides |
+| `border` | `borderStyle`, `borderColor` | Border reserves 1 cell per side |
+| `display: none` | `display="none"` | Widget does not render or occupy space |
+| `align` | `alignItems`, `justifyContent` | Flex alignment |
+| `content-align` | `alignSelf` | Individual widget alignment within parent |
 
-- Resolves per-child vertical box models via `_resolve.resolve_box_models`,
-  passing the computed `resolve_margin` (max side margin and collapsed
-  between-siblings margin) so `auto`/`fr` heights see the correct remaining
-  space.
-- Stacks children along `y`, using margin collapse (max of adjacent
-  `margin.bottom` / `margin.top`) between siblings.
-- Widgets with `overlay: screen` are positioned but do not advance `y` and
-  are excluded from the resolved margin computation.
-- `absolute`-positioned widgets (`position: absolute`) are emitted without
-  advancing `y`; their final origin is reset by `apply_absolute`.
-- Per-placement `offset` is resolved from `styles.offset` against the
-  child's resolved content size and the app viewport.
+### Flex properties
 
-### Horizontal (`layouts/horizontal.py`)
+Ink's `<Box>` supports full Yoga flexbox:
 
-Mirror of vertical along the `x` axis: resolves widths, collapses horizontal
-margins between siblings, supports `offset`, `overlay: screen`, and
-`position: absolute`.
+| Ink prop | Description | Default |
+|----------|-------------|---------|
+| `flexDirection` | `'row'` or `'column'` | `'column'` (vertical stacking) |
+| `flexGrow` | How much the widget grows to fill space | `0` |
+| `flexShrink` | How much the widget shrinks when space is tight | `1` |
+| `flexBasis` | Initial size before flex distribution | `'auto'` |
+| `flexWrap` | `'wrap'` or `'nowrap'` | `'nowrap'` |
+| `alignItems` | Cross-axis alignment of children | `'stretch'` |
+| `justifyContent` | Main-axis alignment of children | `'flex-start'` |
+| `alignSelf` | Override parent's `alignItems` for this widget | `'auto'` |
 
-### Grid (`layouts/grid.py`)
+### Fractional units (`fr`)
 
-- Row/column tracks come from `styles.grid_rows` / `styles.grid_columns`
-  (scalars). Missing columns default to one `1fr` track; missing rows
-  default to `1fr` when the parent has an explicit height, otherwise
-  `auto`.
-- Gutter comes from `grid_gutter_horizontal` / `grid_gutter_vertical`.
-- Children carry `column_span` / `row_span` placement.
-- Supports `min_column_width` / `max_column_width`, `stretch_height`,
-  `regular` (no remainder last row), `expand`, `shrink`, and
-  `auto_minimum`.
-- Keyline rendering is coordinated with a shrink/offset adjustment.
+TCSS supports `fr` units (like CSS Grid). Since Yoga does not natively understand `fr`, the framework resolves `fr` values before passing to Ink:
 
-### Stream (`layouts/stream.py`)
+1. Query the available space (parent's content area minus any fixed-size children).
+2. Sum all `fr` values among siblings.
+3. Compute each child's pixel (cell) size: `childFr / totalFr * availableSpace`.
+4. Pass the computed cell value to Ink as a fixed width/height.
 
-- Optimized fast path for long vertical lists (e.g. chat logs).
-- Treats every child as effectively full-width (`1fr`) and auto-height.
-- Supports only `max-height` in units; other extrema are ignored.
-- Ignores absolute positioning, `overlay: screen`, layers, and non-TCSS
-  styles.
-- Caches placements keyed by container width so unchanged widths reuse
-  prior results.
+This resolution runs during style application, before React renders. The computed values are stored on `ResolvedStyles` and translated to Ink props.
 
-## Compositor Responsibilities
+### Cell-width-aware measurement
 
-`textual._compositor.Compositor` owns the screen-wide arrangement and
-incremental rendering state. Its state includes:
+All display-width calculations use rich-js `cellLength(text)`, not JavaScript `str.length`. Wide characters (CJK, emoji) count as 2 cells; combining characters count as 0; tabs expand per `indentWidth`; ANSI escape sequences count as 0. This rule applies to content width in `fr` resolution, scrollport width, scroll offset clamping, cursor column tracking, and line-wrap break points.
 
-- `_full_map: CompositorMap` — widget → `MapGeometry` for every widget
-  considered, plus an `_full_map_invalidated` flag.
-- `_visible_map: CompositorMap | None` — the visible-only fast path map
-  populated by `reflow_visible`.
-- `widgets: set[Widget]` — display-visible participants (may be a superset
-  of the map once `visible_map` is active).
-- `_visible_widgets` — lazily computed `widget -> (region, clip)` in
-  back-to-front order, used by `get_widget_at`, hit-testing, cuts, and
-  rendering.
-- `_layers` / `_layers_visible` — caches of widgets ordered by their
-  painting order and, for `_layers_visible`, a per-screen-line list of
-  `(widget, cropped_region, region)` used by point queries.
-- `_cuts` — per-line sorted cut points (0, widget edges, width) used to
-  slice strips into chops for incremental updates.
-- `_dirty_regions: set[Region]` — accumulated regions requiring redraw.
-- `root: Widget | None` and `size: Size` — the top-level screen widget and
-  its current size.
+### Percentage units (`%`)
 
-## Arrange Pipeline (compositor)
+Percentage values resolve relative to the parent's content area. Ink/Yoga handles `%` natively for width and height — the framework passes the percentage string directly to Ink.
 
-`reflow(root, size)` rebuilds the full map:
+## Layout Strategies
 
-1. Invalidate cached caches (`_cuts`, `_layers`, `_layers_visible`,
-   `_visible_widgets`, `_visible_map`).
-2. Keep a reference to the old `_full_map` and call `_arrange_root(root,
-   size, visible_only=False)` to build the new map and participating
-   widget set.
-3. Compute `shown = new - old`, `hidden = old_widgets - new_widgets`,
-   and `resized` (widgets present in both with a different region size).
-4. Intersect each changed widget's `(clip ∩ region)` into `_dirty_regions`
-   unless the whole screen is already dirty.
-5. Return `ReflowResult(hidden, shown, resized)`.
+The TCSS `layout` property selects the strategy a container uses to arrange its flow children. Every container resolves to exactly one strategy — there is no "no strategy" state. The framework maps the chosen strategy to Ink/Yoga props (and, where Yoga cannot express the semantics directly, pre-computes placements before passing them to Ink).
 
-`reflow_visible(root, size)` is the scroll fast path: it skips building
-the full map (setting `_full_map_invalidated=True`), builds a
-`_visible_map` via `_arrange_root(..., visible_only=True)`, diffs against
-the previous visible map, updates `_dirty_regions`, and returns the set
-of newly exposed widgets.
+// [LAW:one-type-per-behavior] All four strategies are instances of a single `LayoutStrategy` interface (`plan(container, children, styles) -> Placement[]`). They differ only in their placement function, not in the pipeline around them.
 
-`_arrange_root` walks the widget tree recursively. For each widget it:
+| `layout` value | Behavior | Ink/Yoga mapping |
+|----------------|----------|------------------|
+| `vertical` (default) | Children stack top-to-bottom along the main axis. | `flexDirection="column"` on the container's `<Box>`. |
+| `horizontal` | Children flow left-to-right along the main axis. | `flexDirection="row"` on the container's `<Box>`. |
+| `grid` | Children are placed into named rows/columns with optional `column-span` / `row-span`. Grid tracks are sized per TCSS `grid-columns` / `grid-rows` (supporting cells, `fr`, `%`, `auto`). | Framework resolves the grid into a two-level `<Box>` tree (rows of row-`<Box>`es containing cell-`<Box>`es) with resolved sizes, because Yoga has no native grid. |
+| `stream` | Optimized fast path for long vertical lists of full-width, auto-height children (log views, chat transcripts, scrollable feeds). | `flexDirection="column"` with cached, pre-resolved per-child heights; `fr`, percentage main-axis sizes, absolute positioning, overlay, and layers are ignored inside a stream. |
 
-- Skips widgets that are not `_is_mounted`.
-- Reads `styles.visibility` to decide whether it is visible.
-- Computes `container_region = region.shrink(styles.gutter)`.
-- For scrollable widgets, derives `child_region` from
-  `widget._get_scrollable_region(container_region)` (shrunken for
-  scrollbars), calls `widget.arrange(child_region.size)` to produce the
-  `DockArrangeResult`, then processes each placement via
-  `process_offset` (absolute offsets + constrain). If the widget is
-  anchored (`_anchored` / `_anchor_released`), the y scroll and target
-  are snapped to the bottom of the arranged content.
-- When `visible_only=True`, only placements returned by
-  `get_visible_placements(sub_clip - child_region.offset + scroll_offset)`
-  are walked.
-- Expands `total_region` to include `arrange_result.total_region` so the
-  virtual size reflects scroll content.
-- Uses `widget.layers` to map `layer` names to per-widget layer indices;
-  a placement's painting order becomes `parent.order + ((layer_index,
-  z, layer_order),)`. Overlay placements get an order of `((1, 0, 0),)`
-  and their `clip` is expanded to the full screen (`no_clip`) so they
-  escape the parent scrollport.
-- Emits scrollbar chrome for visible scrollable widgets via
-  `widget._arrange_scrollbars(container_region)` when
-  `show_vertical_scrollbar` / `show_horizontal_scrollbar` is set and
-  `styles.scrollbar_visibility == "visible"`. Each chrome widget is
-  inserted into the map with its own region.
-- Writes `MapGeometry(region, order, clip, virtual_size, container_size,
-  virtual_region, dock_gutter)` into the map under `widget._render_widget`
-  (so cover widgets / proxies are honored). A `_cover_widget` short
-  circuits child traversal and paints the cover over the widget's content
-  region.
-- Non-scrollable visible widgets are recorded with their own region as
-  both region and virtual size.
+### Stream semantics
 
-// [LAW:single-enforcer] The compositor is the single source of truth for
-// widget geometry, visibility ordering, and dirty regions; widgets
-// never compute their own screen placements.
+Stream is deliberately narrower than `vertical` to enable caching and avoid per-frame Yoga work on long lists:
 
-## Lookups
+- Every child is treated as full cross-axis width. `width`, `min-width`, and cross-axis alignment on children are ignored.
+- Main-axis extrema are honored only as `max-height` (and the implied clamp to `min-height: 0`). Other `min-*` / `max-*` values on stream children are ignored for performance.
+- `dock`, `overlay: screen`, absolute positioning, and `layers` on stream children are ignored — a stream is a flat list. Docks/overlays declared on the stream container itself still apply at the container boundary.
+- Child placements (offset + height) are cached, keyed by container width. A width change invalidates the cache; content changes invalidate only the affected suffix.
+- Stream children participate in scrolling via the container's `scrollOffset`; the framework slices the cached placement list against `scrollportSize` before handing Ink the visible range.
+- Appropriate for log views, chat transcripts, and long scrollable lists. Inappropriate for heterogeneous layouts that need dock/overlay/layer semantics — use `vertical` there.
 
-- `find_widget(widget)` returns the cached `MapGeometry`, preferring the
-  full map when not invalidated, then the visible map, and finally
-  triggering a full map rebuild via the `full_map` property.
-- `get_offset(widget)` returns the region offset from either map.
-- `get_widget_at(x, y)` / `get_widgets_at(x, y)` iterate
-  `layers_visible[y]`, testing cropped regions and `widget.visible`.
-- `get_style_at(x, y)` renders a single-line crop of the widget under
-  the coordinate and walks segments to find the covering style; if the
-  widget is not in `visible_widgets`, returns `Style.null()`.
-- `get_widget_and_offset_at(x, y)` renders a full line and reads
-  per-segment `offset` metadata so callers can recover an offset within
-  the content.
-- `cuts` returns per-line sorted lists of x positions where widget edges
-  fall; used to chop strips for partial updates.
+### Margin collapse between siblings
 
-## Render Update Forms
+In `vertical` and `horizontal` layouts, adjacent flow siblings collapse their adjacent margins (matching CSS block-level margin-collapse semantics). The framework computes collapsed margins before passing them to Ink, because Yoga sums sibling margins by default.
 
-The compositor emits three `CompositorUpdate` subclasses:
+| Layout | Adjacent pair | Collapsed value |
+|--------|---------------|-----------------|
+| `vertical` | sibling A above B | `max(A.marginBottom, B.marginTop)` — not the sum |
+| `horizontal` | sibling A left of B | `max(A.marginRight, B.marginLeft)` — not the sum |
 
-- `LayoutUpdate(strips, region)` — a full-region strip update. Emits a
-  `Control.move_to` per line and the strips for each line. Used by
-  `render_full_update` when the dirty set covers the whole screen or
-  when a simplified SVG export is requested.
-- `InlineUpdate(strips, clear=False)` — inline (non-fullscreen) render
-  used by `render_inline`. Writes strips sequentially, clears below when
-  shrinking, moves the cursor back to the origin row, and issues a
-  cursor-position query so the driver can track the new inline row.
-- `ChopsUpdate(chops, spans, chop_ends)` — span-based partial update.
-  Each dirty span `(y, x1, x2)` is rewritten from the cached
-  per-column chops, moving the cursor to the first column whose range
-  overlaps `[x1, x2]` and emitting only the segments needed to cover the
-  span.
+Rules:
 
-`render_update(full=False, screen_stack=None, simplify=False)` chooses
-between full and partial updates based on whether the screen region is
-already fully dirty; `render_full_update` clears `_dirty_regions` and
-rebuilds all chops; `render_partial_update` snapshots and clears
-`_dirty_regions`, computes the union crop plus per-line spans, and
-rebuilds only those chops. `render_strips` returns joined strips for the
-current size and is used for screenshots, inline, and `__rich__` export.
+- Collapse applies only between flow siblings in the same container. A container's own margin does not collapse with its children's margins.
+- `overlay: screen` children are positioned out-of-flow and do not participate in margin collapse — they neither advance the main axis nor consume the collapsed gap between their neighbors.
+- Absolutely positioned children (including docked children, which the framework lifts out of flow) do not participate in margin collapse.
+- `grid` and `stream` layouts do **not** collapse margins. Grid gaps are governed by `grid-gutter-*`; stream children use their own `margin-top` / `margin-bottom` verbatim (fast path: no pairwise comparison).
+- Collapse is resolved during style application: the framework walks the flow-child list, computes the collapsed gap for each adjacent pair, and emits `marginTop: 0` on the second sibling while setting `marginTop: collapsedGap` on it (or equivalently zeroes the first's `marginBottom`). One sibling owns the gap so Yoga sees it exactly once.
 
-`_render_chops` walks `_get_renders` front-to-back (the iteration order
-is the same as `visible_widgets`, which is back-to-front sorted by
-painting order): it asks each widget for cropped `render_lines`, slices
-each strip at the cached cut points, and fills per-column buckets using
-a first-write-wins rule so the topmost widget's segments survive.
+// [LAW:single-enforcer] Margin collapse is computed in exactly one place — the layout-strategy planner — before Ink sees any margin values. Downstream code (widgets, Ink, Yoga) never re-derives collapsed margins.
 
-## Dirty-Region Bookkeeping
+## Dock Behavior
 
-- `reflow` / `reflow_visible` add `(clip ∩ region)` for every changed
-  widget to `_dirty_regions`.
-- `update_widgets(widgets)` is called in response to widget repaint
-  requests. For visible widgets it drains
-  `widget._exchange_repaint_regions()`, translates each into screen
-  coordinates, intersects with the widget's clip, and adds the result
-  to `_dirty_regions`. If any requested widget is not in
-  `visible_widgets`, `_full_map_invalidated` is flipped so the next
-  lookup rebuilds the map.
-- A render cycle (`render_full_update` / `render_partial_update`)
-  always clears `_dirty_regions` before returning.
+`dock` is a framework layout concern. Yoga does not have a `dock` concept, so the framework implements it by controlling the rendering order and flex configuration:
 
-## Styles Cache and Strip Rendering
+### How dock works
 
-`_styles_cache.StylesCache` owns per-widget line caching. Its
-responsibilities on the render path:
+A docked widget is removed from normal flow and positioned at an edge of its parent:
 
-- `set_dirty(*regions)` marks the lines touched by each region dirty
-  (empty call clears the cache). `is_dirty(y)` reports per-line dirtiness.
-- `render_widget(widget, crop)` is the widget entry point: it resolves
-  the widget's title/subtitle, background colors, padding, line
-  filters, opacity, and ANSI theme, then delegates to `render`.
-- `render` classifies each line in the widget's region as border,
-  border+padding, or content (see the diagram in the module), calls
-  `render_line` per line, and caches the non-dirty results. A
-  `_simple_strip` (left border + blank + right border) is reused for
-  content-free decorative lines.
-- `render_line` post-processes each produced line: it applies
-  `styles.tint` via `Tint.process_segments`, applies `styles.text_opacity`
-  via `TextOpacity`, and applies widget `opacity` via `_apply_opacity`.
-  Border and border-label colors are composited with `opacity`.
+| Dock value | Effect |
+|------------|--------|
+| `top` | Widget spans the full width at the top of the parent. Rendered before flow children. |
+| `bottom` | Widget spans the full width at the bottom of the parent. Rendered after flow children. |
+| `left` | Widget spans the full height at the left edge. Rendered before flow children. |
+| `right` | Widget spans the full height at the right edge. Rendered after flow children. |
 
-The compositor's `_get_renders` calls `widget.render_lines(region)`
-which in turn drives the styles cache, so opacity, tint, filters, and
-border/title rendering all live behind a single cached pipeline.
+### Implementation strategy
 
-## Scroll and Visibility Integration
+The screen or container widget that renders docked children wraps them in a layout structure:
 
-For every scrollable widget the compositor:
+```tsx
+// Conceptual — framework renders docked children around flow children
+<Box flexDirection="column" width="100%" height="100%">
+  {/* Top-docked widgets */}
+  {dockedTop.map(w => <Box key={w.id} width="100%">{w}</Box>)}
 
-- Derives the scrollport from `widget._get_scrollable_region(container_region)`
-  so the chrome area is excluded from child placement.
-- Applies `placement_scroll_offset = container_region.offset -
-  widget.scroll_offset` to child placements so scroll becomes a
-  compositor translation rather than a per-widget concern.
-- Unions the arrangement's `total_region` into the widget's virtual
-  size so the recorded `MapGeometry.virtual_size` reflects the full
-  scrollable extent.
-- When anchored content changes size, the compositor snaps `scroll_y`
-  and `scroll_target_y` (and the vertical scrollbar's reactive
-  position) to the bottom of the content during the reflow itself.
-- Overlay placements escape the scrollport's clip (by using the screen
-  region as their clip), and their painting order is forced above the
-  rest of the layer.
+  <Box flexDirection="row" flexGrow={1}>
+    {/* Left-docked widgets */}
+    {dockedLeft.map(w => <Box key={w.id} height="100%">{w}</Box>)}
 
-## Dirtying and Refresh
+    {/* Flow children in remaining space */}
+    <Box flexDirection="column" flexGrow={1}>
+      {flowChildren}
+    </Box>
 
-`Widget.refresh(...)` translates to internal flags (`_repaint_required`,
-`_layout_required`, `_scroll_required`) and enqueues pending repaint
-regions. `Screen` drains these on its message/idle cycle, translating
-them into `Update`, `Layout`, and `UpdateScroll` work against the
-compositor (`update_widgets`, `reflow`, `reflow_visible`). `App._display`
-renders whichever `CompositorUpdate` the compositor returns and writes
-the raw segments through the driver, using synchronized-output escapes
-when the terminal supports them.
+    {/* Right-docked widgets */}
+    {dockedRight.map(w => <Box key={w.id} height="100%">{w}</Box>)}
+  </Box>
 
-// [LAW:single-enforcer] Final visible composition, dirty-region policy,
-// and screen write serialization are centralized in `Compositor` and
-// `App._display`, not distributed across widgets.
+  {/* Bottom-docked widgets */}
+  {dockedBottom.map(w => <Box key={w.id} width="100%">{w}</Box>)}
+</Box>
+```
+
+- Multiple widgets can dock to the same edge; they stack in DOM order.
+- Docked widgets reduce the available space for remaining (flow) children.
+- Dock is resolved from TCSS styles during the rendering phase — the `dock` value on `ResolvedStyles` tells the container how to position the child.
+
+## Layers and Ordering
+
+- `layers` property on a container declares named layers in painting order (first = bottom, last = top).
+- `layer` property on a child assigns it to a named layer.
+- Widgets within a layer are painted in DOM order.
+- `overlay: screen` positions a widget above all layers, escaping the parent's layout flow. Used for modals, tooltips, and notification toasts.
+
+Implementation: layers are rendered as stacked `<Box>` elements with `position="absolute"` (Ink supports this). `overlay: screen` renders via a React portal to the App's root overlay container.
+
+## Scroll Behavior
+
+Scrollable widgets (`overflow: scroll | auto`) provide scrolling within their content area.
+
+### Scroll model
+
+| State | Type | Description |
+|-------|------|-------------|
+| `scrollOffset` | MobX observable `{ x, y }` | Current scroll position |
+| `virtualSize` | MobX observable `{ width, height }` | Total scrollable content size |
+| `scrollportSize` | derived | Widget's content area minus scrollbar chrome |
+| `maxScroll` | derived | `virtualSize - scrollportSize` (clamped to 0) |
+| `scrollPercentage` | derived | `scrollOffset / maxScroll` (0–1) |
+
+### Scroll behavior
+
+- Scroll offset changes update the MobX observable → `observer()` triggers re-render → content is rendered at the new offset.
+- Scroll is implemented by rendering content in a container with `overflow: hidden` and translating the content position by the scroll offset.
+- Virtual size is computed from the content's natural size. When content changes, virtual size is recalculated.
+- Scrollbars are rendered as framework widgets (not Ink built-ins) positioned at the right edge (vertical) and bottom edge (horizontal) of the scrollport. Scrollbar chrome is drawn as rich-js `Segment`s using scrollbar block characters (`▔▁▂▃▄▅▆▇█` and full-block variants); segment styles are resolved from the parent widget's `scrollbar-color`, `scrollbar-background`, and active/hover variants.
+
+### Scroll input handling
+
+| Input | Effect |
+|-------|--------|
+| Mouse wheel up/down | Scroll vertically by `scrollStep` (default: 1 line) |
+| Mouse wheel left/right | Scroll horizontally |
+| Page Up / Page Down | Scroll by one scrollport height |
+| Home / End | Scroll to top / bottom |
+| Click on scrollbar track | Scroll to the clicked position |
+| Drag scrollbar thumb | Scroll proportionally |
+
+### Anchored scrolling
+
+When `auto_scroll` is enabled on a scrollable widget:
+- If the user is scrolled to the bottom (within a threshold), new content additions automatically scroll to keep the bottom visible.
+- If the user has scrolled away from the bottom, new content does not auto-scroll (preserving their position).
+
+## Rendering
+
+React's reconciler handles all rendering. The framework's role is to produce the right MobX observable state and let `observer()` drive re-renders.
+
+### Render pipeline
+
+1. **State change**: a MobX observable changes (reactive property, TCSS style recalculation, focus change, scroll offset, etc.).
+2. **observer() detection**: `mobx-react-lite`'s `observer()` wrapper detects which observables were read during the last render and re-renders only affected widgets.
+3. **Widget render**: the widget's function body runs, calling `useStyles()` for TCSS-resolved Ink props and reading any other MobX observables for content.
+4. **Compose mode**: the widget returns a JSX child tree directly.
+5. **Line API mode**: the widget produces rich-js `Strip`s (one per visible line). The framework converts each `Strip` to a sequence of Ink `<Text>` elements, one per consecutive style run, wrapped in a `<Box>` representing that line. Each `<Text>` receives Ink color/style props translated from the segment's rich-js `Style`.
+6. **Ink diffing**: Ink's React reconciler diffs the component tree against the previous render.
+7. **Yoga layout**: Ink runs Yoga layout on the updated tree, computing positions and dimensions.
+8. **Terminal output**: Ink writes ANSI escape sequences for changed cells only.
+
+When widget content is a rich-js `Content` built from an ANSI-containing string (via `parseAnsi()`), the embedded styles are preserved in the `Segment` stream. The framework does not double-interpret ANSI: raw ANSI at string level becomes structured rich-js `Style` values first, then Ink re-emits terminal escape sequences from those styles.
+
+### Border titles and subtitles
+
+`BORDER_TITLE` and `BORDER_SUBTITLE` are reactive widget properties with type `string | Content`. At render time, the framework draws the border row so title and subtitle content can be embedded at positions controlled by `border-title-align` and `border-subtitle-align`. The behavioral contract is that the visible border row is a rich-js `Strip` combining border characters and title/subtitle `Content`, even if the implementation uses Ink border props plus an overlay to achieve that result.
+
+### Output filter pipeline
+
+After Ink converts widget JSX to terminal output, the framework's `LineFilter` pipeline (spec 12) post-processes each rendered line at the Ink-to-terminal boundary. Filters operate on the rendered segment stream, not on individual widgets. Built-in filters such as `Monochrome`, `NoColor`, `DimFilter`, and `ANSIToTruecolor` are applied in declaration order. The pipeline is always evaluated; an empty filter list is a no-op.
+
+### What the framework does NOT do
+
+- **No custom compositor**: Ink handles visibility, stacking, and output.
+- **No dirty-region tracking**: React's reconciler tracks which components changed.
+- **No strip/span-based rendering**: Ink handles line-by-line terminal output.
+- **No render cache**: React memoization (`React.memo`, `useMemo`) provides caching where needed.
+
+## Refresh Semantics
+
+The Python Textual concept of `refresh(repaint=True, layout=True)` maps to MobX observable mutations:
+
+| Textual concept | textual-js equivalent |
+|----------------|----------------------|
+| `refresh(repaint=True)` | MobX observable change → `observer()` triggers re-render |
+| `refresh(layout=True)` | Style observable change → Ink/Yoga recomputes layout |
+| `refresh(recompose=True)` | MobX observable list change → React re-renders with new children |
+
+MobX's `runInAction` batches multiple changes into a single React render cycle:
+
+```tsx
+const { batchUpdate } = useTextual();
+batchUpdate(() => {
+  // All these changes produce ONE React re-render
+  store.title = 'Updated';
+  store.count += 1;
+  addClass('modified');
+});
+```
+
+## Widget Content Rendering
+
+### render() equivalent
+
+In Python Textual, `Widget.render()` returns a renderable. In textual-js, the React component's return value IS the render output:
+
+```tsx
+// Python Textual:
+// def render(self) -> RenderableType:
+//     return Text(f"Count: {self.count}")
+
+// textual-js:
+const Counter = observer(() => {
+  const store = useStore();
+  const styles = useStyles();
+  return (
+    <Box {...styles.box}>
+      <Text {...styles.text}>Count: {store.count}</Text>
+    </Box>
+  );
+});
+```
+
+### compose() equivalent
+
+In Python Textual, `compose()` yields child widgets. In textual-js, children are JSX:
+
+```tsx
+// Python Textual:
+// def compose(self) -> ComposeResult:
+//     yield Header()
+//     yield Container(
+//         Button("Save", id="save"),
+//         Button("Cancel", id="cancel"),
+//     )
+//     yield Footer()
+
+// textual-js:
+const MyScreen = observer(() => (
+  <Screen>
+    <Header />
+    <Container>
+      <Button id="save">Save</Button>
+      <Button id="cancel">Cancel</Button>
+    </Container>
+    <Footer />
+  </Screen>
+));
+```
+
+Dynamic composition (mounting widgets at runtime) uses MobX observable arrays:
+
+```tsx
+const DynamicContainer = observer(() => {
+  const store = useLocalStore(() => ({
+    items: observable<string>([]),
+  }));
+
+  return (
+    <Box flexDirection="column">
+      {store.items.map((item, i) => (
+        <Label key={i}>{item}</Label>
+      ))}
+    </Box>
+  );
+});
+
+// Adding an item triggers a React re-render that includes the new Label
+runInAction(() => store.items.push('New item'));
+```
+
+// [LAW:dataflow-not-control-flow] Layout is a fixed transform applied by Yoga: TCSS style values vary the outputs, not the stage order. Every widget goes through the same path: resolve styles → translate to Ink props → Yoga layout → terminal output.

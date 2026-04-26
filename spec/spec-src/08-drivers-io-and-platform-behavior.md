@@ -1,250 +1,281 @@
-# Drivers, I/O, and Platform Behavior
+# Platform I/O Behavior
 
-## Driver Abstraction
+## Overview
 
-`textual.driver.Driver` is the platform I/O boundary. It owns the asyncio loop
-reference captured at construction and translates between low-level terminal
-bytes and app-level messages.
+Platform I/O — terminal rendering, input parsing, raw mode, ANSI output, mouse reporting — is handled entirely by **Ink**. The framework does not implement its own terminal driver, compositor, or ANSI encoder.
 
-Constructor parameters are fixed: `app`, `debug`, `mouse`, and an optional
-initial `size`. Drivers must not introduce additional required parameters;
-the base class and `App.get_driver_class()` assume this shape.
+This spec documents the behavioral contracts that the framework layer expects from the platform, and how the framework integrates with Ink's I/O surface.
 
-Abstract backend methods every driver must implement:
+// [LAW:single-enforcer] Ink is the single enforcer of terminal I/O normalization. No framework code reads from stdin, writes ANSI sequences, or manages terminal modes.
 
-- `write(data: str)` — enqueue raw output for the terminal.
-- `start_application_mode()` — enter the interactive terminal mode and begin
-  producing input events.
-- `disable_input()` — stop producing input events; must be idempotent.
-- `stop_application_mode()` — restore the terminal to its pre-start state.
+// [LAW:one-way-deps] The framework depends on Ink's event delivery contract; Ink does not depend on framework internals.
 
-Non-abstract base behaviors drivers inherit (and may extend, but not replace):
+## Platform Boundary
 
-- `flush()` — no-op by default; overridden where buffering matters.
-- `suspend_application_mode()` / `resume_application_mode()` — default
-  implementations call `stop_application_mode() + close()` and
-  `start_application_mode()` respectively.
-- `close()` — final cleanup hook, called after suspend/stop.
-- `no_automatic_restart()` context manager — toggles `_auto_restart` so signal
-  handlers skip auto suspend/resume while a caller manages lifecycle manually.
-- `open_url(url, new_tab=True)` — default opens via Python's `webbrowser`;
-  `WebDriver` overrides to emit an `open_url` meta packet.
-- `deliver_binary(...)` — default streams a file-like object to `save_path` on
-  a background thread in 64 KiB chunks, posting `DeliveryComplete` /
-  `DeliveryFailed` events; `WebDriver` overrides to stream chunks to the host.
+```
+┌─────────────────────────────────────────────────────┐
+│  Framework                                          │
+│  (bindings, actions, TCSS, widgets, messages)       │
+├─────────────────────────────────────────────────────┤
+│  Ink                                                │
+│  (React reconciler, Yoga layout, ANSI output,       │
+│   stdin parsing, raw mode, alternate screen)        │
+├─────────────────────────────────────────────────────┤
+│  Terminal / OS                                      │
+│  (stdin, stdout, SIGWINCH, pty)                     │
+└─────────────────────────────────────────────────────┘
+```
 
-Capability/mode properties (all default `False` on the base class):
+Ink provides:
 
-- `is_headless`, `is_inline`, `is_web` — mutually exclusive mode flags.
-- `can_suspend` — whether the driver honors suspend/resume.
+| Capability | How |
+|------------|-----|
+| Terminal rendering | Yoga layout → ANSI escape sequences → stdout |
+| Keyboard input | stdin → parsed key events via `useInput()` hook |
+| Mouse input | stdin → parsed mouse events (when mouse reporting is enabled) |
+| Resize detection | `SIGWINCH` signal → resize event with new dimensions |
+| Raw mode | Enters raw mode and alternate screen buffer on start, restores on exit |
+| Cursor control | Hides cursor during rendering, restores on exit |
+| Focus management | Basic `useFocus()` / `useFocusManager()` hooks (framework extends these) |
+| Testing | `ink-testing-library` renders without a terminal for testing |
 
-`Driver.SignalResume` is a nested `Event` subclass that drivers post after a
-SIGTSTP/SIGCONT round trip so the app can publish its own resume signal.
+## Input Events from Ink
 
-## Input Normalization in Base Driver
+### Key events
 
-`Driver.process_message` runs on the driver's input thread and performs shared
-normalization before forwarding to the app via `send_message` (which bounces
-the message back onto the captured asyncio loop with
-`run_coroutine_threadsafe`). Because it runs off-loop, it must not call into
-the app directly.
+Ink delivers key events via its `useInput()` hook:
 
-Unconditional steps, in order:
+```tsx
+// Ink's useInput delivers key events
+useInput((input, key) => {
+  // input: the character (e.g., 'a', '?', '')
+  // key: { upArrow, downArrow, leftArrow, rightArrow, return, escape,
+  //        ctrl, shift, tab, backspace, delete, meta }
+});
+```
 
-1. `message.set_sender(self._app)`.
-2. For any `MouseEvent`, translate `x`, `y`, `screen_x`, `screen_y` by the
-   current `cursor_origin` offset (origin defaults to `(0, 0)`).
-3. Mouse button bookkeeping: push button on `MouseDown`, remove on `MouseUp`.
-4. On `MouseMove` with no button pressed but outstanding `_down_buttons`,
-   synthesize one `MouseUp` per stuck button at the previous move's
-   coordinates before recording the new move. This repairs drag streams when
-   the terminal drops the terminating release.
-5. Forward the (possibly rewritten) message via `send_message`.
+The framework translates Ink's key representation into framework `Key` messages:
 
-// [LAW:single-enforcer] Cross-platform input normalization is enforced once
-in `Driver.process_message`; backend subclasses extend it but do not
-reimplement sender assignment, coordinate translation, or stuck-button repair.
+| Ink key info | Framework Key message |
+|-------------|----------------------|
+| `input: 'a'` | `Key { key: 'a', character: 'a' }` |
+| `key.return: true` | `Key { key: 'enter', character: null }` |
+| `key.escape: true` | `Key { key: 'escape', character: null }` |
+| `key.ctrl: true, input: 'c'` | `Key { key: 'ctrl+c', character: null }` |
+| `key.shift: true, key.tab: true` | `Key { key: 'shift+tab', character: null }` |
+| `key.upArrow: true` | `Key { key: 'up', character: null }` |
+| `key.backspace: true` | `Key { key: 'backspace', character: null }` |
+| `key.delete: true` | `Key { key: 'delete', character: null }` |
+| `input: '?'` | `Key { key: 'question_mark', character: '?' }` |
 
-## Implementations
+The framework normalizes key names to canonical forms (punctuation to long-form names, alias resolution) before the binding layer processes them. This normalization is a framework concern, not an Ink concern.
 
-### HeadlessDriver
+### Mouse events
 
-- `is_headless = True`; `write` is a no-op so no ANSI ever leaves the process.
-- `start_application_mode` posts exactly one `Resize` derived from the
-  configured `size` (if provided) or `shutil.get_terminal_size()`.
-- `disable_input` / `stop_application_mode` are no-ops; there is no input
-  thread, so tests drive the app deterministically by posting messages
-  directly.
+When mouse reporting is enabled (Ink supports this via configuration):
 
-### LinuxDriver (Linux / macOS full-screen)
+| Terminal event | Framework message |
+|----------------|-------------------|
+| Mouse button press at (x, y) | `MouseDown { x, y, button }` |
+| Mouse button release at (x, y) | `MouseUp { x, y, button }` |
+| Mouse movement to (x, y) | `MouseMove { x, y }` |
+| Scroll wheel up at (x, y) | `MouseScrollUp { x, y }` |
+| Scroll wheel down at (x, y) | `MouseScrollDown { x, y }` |
 
-Output goes through a background `WriterThread` writing to `sys.__stderr__`;
-input is read from `sys.__stdin__` on a dedicated `textual-input` thread using
-a `SelectSelector` with a 100 ms timeout and an incremental UTF-8 decoder,
-feeding an `XTermParser`.
+Mouse coordinates are relative to the app's render area (0,0 = top-left of the app output).
 
-Start sequence (`start_application_mode`):
+### Mouse event processing
 
-1. Install transient `SIGTTOU` / `SIGTTIN` handlers that re-SIGSTOP the
-   process, perform a no-op `tcsetattr` round-trip to detect that the process
-   is actually foregrounded, then restore the handlers. If the round-trip
-   fails, start aborts without entering application mode.
-2. Start the `WriterThread`.
-3. Install a `SIGWINCH` handler that posts a `Resize` event unless in-band
-   window-resize reporting is active.
-4. Write `ESC[?1049h` (alt screen) and enable mouse reporting
-   (`?1000h ?1003h ?1015h ?1006h`).
-5. Capture `termios` attrs via `tcgetattr`, then patch `LFLAG` to clear
-   `ECHO | ICANON | IEXTEN | ISIG` (ISIG is preserved when `TEXTUAL_ALLOW_SIGNALS`
-   is set, letting the shell keep Ctrl+C) and `IFLAG` to clear
-   `IXON | IXOFF | ICRNL | INLCR | IGNCR`. `VMIN` is forced to 1.
-6. Hide cursor (`?25l`), enable focus events (`?1004h`), and enable the Kitty
-   keyboard protocol progressive enhancement (`ESC[>1u`).
-7. Start the input thread and post an initial `Resize`.
-8. Query synchronized-output support (`ESC[?2026$p`), suppressed for
-   `TERM_PROGRAM=Apple_Terminal` and when stdin is not a tty.
-9. Query in-band window-resize support (`ESC[?2048$p`), enable bracketed
-   paste (`?2004h`), disable line wrap (`?7l`).
-10. Re-issue mouse enable sequences (workaround for iTerm 3.5.0).
-11. If a prior `SIGTSTP` marked the process for resume notification, post
-    `Driver.SignalResume`.
+The framework layers additional behavior on top of raw mouse events:
 
-Teardown (`stop_application_mode` → `disable_input`):
+| Behavior | Description |
+|----------|-------------|
+| **Button bookkeeping** | Track which buttons are currently pressed across down/up events |
+| **Click synthesis** | Mouse-up on the same widget as the preceding mouse-down produces a `Click` message |
+| **Hover tracking** | Mouse-move generates `Enter`/`Leave` messages when the widget under the pointer changes |
+| **Mouse capture** | While captured, all mouse events route to the capturing widget regardless of position |
+| **Drag detection** | Mouse-down followed by mouse-move with button held may generate drag events |
 
-- Disable bracketed paste, re-enable line wrap, disable in-band window
-  resize if it was activated.
-- `disable_input` clears the `SIGWINCH` handler, disables mouse reporting,
-  signals the input thread via `exit_event`, joins it, and flushes pending
-  stdin with `tcflush(TCIFLUSH)`. The routine swallows errors and is safe to
-  call multiple times.
-- Restore the captured termios state, then write `ESC[<u` (disable Kitty
-  protocol) **before** leaving the alt screen (`?1049l`), followed by show
-  cursor (`?25h`) and disable focus events (`?1004l`).
-- `close()` stops the `WriterThread`.
+### Paste
 
-Suspend/resume:
+Ink detects bracketed-paste sequences (`ESC [ 200 ~` ... `ESC [ 201 ~`) when the terminal supports them. The pasted text is delivered as a `Paste` message (see spec 03) with `text: string`.
 
-- `can_suspend = True`.
-- A `SIGTSTP` handler calls `suspend_application_mode()` (when
-  `_auto_restart`), sets a flag to remember that a resume signal is owed,
-  then re-raises via `SIGSTOP` on the process. A `SIGCONT` handler calls
-  `resume_application_mode()`.
+The text may contain ANSI escape sequences if pasted from a styled source. The framework does not pre-process it; consumers such as `Input`, `TextArea`, and `RichLog` decide whether to call rich-js `stripAnsi()` for plain text or `parseAnsi()` to preserve styling as `Content`.
 
-In-band window resize override: `LinuxDriver.process_message` intercepts
-`InBandWindowResize` messages from the parser. On first observation the
-driver flips an internal flag, optionally writes `ESC[?2048h` to enable the
-feature if the terminal reports support-but-not-enabled, and opportunistically
-switches mouse reporting to pixel mode (`ESC[?1016h`).
+### Resize events
 
-### LinuxInlineDriver
+Ink detects terminal resize (via `SIGWINCH` on Unix, polling on Windows) and re-renders the component tree with new dimensions. The framework receives resize information via:
 
-Same termios/parser machinery as `LinuxDriver` but:
+- Ink's `useStdout()` hook provides `stdout.columns` and `stdout.rows`.
+- The `Resize` message is posted to the app when dimensions change.
+- `Resize.canReplace` is true — resize storms coalesce.
 
-- `is_inline = True`; no alt screen is ever entered.
-- `write` goes straight to `sys.__stderr__` (no writer thread).
-- Start sequence writes the initial focus/kitty/mouse enables, then emits
-  `\n * App.INLINE_PADDING` to reserve the inline region.
-- `SIGWINCH` triggers a resize event that is paired with `ESC[2J` to clear
-  the scrollback before the app redraws.
-- The input loop treats `CursorPosition` events as metadata: they update
-  `self.cursor_origin` and are *not* forwarded to the app. All other events
-  flow through `process_message` as normal, so coordinate translation happens
-  relative to the detected inline origin.
-- Teardown writes `ESC[<u` (disable Kitty), `ESC[J` to clear the inline
-  region, restores termios, then shows the cursor and disables focus
-  reporting.
+## Rendering Output
 
-### WindowsDriver
+The framework does not produce terminal output directly. The rendering path is:
 
-- `can_suspend = True`, inherits the base `suspend_application_mode`
-  semantics (no SIGTSTP analog).
-- `start_application_mode` calls `win32.enable_application_mode()` and
-  stashes the restore callback, starts a `WriterThread` against
-  `sys.__stdout__`, then emits alt screen, mouse, cursor hide, focus-in/out,
-  Kitty progressive-enhancement (`ESC[>1u`), and bracketed-paste sequences.
-- Input is produced by `win32.EventMonitor`, a thread that reads from the
-  console and feeds parsed messages into `self.process_message` directly.
-- Teardown disables bracketed paste, calls `disable_input` (which joins the
-  event monitor thread via `exit_event`), writes `ESC[<u` to disable the
-  Kitty protocol **before** leaving the alt screen, then restores alt screen,
-  cursor, and focus reporting. `close()` stops the writer thread and calls
-  the stored `_restore_console` callback.
+1. Framework produces React component tree with Ink primitives and resolved TCSS styles.
+2. Ink's React reconciler diffs the tree.
+3. Ink runs Yoga layout on the updated tree.
+4. Ink computes changed cells and writes ANSI escape sequences to stdout.
 
-### WebDriver
+### Output filter pipeline
 
-`WebDriver` is the remote/browser backend used by textual-web and
-textual-serve. It speaks a length-prefixed framed protocol on stdout:
+Between Ink's ANSI output and terminal stdout, the framework's `LineFilter` pipeline (spec 12) post-processes rendered lines. Built-in filters include `Monochrome` (strips all colors), `NoColor` (respects `NO_COLOR`), `DimFilter`, and `ANSIToTruecolor`. The pipeline is registered on the app (`App.filters`) and runs unconditionally; an empty filter list is a no-op. It is the final boundary where rich-js-originated styled output is flattened into the ANSI stream actually written to the terminal.
 
-- Frame layout: 1 byte packet type, 4 bytes big-endian payload length,
-  payload.
-- `D` — raw terminal output bytes (the normal ANSI stream from `write`).
-- `M` — JSON meta payload produced by `write_meta`.
-- `P` — binary-packed payload produced by `write_binary_encoded`, used for
-  file-delivery chunks.
+### What Ink renders
 
-Before any frames, the driver emits the literal line `__GANGLION__\n` as a
-handshake marker. `flush` is a no-op because writes go directly via
-`os.write` on the stdout file descriptor.
+| Ink component | Terminal output |
+|---------------|----------------|
+| `<Box>` | Rectangular region with border, padding, background color |
+| `<Text>` | Styled text with color, bold, italic, underline, strikethrough |
+| `<Newline />` | Explicit line break |
+| `<Spacer />` | Flexible empty space (flex-grow) |
+| `<Static>` | Content that renders once and is not re-rendered on updates |
 
-`is_web = True`. Initial size comes from `COLUMNS`/`ROWS` environment
-variables when `size` is not provided, falling back to 80x24.
+### Full-screen vs inline mode
 
-Start sequence: install `SIGINT`/`SIGTERM` asyncio signal handlers (non-Windows
-only) that post `ExitApp`; emit the handshake; enable alt screen, mouse,
-cursor hide, any-event mouse (`?1003h`), sync-mode query, and bracketed
-paste; post the initial `Resize`; start the input thread; and queue an
-initial `AppBlur` so the app starts unfocused until the host reports focus.
+Ink supports two rendering modes:
 
-Input thread: reads from an `InputReader` (abstracted over
-`_input_reader_linux` / `_input_reader_windows`), routes bytes through a
-`ByteStream` framer, feeds `D` payloads through `XTermParser`, and hands
-`M` payloads to `_on_meta`.
+| Mode | Behavior | When to use |
+|------|----------|-------------|
+| **Full-screen** (alternate screen) | Enters alternate screen buffer. App owns the entire terminal. Exit restores previous terminal content. | Default for textual-js apps. |
+| **Inline** | Renders below the cursor position. Previous terminal output preserved. | Not typical for textual-js but available. |
 
-`on_meta` dispatches host-originated events:
+## Suspend and Resume
 
-- `resize` — update `_size` and post `events.Resize`.
-- `focus` / `blur` — post `events.AppFocus` / `events.AppBlur`.
-- `quit` — post `messages.ExitApp`.
-- `exit` — raises an internal `_ExitInput` to tear down the input loop.
-- `deliver_chunk_request` — server-pulled file delivery: look up the
-  registered delivery key, read `size` bytes from the file-like, emit a
-  `("deliver_chunk", key, chunk)` binary-encoded frame, and on EOF close
-  the file, drop the entry, and post `DeliveryComplete`. Errors post
-  `DeliveryFailed`.
+`suspend()` is an **app-level lifecycle primitive**, not a driver wrapper. The app owns the full suspend/resume orchestration — pausing timers, animations, and deferred UI work — while the driver (Ink) only provides the low-level "leave/re-enter terminal mode" capability. This is a deliberate separation: suspend coordination is enforced once at the app boundary, not split between app and driver.
 
-`disable_input` is a no-op; shutdown runs via `stop_application_mode`, which
-sets `exit_event`, closes the `InputReader`, and writes a final
-`{"type": "exit"}` meta frame.
+// [LAW:single-enforcer] Timer/animation pause and resume are owned by the app's suspend boundary. The driver's only responsibility is entering/exiting raw mode and alternate screen.
 
-`deliver_binary` does not write to disk; it registers the file-like in
-`_deliveries` and emits a `deliver_file_start` meta frame carrying the
-resolved path, open method, encoding, mime type, and user name. The host
-then pulls chunks via `deliver_chunk_request`.
+// [LAW:one-source-of-truth] `suspend()` on the app context is the single public contract for suspend/resume. There is no separate driver-level suspend API exposed to widget authors.
 
-`open_url` is overridden to emit an `open_url` meta frame rather than calling
-Python's `webbrowser`.
+`suspend()` temporarily exits the app's terminal mode to allow external programs to use the terminal:
 
-## Driver Selection
+```tsx
+const { suspend } = useTextual();
 
-`App.get_driver_class()` chooses backend based on environment, platform, and
-runtime mode unless an explicit driver class is supplied to the `App`.
+const editFile = async (path: string) => {
+  await suspend(async () => {
+    // Terminal is in normal mode here — the user can interact with $EDITOR
+    const { execSync } = await import('child_process');
+    execSync(`${process.env.EDITOR || 'vi'} ${path}`, { stdio: 'inherit' });
+  });
+  // App terminal mode is restored, full refresh triggered
+};
+```
 
-## Output Path
+### Suspend behavior
 
-`App._display` writes compositor render sequences through the active driver.
-Drivers expose `write` as the single output entry point; batching happens in
-the `WriterThread` on Linux/Windows (a bounded `Queue` with
-`MAX_QUEUED_WRITES = 30`, flushing only when the queue empties). Synchronized
-output sequences (`ESC[?2026h` / `ESC[?2026l`) are emitted by the app layer
-when the terminal has advertised support via the `?2026$p` query.
+1. Publish `app_suspend_signal`.
+2. Ink exits raw mode and alternate screen (restoring normal terminal state).
+3. The framework pauses the Animator (no frames scheduled) and pauses notification-expiry timers plus other deferred UI timers.
+4. Call the suspend callback. The terminal is available for external use.
+5. When the callback returns, Ink re-enters raw mode and alternate screen.
+6. Animator and paused timers resume.
+7. Publish `app_resume_signal`.
+8. Trigger a full re-render (all widgets re-render to repaint the screen).
 
-## File Delivery Path
+### Suspend support
 
-Base `Driver.deliver_binary` streams a file-like to `save_path` on a background
-thread in 64 KiB chunks. On success it posts `DeliveryComplete`; on any
-exception it logs the traceback and posts `DeliveryFailed`. `WebDriver`
-overrides this to register the file and drive chunked transfer through the
-host protocol instead.
+- `canSuspend` capability property indicates whether suspend is supported.
+- Environments without suspend support (piped stdin, CI, ink-testing-library) throw `SuspendNotSupported`.
 
-// [LAW:one-way-deps] Drivers depend on app/event/message contracts; app code
-does not depend on concrete backend internals.
+## Capability Properties
+
+The framework queries platform capabilities via the app context:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `isHeadless` | `boolean` | Running in ink-testing-library (no real terminal) |
+| `isInline` | `boolean` | Ink is in inline mode (not alternate screen) |
+| `canSuspend` | `boolean` | Whether `suspend()` is available |
+| `terminalSize` | `{ columns: number, rows: number }` | Current terminal dimensions (MobX observable — updates on resize) |
+| `colorDepth` | `number` | Color support level (1 = none, 4 = 16 colors, 8 = 256 colors, 24 = true color). Read at startup from `TEXTUAL_COLOR_DEPTH` or terminal capability detection, then passed to rich-js `Color.toAnsi(depth)` at each render boundary so colors downgrade to the active terminal capability. Lower configured values force downgrade even on a higher-capability terminal. |
+
+These are read-only MobX observables on the app context. `terminalSize` changes trigger `Resize` messages and TCSS recalculation (viewport units `vw`/`vh` may change).
+
+## Testing Environment
+
+`ink-testing-library` provides a headless Ink renderer for testing:
+
+```tsx
+import { render } from 'ink-testing-library';
+
+const { lastFrame, stdin, unmount } = render(<MyApp />);
+
+// Simulate input
+stdin.write('h');           // Key event: 'h'
+stdin.write('\x1b[A');      // Key event: up arrow
+stdin.write('\r');           // Key event: enter
+
+// Read rendered output
+const output = lastFrame(); // ANSI string of the last rendered frame
+
+unmount();
+```
+
+The framework's `runTest()` and `Pilot` wrap ink-testing-library with higher-level APIs:
+
+| ink-testing-library | Framework Pilot |
+|--------------------|-----------------|
+| `stdin.write(rawBytes)` | `pilot.press('enter')` (normalized key name) |
+| `lastFrame()` → raw ANSI string | `pilot.queryText('#label')` → widget content |
+| Manual stdin encoding | `pilot.click(x, y)` → mouse event |
+| No resize simulation | `pilot.resize(80, 24)` → resize event |
+
+The Pilot abstracts away ANSI encoding and raw stdin bytes, letting tests work with framework-level concepts (key names, widget queries, messages).
+
+## Development File Monitor (CSS Live Reload)
+
+In development mode the framework runs a file monitor that watches TCSS source paths registered with the app and reloads them on change. This enables fast iteration on TCSS without restarting the app.
+
+// [LAW:single-enforcer] The file monitor is the single enforcer of on-disk TCSS → in-memory stylesheet synchronization. Widgets never read TCSS files directly.
+
+// [LAW:one-source-of-truth] The `.tcss` file on disk is the source of truth during development; the in-memory parsed stylesheet is a derived representation, re-synchronized whenever the file changes.
+
+### Registered paths
+
+The app registers TCSS source paths when it mounts. Any path supplied via `cssPath` (string or array) on the root `<App>` or on a `Screen` is added to the monitor's watch set.
+
+| Source | Watched |
+|--------|---------|
+| `<App cssPath="app.tcss" />` | Yes |
+| `<App cssPath={["base.tcss", "theme.tcss"]} />` | Yes (each path) |
+| `Screen` subclass with `cssPath` | Yes, while the screen is mounted |
+| Inline `DEFAULT_CSS` strings on widgets | No (not file-backed) |
+
+When a `Screen` with its own `cssPath` is pushed, its paths are added to the watch set; when it is popped, its paths are removed (unless still referenced elsewhere).
+
+### Change flow
+
+When a watched file changes on disk, the framework runs the same steps every time — no conditionals on which file changed or which screen is active. The data (the set of registered paths and the active screen stack) determines what is reapplied.
+
+1. Re-read the changed file from disk.
+2. Call `app.refreshCss()` — reparse every registered stylesheet and reapply to all widgets on the active screen stack (triggering TCSS recomputation via the reactive pipeline).
+3. Publish a dev-console message describing the reload (path, parse result, timing).
+
+// [LAW:dataflow-not-control-flow] The reload pipeline is unconditional: read → reparse → reapply → publish. Parse errors flow through the same path as successful parses, emitted as a dev-console message with the error payload rather than skipping the reapply step.
+
+### Platform implementation
+
+| Concern | Choice |
+|---------|--------|
+| Watch API | Node.js `fs.watch` (recursive where supported; per-path otherwise) |
+| Debounce | Coalesce bursts of filesystem events on the same path into a single reload |
+| Encoding | UTF-8 |
+| Missing file | Emit a dev-console error; keep the previous parsed stylesheet in place until the file reappears |
+
+The monitor uses `fs.watch` — not Python's `watchfiles`, not Windows-specific APIs. Editors that write via rename (atomic replace) are handled by re-establishing the watch on the path when the inode changes.
+
+### Enablement and lifecycle
+
+| Mode | File monitor |
+|------|--------------|
+| Development (`TEXTUAL_DEVTOOLS` env var set, or equivalent dev flag) | Started on app mount; runs until app exit |
+| Production | Not started; TCSS is loaded once at startup and never re-read |
+| Testing (ink-testing-library) | Not started; tests drive CSS changes explicitly via Pilot / test APIs |
+
+On app exit (normal unmount, `SIGINT`, or crash cleanup), the framework closes every `fs.watch` handle it opened. Watcher cleanup is part of the same teardown path as raw-mode restoration — there is no separate "maybe close watchers" branch.
+
+// [LAW:one-way-deps] The file monitor depends on the app's CSS path registry and on `app.refreshCss()`. Neither the registry nor the CSS engine depends on the monitor — in production the monitor is simply absent.

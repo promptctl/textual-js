@@ -1,3 +1,11 @@
 node_modules/
 dist/
 *.tsbuildinfo
+visual-tests/snapshots/*
+!visual-tests/snapshots/python/
+visual-tests/snapshots/python/*
+!visual-tests/snapshots/python/*.png
+visual-tests/.venv/
+visual-tests/uv.lock
+__pycache__/
+.claude/

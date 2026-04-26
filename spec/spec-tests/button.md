@@ -22,6 +22,9 @@ A button's `variant` parameter controls its visual style. The available variants
 - When no label is provided, the button renders with an empty or default label: `Button(variant="primary")`.
 - Labels support Rich markup: `Button("[italic red]Focused[/] Button")`.
 - The `label` property can be reassigned at runtime to change the displayed text: `button.label = "Disabled"`.
+- When the label contains Rich markup or is provided as styled `Content`, the rendered button preserves that styling; the render path must not flatten the label to plain text before display.
+- Label rendering preserves the full rich-js style model, including named ANSI colors, bright variants, 8-bit palette colors, truecolor values, and composed text attributes.
+- Button CSS/text styling contributes the base visual style under the label; explicit label spans override that base style using rich-js merge semantics.
 
 ### Multiline Labels
 
@@ -67,6 +70,6 @@ A button's `variant` parameter controls its visual style. The available variants
 - `variant` must be one of `"default"`, `"primary"`, `"success"`, `"warning"`, or `"error"`. These are the single source of truth for button visual classification.
 - A disabled button must never post `Button.Pressed`.
 - A button in a loading state (`loading=True`) must never post `Button.Pressed`.
-- Label content (including markup and newlines) is display-only; the label string is the single source of truth for what the button displays.
+- Label content (including markup and newlines) is display-only; the label text is the single source of truth for the button's characters, and the styled label/renderable is the single source of truth for how those characters are rendered.
 - Outline is applied via CSS, not via a widget parameter. Styling and structure remain separated.
 - Disabling via `button.disabled` and disabling via a disabled ancestor container produce the same visual and interactive result.

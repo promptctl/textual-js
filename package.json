@@ -1,7 +1,7 @@
 {
   "name": "textual-js",
   "version": "0.0.1",
-  "description": "Headless TUI widget framework — a TypeScript port of Python's Textual",
+  "description": "Terminal UI application framework built on React/Ink — a TypeScript port of Python's Textual",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,25 +19,43 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "visual": "bash visual-tests/run.sh",
+    "visual:update-python": "bash visual-tests/update-python-baselines.sh"
   },
   "keywords": [
     "tui",
     "terminal",
     "textual",
     "widget",
-    "css",
-    "headless"
+    "react",
+    "ink",
+    "mobx",
+    "tcss",
+    "css"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "rich-js": "file:../rich-js"
+    "@leeoniya/ufuzzy": "^1.0.14",
+    "css-tree": "^3.1.0",
+    "ink": "^5.2.0",
+    "marked": "^15.0.0",
+    "mobx": "^6.13.0",
+    "mobx-react-lite": "^4.0.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rich-js": "file:../rich-js",
+    "shiki": "^1.24.0",
+    "string-width": "^7.2.0"
   },
   "devDependencies": {
+    "@types/css-tree": "^2.3.10",
     "@types/node": "^25.5.0",
+    "@types/react": "^18.3.0",
+    "ink-testing-library": "^4.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

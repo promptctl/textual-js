@@ -1,0 +1,801 @@
+import { App } from "../src/index.js";
+import React, { useEffect } from "react";
+import { Text } from "ink";
+import { describe, expect, it, vi } from "vitest";
+import { render } from "ink-testing-library";
+import { TextualFramework } from "../src/framework/app-framework.js";
+
+import {
+  ActionError,
+  BindingsMap,
+  NoBinding,
+  type BindingClash,
+  type BindingNamespace,
+  SkipAction,
+  TextualApp,
+  WidgetHost,
+  makeBindings,
+  parseAction,
+  useTextual,
+  useWidget,
+} from "../src/index.js";
+
+async function settleBindings(framework: TextualFramework): Promise<void> {
+  await framework.whenIdle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await framework.whenIdle();
+}
+
+function BindingSignalProbe({ onUpdate }: { onUpdate: () => void }): React.JSX.Element {
+  const framework = useTextual();
+  const { handle } = useWidget({ typeName: "BindingSignalProbe" });
+
+  useEffect(() => {
+    return framework.signals.bindings_updated_signal.subscribe(handle, onUpdate);
+  }, [framework, handle, onUpdate]);
+
+  return <Text>probe</Text>;
+}
+
+describe("action parsing", () => {
+  it("parses bare names, namespaced names, and literal argument lists", () => {
+    expect(parseAction("save")).toEqual({ namespace: "", actionName: "save", params: [] });
+    expect(parseAction("app.quit")).toEqual({ namespace: "app", actionName: "quit", params: [] });
+    expect(parseAction("foo.bar.baz(True, False, None)")).toEqual({
+      namespace: "foo.bar",
+      actionName: "baz",
+      params: [true, false, null],
+    });
+    expect(parseAction("focus('input')")).toEqual({ namespace: "", actionName: "focus", params: ["input"] });
+    expect(parseAction("delete(true)")).toEqual({ namespace: "", actionName: "delete", params: [true] });
+    expect(parseAction("add(1, 2, 3)")).toEqual({ namespace: "", actionName: "add", params: [1, 2, 3] });
+    expect(parseAction("dismiss('a,(b),c', null, undefined)")).toEqual({
+      namespace: "",
+      actionName: "dismiss",
+      params: ["a,(b),c", null, undefined],
+    });
+    expect(parseAction("save([1, 2], ('x', 3.5))")).toEqual({
+      namespace: "",
+      actionName: "save",
+      params: [[1, 2], ["x", 3.5]],
+    });
+  });
+
+  it("rejects malformed action strings", () => {
+    expect(() => parseAction("foo(")).toThrow(ActionError);
+    expect(() => parseAction("foo(1")).toThrow(ActionError);
+    expect(() => parseAction("foo(1,)")).toThrow(ActionError);
+    expect(() => parseAction("foo(1 2)")).toThrow(ActionError);
+    expect(() => parseAction("foo([1,])")).toThrow(ActionError);
+    expect(() => parseAction("foo((1,))")).toThrow(ActionError);
+    expect(() => parseAction("1bad.name")).toThrow(ActionError);
+    expect(() => parseAction("bad-name.action")).toThrow(ActionError);
+  });
+});
+
+describe("binding normalization", () => {
+  it("expands comma-separated keys and trims whitespace", () => {
+    const bindings = makeBindings([
+      { key: "f1, question_mark", action: "help" },
+    ]);
+
+    expect(bindings.map((entry) => entry.key)).toEqual(["f1", "question_mark"]);
+    expect(bindings.every((entry) => entry.action === "help")).toBe(true);
+  });
+
+  it("normalizes single-character keys to canonical names", () => {
+    const bindings = makeBindings([{ key: "?", action: "help" }]);
+    expect(bindings[0].key).toBe("question_mark");
+    expect(makeBindings([{ key: "$", action: "pay" }])[0].key).toBe("dollar_sign");
+  });
+
+  it("accepts tuple shorthand and produces Binding entries", () => {
+    const bindings = makeBindings([
+      ["ctrl+s", "save"],
+      ["ctrl+z", "undo", "Undo"],
+    ]);
+
+    expect(bindings[0]).toMatchObject({ key: "ctrl+s", action: "save" });
+    expect(bindings[1]).toMatchObject({ key: "ctrl+z", action: "undo", description: "Undo" });
+  });
+
+  it("stores bindings in BindingsMap with merge and shown-key helpers", () => {
+    const appMap = new BindingsMap([{ key: "?", action: "help", description: "Help" }]);
+    const widgetMap = new BindingsMap();
+    widgetMap.bind("ctrl+s", "save", "Save", { show: true });
+
+    const merged = BindingsMap.merge([appMap, widgetMap]);
+
+    expect(appMap.getBindingsForKey("question_mark")[0].action).toBe("help");
+    expect(merged.getBindingsForKey("ctrl+s")[0].action).toBe("save");
+    expect(merged.shownKeys.map((binding) => binding.action)).toEqual(["help", "save"]);
+    expect(() => merged.getBindingsForKey("f12")).toThrow(NoBinding);
+  });
+});
+
+describe("binding dispatch", () => {
+  it("runs widget bindings before ancestor bindings before screen before app", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        bindings={[{ key: "ctrl+s", action: "save" }]}
+        actions={{
+          action_save: () => {
+            order.push("app");
+          },
+        }}
+      >
+        <WidgetHost
+          typeName="Container"
+          bindings={[{ key: "ctrl+s", action: "save" }]}
+          actions={{
+            action_save: () => {
+              order.push("ancestor");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Leaf"
+            id="leaf"
+            focusable
+            autoFocus
+            bindings={[{ key: "ctrl+s", action: "save" }]}
+            actions={{
+              action_save: () => {
+                order.push("leaf");
+              },
+            }}
+          >
+            <Text>leaf</Text>
+          </WidgetHost>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("s", { ctrl: true });
+    await framework.whenIdle();
+
+    expect(order).toEqual(["leaf"]);
+
+    // Remove the leaf's binding and try again — the ancestor binding must fire.
+    const leafNode = framework.registry.getByCssId("leaf")!;
+    leafNode.bindingsRef.current = [];
+
+    framework.postKey("s", { ctrl: true });
+    await framework.whenIdle();
+
+    expect(order).toEqual(["leaf", "ancestor"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("fires the hard-coded ctrl+q priority binding before the key reaches widget handlers", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        actions={{
+          action_quit: () => {
+            order.push("app");
+          },
+        }}
+      >
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          handlers={{
+            onKey: () => {
+              order.push("leaf-key");
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("q", { ctrl: true });
+    await framework.whenIdle();
+
+    expect(order).toEqual(["app"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("respects checkAction gates: true enables, null disables, false hides", async () => {
+    const framework = new App().framework;
+    let callCount = 0;
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        bindings={[{ key: "f2", action: "app.gated" }]}
+        actions={{
+          action_gated: () => {
+            callCount += 1;
+          },
+          checkAction: (name) => (name === "gated" ? false : true),
+        }}
+      >
+        <WidgetHost typeName="Leaf" focusable autoFocus>
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("f2");
+    await framework.whenIdle();
+
+    expect(callCount).toBe(0);
+    expect(framework.checkAction("app.gated")).toBe(false);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("routes binding dispatch through runAction", async () => {
+    const seenActions: string[] = [];
+    const prototype = TextualFramework.prototype as TextualFramework;
+    const originalRunAction = prototype.runAction;
+    prototype.runAction = function (action, defaultTarget) {
+      seenActions.push(action);
+      return originalRunAction.call(this, action, defaultTarget);
+    };
+
+    try {
+      const framework = new App().framework;
+      const instance = render(
+        <TextualApp framework={framework}>
+          <WidgetHost
+            typeName="Leaf"
+            focusable
+            autoFocus
+            bindings={[{ key: "f4", action: "save" }]}
+            actions={{
+              action_save: () => undefined,
+            }}
+          >
+            <Text>leaf</Text>
+          </WidgetHost>
+        </TextualApp>,
+      );
+
+      await framework.whenIdle();
+
+      framework.postKey("f4");
+      await framework.whenIdle();
+
+      expect(seenActions).toContain("save");
+
+      instance.unmount();
+      instance.cleanup();
+    } finally {
+      prototype.runAction = originalRunAction;
+    }
+  });
+
+  it("consumes disabled bindings instead of bubbling past them", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        bindings={[{ key: "f2", action: "fallback" }]}
+        actions={{
+          action_fallback: () => {
+            order.push("app");
+          },
+        }}
+      >
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f2", action: "primary" }]}
+          actions={{
+            action_primary: () => {
+              order.push("leaf");
+            },
+            checkAction: (name) => (name === "primary" ? null : true),
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("f2");
+    await framework.whenIdle();
+
+    expect(order).toEqual([]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("lets SkipAction fall through to the next binding in the chain", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        bindings={[{ key: "f3", action: "fallback" }]}
+        actions={{
+          action_fallback: () => {
+            order.push("fallback");
+          },
+        }}
+      >
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f3", action: "primary" }]}
+          actions={{
+            action_primary: () => {
+              order.push("primary");
+              throw new SkipAction();
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("f3");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["primary", "fallback"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("lets SkipAction fall through after a keymap remap", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    framework.setKeymap({ primary: "f6" });
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        bindings={[{ key: "f6", action: "fallback" }]}
+        actions={{
+          action_fallback: () => {
+            order.push("fallback");
+          },
+        }}
+      >
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f3", action: "primary", id: "primary" }]}
+          actions={{
+            action_primary: () => {
+              order.push("primary");
+              throw new SkipAction();
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("f6");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["primary", "fallback"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("replaces the full keymap, merges updates, and publishes bindings_updated_signal", async () => {
+    const framework = new App().framework;
+    const onUpdate = vi.fn();
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <BindingSignalProbe onUpdate={onUpdate} />
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[
+            { key: "f1", action: "alpha", id: "alpha" },
+            { key: "f2", action: "beta", id: "beta" },
+          ]}
+          actions={{
+            action_alpha: () => {
+              order.push("alpha");
+            },
+            action_beta: () => {
+              order.push("beta");
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await settleBindings(framework);
+    onUpdate.mockClear();
+
+    framework.setKeymap({ alpha: "f5" });
+    await settleBindings(framework);
+    framework.updateKeymap({ beta: "f6" });
+    await settleBindings(framework);
+
+    framework.postKey("f1");
+    framework.postKey("f2");
+    framework.postKey("f5");
+    framework.postKey("f6");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["alpha", "beta"]);
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("applies pre-mount keymaps once the app starts", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    framework.updateKeymap({ save: "f7" });
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "ctrl+s", action: "save", id: "save" }]}
+          actions={{
+            action_save: () => {
+              order.push("save");
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("s", { ctrl: true });
+    framework.postKey("f7");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["save"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("ignores unknown keymap ids and deactivates the original binding key after remap", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "ctrl+s", action: "save", id: "save" }]}
+          actions={{
+            action_save: () => {
+              order.push("save");
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.setKeymap({ save: "f8", unknown: "f9" });
+    await framework.whenIdle();
+
+    framework.postKey("s", { ctrl: true });
+    framework.postKey("f8");
+    framework.postKey("f9");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["save"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("remaps shared binding ids on both parent and child bindings", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    framework.setKeymap({ save: "f8" });
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Container"
+          bindings={[{ key: "ctrl+s", action: "save", id: "save" }]}
+          actions={{
+            action_save: () => {
+              order.push("ancestor");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Leaf"
+            id="leaf"
+            focusable
+            autoFocus
+            bindings={[{ key: "ctrl+s", action: "save", id: "save" }]}
+            actions={{
+              action_save: () => {
+                order.push("leaf");
+              },
+            }}
+          >
+            <Text>leaf</Text>
+          </WidgetHost>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("f8");
+    await framework.whenIdle();
+
+    const leafNode = framework.registry.getByCssId("leaf")!;
+    leafNode.bindingsRef.current = [];
+
+    framework.postKey("f8");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["leaf", "ancestor"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("remaps only the binding ids present in the keymap", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    framework.setKeymap({ ancestor_save: "f9" });
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Container"
+          bindings={[{ key: "ctrl+s", action: "save", id: "ancestor_save" }]}
+          actions={{
+            action_save: () => {
+              order.push("ancestor");
+            },
+          }}
+        >
+          <WidgetHost
+            typeName="Leaf"
+            id="leaf"
+            focusable
+            autoFocus
+            bindings={[{ key: "ctrl+s", action: "save", id: "leaf_save" }]}
+            actions={{
+              action_save: () => {
+                order.push("leaf");
+              },
+            }}
+          >
+            <Text>leaf</Text>
+          </WidgetHost>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("s", { ctrl: true });
+    await framework.whenIdle();
+
+    const leafNode = framework.registry.getByCssId("leaf")!;
+    leafNode.bindingsRef.current = [];
+
+    framework.postKey("s", { ctrl: true });
+    framework.postKey("f9");
+    await framework.whenIdle();
+
+    expect(order).toEqual(["leaf", "ancestor"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("reports per-namespace key clashes only once for the active chain", async () => {
+    const framework = new App().framework;
+    const clashes: Array<{ clashes: BindingClash[]; namespace: BindingNamespace }> = [];
+    const clashSpy = vi
+      .spyOn(framework, "handleBindingsClash")
+      .mockImplementation((nextClashes, namespace) => {
+        clashes.push({ clashes: nextClashes, namespace });
+      });
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        bindings={[
+          { key: "f1", action: "alpha", id: "alpha" },
+          { key: "f2", action: "beta", id: "beta" },
+        ]}
+        actions={{
+          action_alpha: () => undefined,
+          action_beta: () => undefined,
+        }}
+      >
+        <WidgetHost typeName="Leaf" focusable autoFocus>
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await settleBindings(framework);
+
+    framework.setKeymap({ alpha: "f10", beta: "f10" });
+    await settleBindings(framework);
+    framework.postKey("f10");
+    await framework.whenIdle();
+
+    expect(clashes).toHaveLength(1);
+    expect(clashes[0]?.namespace.kind).toBe("app");
+    expect(clashes[0]?.clashes[0]?.bindings.map((binding) => binding.action)).toEqual(["alpha", "beta"]);
+    clashSpy.mockRestore();
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("fires the hard-coded ctrl+c quit binding when nothing lower handles it", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        actions={{
+          action_quit: () => {
+            order.push("quit");
+          },
+        }}
+      >
+        <WidgetHost typeName="Leaf" focusable autoFocus>
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("c", { ctrl: true });
+    await framework.whenIdle();
+
+    expect(order).toEqual(["quit"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("routes the hard-coded ctrl+p binding to action_command_palette", async () => {
+    const framework = new App().framework;
+    const order: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        framework={framework}
+        actions={{
+          action_command_palette: () => {
+            order.push("palette");
+          },
+        }}
+      >
+        <WidgetHost typeName="Leaf" focusable autoFocus>
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("p", { ctrl: true });
+    await framework.whenIdle();
+
+    expect(order).toEqual(["palette"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("keeps the hard-coded ctrl+p binding as a safe no-op by default", async () => {
+    const framework = new App().framework;
+
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost typeName="Leaf" focusable autoFocus>
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await framework.whenIdle();
+
+    framework.postKey("p", { ctrl: true });
+    await framework.whenIdle();
+
+    expect(framework.isRunning).toBe(true);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("resolves namespace.action targets independent of the caller", () => {
+    const framework = new App().framework;
+    const log: string[] = [];
+
+    framework.setAppBindings([]);
+    framework.setAppActions({
+      action_alpha: () => {
+        log.push("app.alpha");
+      },
+    });
+
+    framework.pushScreen(
+      <Text>screen</Text>,
+      {
+        actions: {
+          action_beta: () => {
+            log.push("screen.beta");
+          },
+        },
+        name: "dialog",
+      },
+    );
+
+    expect(framework.runAction("app.alpha")).toBe(true);
+    expect(framework.runAction("screen.beta")).toBe(true);
+    expect(log).toEqual(["app.alpha", "screen.beta"]);
+  });
+});

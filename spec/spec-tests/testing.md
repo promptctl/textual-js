@@ -9,6 +9,8 @@ Textual provides a testing infrastructure centered around the `run_test()` conte
 - `app.run_test()` is an async context manager that yields a `Pilot` instance.
 - The app is fully composed and mounted by the time the context body executes.
 - `run_test()` accepts an optional `size` tuple `(width, height)` to set the simulated terminal dimensions (e.g., `app.run_test(size=(80, 24))`).
+- `run_test()` accepts transient controls for timing-sensitive UI. In textual-js this is modeled as `transients={ notifications?: bool, tooltips?: bool }`, and both default to disabled.
+- `run_test()` keeps tooltips disabled by default. Tests that need tooltip rendering must opt in explicitly.
 
 ### Return Value
 
@@ -90,5 +92,6 @@ Textual provides a testing infrastructure centered around the `run_test()` conte
 - Mouse methods return a boolean indicating whether the intended widget was actually hit, allowing tests to assert visibility and stacking order without inspecting internal layout state.
 - Exceptions from compose, actions, and workers are never swallowed; they propagate through `run_test()` so standard test-framework assertion mechanisms (e.g., `pytest.raises`) work naturally.
 - The `size` parameter on `run_test()` is the single authority for initial terminal dimensions within a test.
+- Transient suppression is active before the first render. Notifications and tooltips emitted during initial mount are absent from test state unless the corresponding transient opt-in is enabled.
 - `pilot.press()` treats each positional argument as a discrete key event; there is no batching or coalescing.
 - `camel_to_snake` must insert underscores at CamelCase boundaries and lowercase the result.

@@ -18,7 +18,9 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 - `mount_all(widgets)` accepts an iterable and mounts every widget in it.
 - Positional placement is controlled via `before` and `after` parameters, which accept an integer index, a widget reference, or a CSS selector string. Specifying both `before` and `after` raises `MountError`. A selector that matches more than one widget raises `TooManyMatches`. A reference to a widget not in the DOM raises `MountError`.
 - Negative indices are supported: `before=-1` means before the last child, `after=-1` means after the last child.
-- Widget IDs must be unique among siblings. Mounting widgets with duplicate IDs raises `MountError` (single call) or `DuplicateIds` (separate calls).
+- Widget IDs must be unique within the active widget tree (DOM/screen-wide), not merely among siblings.
+- Mounting widgets with duplicate IDs raises `MountError` (single call) or `DuplicateIds` (separate calls).
+// [LAW:one-source-of-truth] The registry owns the canonical ID index for CSS selectors and queries, so ID uniqueness is enforced globally rather than per-parent.
 - `is_mounted` is `False` before mounting and `True` after.
 - Render is not called until after the mount event has been processed.
 - Mount events fire bottom-up: children receive `Mount` before their parents.
@@ -92,6 +94,7 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 - Disabling a container causes all descendants to report as disabled (they gain the `:disabled` pseudo-class and lose `:enabled`), without each descendant being individually disabled.
 - Children of a disabled container lose focus. If a focused widget's ancestor becomes disabled, `app.focused` becomes `None`.
+- Pointer interactions that land on a disabled widget or disabled subtree are consumed at that widget boundary. They do not fall through to an enabled ancestor, sibling, or background widget behind the disabled target.
 
 ### Pseudo-Classes
 
@@ -131,13 +134,17 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 ### Setting Tooltips
 
-- `widget.tooltip` is `None` by default. Assigning a string sets the tooltip text.
+- `widget.tooltip` is `None` by default.
+- Assigning a string sets the tooltip text.
+- Assigning styled content or another supported renderable/visual value sets the tooltip content without stripping its styling or flattening renderables to text.
 
 ### Display Behavior
 
 - The tooltip appears after a delay (`TOOLTIP_DELAY`) when the mouse hovers over a widget that has a tooltip set. Hovering over a widget with no tooltip never shows a tooltip.
 - Moving the mouse to a different widget hides the tooltip.
 - The tooltip is dismissed when the source widget is removed, made invisible (`visible = False`), made not displayed (`display = False`), or shifted out from under the cursor (e.g., by mounting a widget before it).
+- Tooltip rendering preserves the source content's styling/renderable structure. A tooltip built from styled `Content`, markup, or a supported renderable must render with that structure intact rather than flattening to plain text.
+- Tooltip rendering preserves the full rich-js style model. The overlay must not translate colors through a reduced Ink / Chalk name subset before display.
 
 ## Loading State
 
@@ -151,6 +158,7 @@ The `Widget` base class is the fundamental building block of Textual UIs. Every 
 
 - A widget in the loading state blocks user interaction. Clicks on a loading button do not fire actions. Removing the loading state re-enables interaction.
 - A container in the loading state reports as disabled (`_check_disabled()` returns `True`).
+- Pointer interactions that land on a loading widget or loading overlay are consumed there. They do not fall through to enabled content behind the loading target.
 
 ## Content and Rendering
 
@@ -236,7 +244,7 @@ The `textual._widget_navigation` module provides utility functions for navigatin
 ## Constraints
 
 - Widget class names must begin with an uppercase letter.
-- Widget IDs must be unique among siblings within a single parent.
+- Widget IDs must be unique within the active widget tree (DOM/screen-wide).
 - A widget cannot own itself (passing `self` as a child to `__init__` raises `WidgetError`).
 - `mount()` may only be called on a widget that is already part of the DOM. Calling it on an unmounted widget raises `MountError`.
 - `mount()` does not accept both `before` and `after` simultaneously.

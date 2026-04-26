@@ -1,190 +1,579 @@
 # Widget Base Contract
 
-## Core Type
+## Overview
 
-`textual.widget.Widget` extends `DOMNode` and is the primary renderable, scrollable, and interactable unit of a Textual application.
+Every widget in textual-js is a React function component wrapped in MobX `observer()`. This spec defines the behavioral contracts that all widgets share — the base layer that the widget catalog (spec 10) builds on.
 
-It defines contracts for:
+// [LAW:one-type-per-behavior] These behaviors are implemented once in hooks, context, and base utilities. No individual widget reimplements them.
 
-- composition and mount/unmount lifecycle,
-- rendering and cached strip production,
-- layout/scroll integration (including virtual size and scrollbars),
-- focus, keybinding forwarding, and mouse capture,
-- event forwarding, message bubbling, and action dispatch.
+## Widget Anatomy
 
-`Screen` is a `Widget` subclass that acts as the compose root for all other widgets and owns focus, bindings, mouse capture coordination, and the screen-level compositor.
+A textual-js widget has these parts:
 
-## Class-Level Surface
+```tsx
+const MyWidget = observer(({ id, classes, children, ...props }) => {
+  // 1. Framework connection
+  const { register, postMessage, query } = useTextual();
+  const styles = useStyles();
 
-Common class vars a subclass may override:
+  // 2. Widget state (MobX observables)
+  const store = useLocalStore(() => ({
+    count: reactive(0, { repaint: true }),
+  }));
 
-- `DEFAULT_CSS`, `COMPONENT_CLASSES`,
-- `BINDINGS`,
-- `ALLOW_SELECT`, `ALLOW_MAXIMIZE`, `FOCUS_ON_CLICK`, `BLANK`,
-- `BORDER_TITLE`, `BORDER_SUBTITLE`,
-- `can_focus`, `can_focus_children`.
+  // 3. Registration (CSS identity for TCSS and queries)
+  useEffect(() => register({
+    id,
+    classes,
+    typeName: 'MyWidget',
+    canFocus: true,
+  }), []);
 
-Reactive attributes on the base: `virtual_size`, `scroll_x`/`scroll_y`, `scroll_target_x`/`scroll_target_y`, `show_vertical_scrollbar`/`show_horizontal_scrollbar`, `has_focus`, `mouse_hover`, `disabled`, `loading`, `hover_style`, `highlight_link_id`.
+  // 4. Render (Ink primitives with resolved TCSS styles)
+  return (
+    <Box {...styles.box}>
+      <Text {...styles.text}>{children}</Text>
+    </Box>
+  );
+});
 
-Pseudo-class hooks live in `_PSEUDO_CLASSES` (`:hover`, `:focus`, `:can-focus`, `:disabled`, `:first-of-type`, `:empty`, `:dark`, etc.) and are evaluated as pure functions of widget state.
+// 5. Static configuration
+MyWidget.displayName = 'MyWidget';
+MyWidget.DEFAULT_CSS = `MyWidget { min-width: 10; }`;
+MyWidget.BINDINGS = [{ key: 'enter', action: 'activate' }];
+MyWidget.canFocus = true;
+MyWidget.canFocusChildren = true;
+```
 
-## Lifecycle Semantics
+`useStyles()` returns the widget's resolved style bundle: `{ box, text, style, components }`. `box` and `text` are Ink-compatible props for compose-mode widgets. `style` is the widget's ambient rich-js `Style` for content segments, and `components` maps component-class names to rich-js `Style` overlays for line-based rendering.
+
+## Static Configuration Surface
+
+Static properties on the widget component:
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `DEFAULT_CSS` | `string` | `""` | TCSS styles scoped to this widget type |
+| `CSS` | `string` | `""` | Additional TCSS (higher specificity than DEFAULT_CSS) |
+| `COMPONENT_CLASSES` | `string[]` | `[]` | CSS class names this widget uses internally (documented for theming) |
+| `BINDINGS` | `Binding[]` | `[]` | Key bindings for this widget |
+| `canFocus` | `boolean` | `false` | Whether this widget participates in the focus chain |
+| `canFocusChildren` | `boolean` | `true` | Whether children of this widget can receive focus |
+| `BORDER_TITLE` | `string` | `""` | Title rendered in the top border |
+| `BORDER_SUBTITLE` | `string` | `""` | Subtitle rendered in the bottom border |
+| `inheritCss` | `boolean` | `true` | Whether to inherit DEFAULT_CSS from base widget types |
+| `inheritBindings` | `boolean` | `true` | Whether to merge bindings from base widget types |
+
+## Reactive Widget State
+
+Base reactive properties available on every widget (MobX observables):
+
+| Property | Type | Flags | Description |
+|----------|------|-------|-------------|
+| `hasFocus` | `boolean` | `repaint` | Whether this widget currently has focus (set by focus manager) |
+| `mouseHover` | `boolean` | `repaint` | Whether the mouse is over this widget |
+| `disabled` | `boolean` | `repaint, toggleClass: '-disabled'` | Disabled state — suppresses most input |
+| `loading` | `boolean` | `repaint, toggleClass: '-loading'` | Loading state — suppresses all input, shows overlay |
+| `display` | `boolean` | `layout` | Whether the widget renders (maps to TCSS `display`) |
+| `visible` | `boolean` | `repaint` | Whether the widget is visible (maps to TCSS `visibility`) |
+| `scrollX` | `number` | `repaint` | Horizontal scroll offset |
+| `scrollY` | `number` | `repaint` | Vertical scroll offset |
+| `scrollTargetX` | `number` | — | Target X for animated scrolling |
+| `scrollTargetY` | `number` | — | Target Y for animated scrolling |
+| `virtualSize` | `Size` | `layout` | Total scrollable content size |
+| `showVerticalScrollbar` | `boolean` | `layout` | Whether vertical scrollbar is visible |
+| `showHorizontalScrollbar` | `boolean` | `layout` | Whether horizontal scrollbar is visible |
+
+### Pseudo-class mapping
+
+Reactive state maps to CSS pseudo-classes for TCSS selector matching:
+
+| State | Pseudo-class | Inverse pseudo-class |
+|-------|-------------|---------------------|
+| `hasFocus` | `:focus` | `:blur` |
+| `mouseHover` | `:hover` | — |
+| `disabled` | `:disabled` | `:enabled` |
+| `canFocus` | `:can-focus` | — |
+| Theme dark mode | `:dark` | `:light` |
+| No children | `:empty` | — |
+| First child | `:first-child` | — |
+| Last child | `:last-child` | — |
+| First of type | `:first-of-type` | — |
+| Last of type | `:last-of-type` | — |
+
+Changes to these states trigger TCSS recalculation for selectors that reference the corresponding pseudo-class.
+
+## Lifecycle
 
 ### Compose and mount
 
-- `__init__` stores positional children in `_pending_children`; no DOM mutation happens until the widget is mounted.
-- On `events.Compose`, `_on_compose` calls `_compose`, which concatenates `_pending_children` with the result of the user-level `compose()` generator, clears pending children, calls `_extend_compose` (Screen uses this to inject the tooltip and toast rack), and then calls `mount_composed_widgets(widgets)`. The default `mount_composed_widgets` delegates to `mount_all`; `Lazy` overrides it to defer mounting.
-- `TypeError` from `compose()` is rewrapped with widget context; any other exception is routed through `App._handle_exception`.
-- `_on_mount` wires scroll/anchor state (e.g. enables anchoring on `overflow-y: scroll`); user code overrides `on_mount` to run once the widget is in the DOM.
+1. Widget function body runs (React render). Children are declared via JSX.
+2. `useEffect` fires after React commits the render. Widget registers with the framework.
+3. `Compose` message is dispatched. Widget may dynamically add children in response.
+4. `Mount` message is dispatched. Widget is fully in the tree, styled, and ready for interaction.
+5. Reactive properties with `init: true` fire their watchers.
 
-### Refresh / layout scheduling
+```tsx
+// Lifecycle hook
+const { onCompose, onMount, onUnmount } = useTextual();
 
-`refresh(*regions, repaint=True, layout=False, recompose=False)` records intent on the widget; the actual screen messages are emitted from `_check_refresh`, which runs from `_on_idle`:
+onCompose(() => {
+  // Dynamic child setup
+});
 
-- `repaint` → clear rich/layout style caches, mark dirty regions, then `screen.post_message(messages.Update(self))`.
-- `layout` → walk ancestors, clear arrangement caches and bump `_layout_updates` up to the first non-auto-dimension ancestor, then `screen.post_message(messages.Layout(self))`.
-- `_refresh_scroll` (called by internal scroll updates) → `screen.post_message(messages.UpdateScroll())`.
-- `recompose=True` → schedule `_check_recompose` via `call_next` and return immediately; recompose removes children and re-runs compose.
+onMount(() => {
+  // Widget is in the tree and styled
+  loadInitialData();
+});
 
-A pre-mount `refresh()` records the request and returns without clearing caches — the first real refresh happens once the widget is attached.
+onUnmount(() => {
+  // Cleanup before removal
+});
+```
 
-### Removal / pruning
+### Refresh and layout scheduling
 
-- `remove()` and `remove_children(selector="*")` both route through `App._prune(*nodes, parent=...)` and return an `AwaitRemove`.
-- `remove_children` accepts a CSS selector string, a `Widget` subclass (converted to its name), or an explicit iterable of widgets.
-- Prune posts `messages.Prune` to each target; `on_prune` closes the message loop. `_message_loop_exit` then prunes descendants recursively, awaits their tasks, dispatches `events.Unmount`, detaches from the parent's `_nodes`, removes from `App._registry`, and clears per-widget caches (`_arrangement_cache`, `_render_cache`, `_component_styles`, `_query_one_cache`).
-- `batch()` is an async context manager combining `self.lock` (an `RLock`) with `App.batch_update()` for coordinated multi-widget changes.
+Refresh translates to MobX observable mutations:
+
+| Action | Mechanism | Result |
+|--------|-----------|--------|
+| Content change | MobX observable mutation | `observer()` re-renders the widget |
+| Style change | TCSS recalculation updates `ResolvedStyles` | `observer()` re-renders with new Ink props |
+| Layout change | Style dimension/padding/margin observable changes | Ink/Yoga recomputes layout |
+| Scroll change | Scroll offset observable changes | Re-render with new scroll position |
+| Recompose | MobX observable list change (children) | React re-renders with new children |
+
+MobX's `runInAction` batches multiple changes into a single React render cycle.
+
+### Removal
+
+- `remove()` unmounts the widget from the React tree.
+- `removeChildren(selector?)` unmounts children matching the selector (all children if no selector).
+- Unmount dispatches the `Unmount` message and triggers cleanup:
+  - Workers cancelled (via WorkerManager)
+  - Timers cleared
+  - Widget deregistered from the registry
+  - `useEffect` cleanup functions run
+  - Global watchers on this widget are pruned
 
 ## Rendering Contract
 
-- Default `render()`:
-  - if `is_container` and a layout with a non-`none` keyline is set, return `layout.render_keyline(self)`;
-  - otherwise if `is_container`, return `Blank(background_colors[1])`;
-  - otherwise return the CSS-identifier Content for the leaf.
-- `_render()` runs `render()` through `visualize(...)` and caches the resulting `Visual` in `_layout_cache` under `"_render.visual"`. `notify_style_update` clears `_rich_style_cache` and `_visual_style_cache` so subsequent renders pick up new styles.
-- `_render_content` rasterizes the cached visual via `Visual.to_strips` and stores the result in `_render_cache`.
-- `render_line(y)` returns a single `Strip` from the render cache (re-rendering content if `_dirty_regions` is non-empty); `render_lines(crop)` delegates to `_styles_cache.render_widget(self, crop)` to produce cropped strip lists used by the compositor.
-- `BLANK = True` short-circuits both paths to blank strips sized to the widget.
+### Default rendering behavior
 
-Caches (`_layout_cache`, `_styles_cache`, `_rich_style_cache`, `_visual_style_cache`, `_arrangement_cache`, `_box_model_cache`) are all derived state; they are invalidated by `refresh()`, `notify_style_update`, and `_message_loop_exit`.
+| Widget type | Default render behavior |
+|-------------|------------------------|
+| Container (has children) | Renders children as JSX within a styled `<Box>` |
+| Leaf (no children) | Renders content (text, graphics) within a styled `<Box>` and `<Text>` |
 
-## Geometry, Virtual Size, and Scrolling
+All widgets:
+- Call `useStyles()` to get resolved TCSS styles as Ink props
+- Spread `styles.box` on their outer `<Box>` and `styles.text` on their `<Text>` elements
+- Do NOT hardcode Ink style props — all styling comes from TCSS through the cascade
 
-Geometry surface visible to subclasses:
+```tsx
+// WRONG — hardcoded styles bypass TCSS
+const Bad = observer(() => (
+  <Box backgroundColor="red" padding={1}>
+    <Text bold>Hello</Text>
+  </Box>
+));
 
-- `size`, `region`, `container_size`, `content_region`, `scrollable_content_region`, `content_size`, `window_region`, `virtual_size`, `scroll_offset`.
-- `virtual_size` is a reactive `Size` with `layout=True`; subclasses (notably `ScrollView`) update it from `get_content_width`/`get_content_height`.
-- `_size_updated(size, virtual_size, container_size, layout=True)` is the single entry point for size changes; it updates internal sizes and calls `_scroll_update(virtual_size)` which pushes `window_size`/`window_virtual_size` into the scrollbars.
+// RIGHT — TCSS-driven styles
+const Good = observer(() => {
+  const styles = useStyles();
+  return (
+    <Box {...styles.box}>
+      <Text {...styles.text}>Hello</Text>
+    </Box>
+  );
+});
+Good.DEFAULT_CSS = `
+  Good {
+    background: red;
+    padding: 1;
+    text-style: bold;
+  }
+`;
+```
 
-Scroll API (all return nothing, schedule work through the animator):
+### Border rendering
 
-- `scroll_to(x, y, *, animate, speed, duration, easing, force, on_complete, level, immediate=False, release_anchor=True)` — absolute scroll. When `immediate=False`, the real work is deferred via `call_after_refresh(self._scroll_to, ...)`; `immediate=True` calls `_scroll_to` directly. `release_anchor=True` clears the anchor before scrolling.
-- `scroll_relative`, `scroll_home`, `scroll_end`, `scroll_left`, `scroll_right`, `scroll_up`, `scroll_down`, `scroll_page_*` — all forward to `scroll_to` with computed targets.
-- `scroll_to_widget(widget, ...)`, `scroll_to_region(region, ...)`, `scroll_to_center(widget, ...)`, `scroll_visible(...)` — compute a target region then dispatch through `scroll_to`.
-- `anchor(anchor=True)` marks a scrollable widget as anchored and immediately scrolls to end; `release_anchor()` marks the anchor released (user has scrolled away); `_check_anchor` restores the anchor when `scroll_y` returns to `max_scroll_y`.
-- `allow_vertical_scroll`/`allow_horizontal_scroll` return `False` when disabled/loading, otherwise require `is_scrollable` and the matching scrollbar to be shown. Subclasses may override.
-- Scrollbar visibility is driven from `overflow-*` styles in `_size_updated`/`_scroll_update`; `_vertical_scrollbar`, `_horizontal_scrollbar`, and `_scrollbar_corner` are lazily created `ScrollBar`/`ScrollBarCorner` widgets stored on the parent.
+- `BORDER_TITLE` and `BORDER_SUBTITLE` are reactive values of type `string | Content`, rendered inside the widget's border.
+- `border-title-align` and `border-subtitle-align` TCSS properties control positioning (left, center, right).
+- Plain strings render with the ambient border style; markup strings are parsed via rich-js at render time; `Content` is used directly.
+- At render time, the framework replaces a span of the top or bottom border row with the title/subtitle content. Placement uses rich-js `cellLength`, so wide and combining characters align correctly within the border row.
+- Border titles are reactive — changing them triggers a re-render.
 
-Scroll action handlers (`action_scroll_home`/`end`/`left`/`right`/`up`/`down`/`page_*`) are the canonical bindings entry point for keyboard scrolling.
+## Line API Widgets
 
-`check_message_enabled` enforces disabled-state input policy at the widget boundary: if `super().check_message_enabled` rejects the message or the type is prevented, drop it; mouse events in `_MOUSE_EVENTS_ALLOW_IF_DISABLED` (wheel/scroll) always pass so wheel scrolling traverses disabled subtrees; other mouse events in `_MOUSE_EVENTS_DISALLOW_IF_DISABLED` require `not self._self_or_ancestors_disabled`.
+Widgets that manage their own per-line rendering rather than composing child widgets are Line API widgets. The base type is `ScrollView`; common subclasses include `Input`, `TextArea`, `Log`, `RichLog`, `OptionList`, `Tree`, `DataTable`, and `Markdown`.
+
+Line API widgets implement this surface:
+
+- `renderLine(y: number): Strip` — return the rich-js `Strip` for visual row `y`.
+- `renderLines(range: Region): Strip[]` (optional) — batch form for efficient multi-line rendering.
+- `getContentWidth()` / `getContentHeight()` — compute virtual content dimensions.
+- `virtualSize` — reactive size that drives scrollbars and scroll clamping.
+- `refreshLine(y)` / `refreshLines(yStart, count)` — invalidate specific rows without rebuilding unrelated rows.
+
+The framework renders a Line API widget by reading `virtualSize` and `scrollOffset`, requesting visible rows via `renderLine()` or `renderLines()`, converting each `Strip` into Ink `<Text>` elements (one per consecutive style run), and arranging those rows as a column inside the widget's outer `<Box>`.
+Invalidation granularity for line content is row-based: `refreshLine()` and `refreshLines()` identify which rows need to be rebuilt, instead of expressing per-character changes as child-widget composition.
+
+## Geometry and Size
+
+Geometry properties available via `useTextual()`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `size` | `Size` | Widget's rendered size (from Ink/Yoga layout) |
+| `containerSize` | `Size` | Available space from the parent container |
+| `contentSize` | `Size` | Size of the widget's content area (size minus padding/border) |
+| `virtualSize` | `Size` | Total scrollable content size (may be larger than size) |
+| `scrollOffset` | `Offset` | Current scroll position `{ x, y }` |
+
+All are MobX observables. `size` and `containerSize` are updated by Ink after Yoga layout completes (via `measureElement()` or Yoga callbacks).
+
+## Scrolling
+
+### Scroll API
+
+Methods available via `useTextual()` or on the widget's handler object:
+
+| Method | Description |
+|--------|-------------|
+| `scrollTo(x, y, options?)` | Absolute scroll. Options: `duration`, `easing` for animated scroll. |
+| `scrollRelative(dx, dy, options?)` | Relative scroll by delta |
+| `scrollHome(options?)` | Scroll to top-left |
+| `scrollEnd(options?)` | Scroll to bottom-right |
+| `scrollUp(lines?, options?)` | Scroll up by N lines (default 1) |
+| `scrollDown(lines?, options?)` | Scroll down by N lines (default 1) |
+| `scrollLeft(cells?, options?)` | Scroll left by N cells |
+| `scrollRight(cells?, options?)` | Scroll right by N cells |
+| `scrollPageUp(options?)` | Scroll up by one page (scrollport height) |
+| `scrollPageDown(options?)` | Scroll down by one page |
+| `scrollToWidget(widget, options?)` | Scroll until the target widget is visible |
+| `scrollToRegion(region, options?)` | Scroll until the target region is visible |
+| `scrollToCenter(widget, options?)` | Scroll to center the target widget |
+
+All scroll methods funnel through `scrollTo()`, which updates the scroll offset MobX observables.
+
+### Anchor (auto-scroll)
+
+- `anchor(anchor?)` marks a scrollable widget as anchored: it auto-scrolls to the bottom when content size increases.
+- `releaseAnchor()` releases anchoring when the user scrolls away from the bottom.
+- `isAnchored` is a MobX observable. Content changes check it and auto-scroll if true.
+
+### Scroll guard
+
+- `allowVerticalScroll` / `allowHorizontalScroll` return `false` when `disabled` or `loading`, preventing scroll interaction.
+- Scroll action handlers (`action_scroll_home`, `action_scroll_end`, etc.) are the canonical binding entry points for keyboard scrolling.
+
+### Scrollbar widget internal contract
+
+Scrollbars are internal `Widget` subclasses — `Scrollbar` and `ScrollbarCorner` — instantiated by the framework as children of any widget that renders scrollbars. They are not part of the public widget catalog (see spec 10); applications never mount them directly.
+
+#### Reactive state on a Scrollbar
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `windowVirtualSize` | `number` | Total virtual length of the scrollable axis (maps to parent's `virtualSize.width` or `.height`) |
+| `windowSize` | `number` | Visible length along the scrollable axis (scrollport length) |
+| `position` | `number` | Thumb position in 1/8-cell granularity along the axis |
+| `mouseHover` | `boolean` | Whether the pointer is over the scrollbar |
+| `grabbed` | `Offset \| null` | Offset within the thumb where the user grabbed, or `null` when not grabbed |
+
+#### Styling
+
+Scrollbar styles read from the parent's `scrollbar-*` TCSS tokens and select `active`/`hover`/`normal` variants based on `grabbed` and `mouseHover`:
+
+| State | Variant |
+|-------|---------|
+| `grabbed !== null` | `active` |
+| `mouseHover && !grabbed` | `hover` |
+| otherwise | `normal` |
+
+Scrollbar rendering uses the Line API: each visual row is a one-cell-wide rich-js `Strip` whose `Segment` uses a scrollbar block character (`▁▂▃▄▅▆▇█` and full-block variants) and a rich-js `Style` resolved from the parent's `scrollbar-color`, `scrollbar-background`, `scrollbar-color-hover`, and `scrollbar-color-active` tokens. `Scrollbar.renderer` is pluggable via a static `ScrollBarRender` class for custom character sets.
+
+#### Scroll messages
+
+Scroll intents are `Message` subclasses with `bubble: false`. They are posted by the scrollbar and handled by the scrollable parent widget:
+
+| Message | Payload | Effect on parent |
+|---------|---------|------------------|
+| `ScrollUp` | — | Incremental scroll up |
+| `ScrollDown` | — | Incremental scroll down |
+| `ScrollLeft` | — | Incremental scroll left |
+| `ScrollRight` | — | Incremental scroll right |
+| `ScrollTo` | `x: number, y: number` | Absolute scroll target |
+
+#### Mouse handling
+
+- `MouseDown`, `MouseUp`, and `Click` on the scrollbar call `event.stop()` so they do not bubble to the parent and trigger click handling.
+- On `MouseDown`, the scrollbar records `grabbed` as the pointer offset within the thumb and captures the mouse.
+- While `grabbed !== null`, each `MouseMove` translates the pointer delta from screen space into virtual space (`delta * windowVirtualSize / windowSize`) and posts `ScrollTo(x, y)` to the parent.
+- On `MouseUp`, the scrollbar clears `grabbed` and releases capture.
+
+#### ScrollbarCorner
+
+`ScrollbarCorner` is a non-interactive widget that fills the square gap where a vertical and a horizontal scrollbar meet. It is mounted only when both scrollbars are visible on the same widget.
+
+// [LAW:one-source-of-truth] Scrollbar state mirrors the parent's `virtualSize` and `scrollOffset`; the parent's MobX observables remain the authoritative scroll state. The scrollbar posts intent (messages), it does not mutate parent scroll state directly.
+// [LAW:dataflow-not-control-flow] The scrollbar always processes `MouseMove`; whether a drag emits `ScrollTo` is determined by the value of `grabbed`, not by an `if` that skips the handler.
+
+## Disabled State
+
+When `disabled` is `true`:
+
+| Input type | Behavior |
+|------------|----------|
+| Mouse click / press | **Suppressed** — event is consumed, not bubbled |
+| Mouse move / hover | **Suppressed** |
+| Mouse wheel / scroll | **Allowed** — wheel scrolling traverses disabled subtrees |
+| Key events | **Suppressed** — disabled widgets do not receive key events |
+| Focus | **Cannot focus** — `allowFocus()` returns false when disabled |
+
+The `-disabled` CSS class is automatically toggled (via the `toggleClass` reactive flag), so TCSS can style disabled widgets:
+
+```css
+Button:disabled {
+  opacity: 0.5;
+  text-style: italic;
+}
+```
+
+Disabled state on a parent also suppresses input to children. The check walks ancestors — any disabled ancestor blocks the event.
+Pointer hit-testing does not skip disabled widgets. If the pointer lands on a disabled widget, that widget remains the resolved target and consumes the interaction at the disabled-state boundary; the event does not fall through to an enabled ancestor or sibling behind it.
+Visual dimming is driven by TCSS rules targeting `.-disabled`; the resolved rich-js `Style` typically applies dimming, opacity reduction, or muted colors to the widget's rendered content.
+
+## Loading State
+
+When `loading` is `true`:
+
+- **All input suppressed** — no mouse, keyboard, or focus events.
+- The `-loading` CSS class is toggled.
+- A loading overlay may be rendered (framework-provided, not a public widget).
+- Loading state on a parent suppresses input to children.
+- Pointer hit-testing does not treat loading widgets or loading overlays as transparent. The widget under the pointer still owns the interaction and suppresses it at the loading boundary instead of allowing fallthrough to content behind it.
+- The loading overlay renders rich-js content or renderables (spinner / pulsing dots) with `Style` from TCSS and swallows all input while visible.
+
+```css
+DataTable.-loading {
+  opacity: 0.3;
+}
+```
+
+## Tooltip
+
+- `tooltip` reactive property (`VisualInput | null`). When set and the mouse hovers over the widget for `TOOLTIP_DELAY` milliseconds, a tooltip message is posted.
+- The app renders the tooltip near the mouse position.
+- Plain strings render with the ambient tooltip style; markup strings are parsed via rich-js; `Content`/`RichText` remain text visuals; rich-js renderables remain renderables inside the internal tooltip overlay widget.
+- Tooltip text composition follows the same contract as upstream Textual: the ambient widget / app visual style is the base layer, and explicit content spans override it using rich-js merge semantics.
+- Moving the mouse away dismisses the tooltip.
+
+## Text Selection
+
+Widgets expose a uniform contract for whether and how their rendered text may be selected by the user. Selection is a data-level property of the widget type — it does not branch rendering or event flow, only the outcome of a selection gesture.
+
+### Static and reactive surface
+
+| Property | Scope | Default | Description |
+|----------|-------|---------|-------------|
+| `ALLOW_SELECT` | Static on widget type | `true` | Whether the widget's rendered text may be selected by the user |
+| `Screen.allowSelect` | Reactive on Screen | derived from `App.ALLOW_SELECT` | Screen-level override; when `false`, no widget on the screen is selectable regardless of its `ALLOW_SELECT` |
+| `App.ALLOW_SELECT` | Static on App | `true` | Application-wide default for `Screen.allowSelect` |
+
+Widgets whose primary interaction would conflict with a selection gesture set `ALLOW_SELECT = false`. The baseline catalog includes:
+
+- `Button`, `Checkbox`, `RadioButton`, `Switch`
+- `Tabs`, `Tab`, `Select`, `SelectionList`, `OptionList`
+- `Tree`, `DataTable`
+- `Footer`
+
+```tsx
+Button.ALLOW_SELECT = false;
+```
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `textSelectAll()` | Request selection of all text within this widget. Delegates to `screen._selectAllInWidget(widget)` — Screen is the single enforcer. |
+| `selectContainer()` | Select all text within the widget's containing context. Default gesture binding is triple-click. |
+
+### Gesture mapping
+
+| Gesture | Condition | Effect |
+|---------|-----------|--------|
+| Click + drag across widgets | Every widget traversed has `ALLOW_SELECT: true` and `Screen.allowSelect: true` | Framework tracks the selection range and emits `TextSelected` on release |
+| Double-click on a widget | `ALLOW_SELECT: true` | `textSelectAll()` on that widget |
+| Triple-click on a widget | `ALLOW_SELECT: true` | `selectContainer()` on that widget |
+
+On completion, the framework posts the `TextSelected` message (payload `{ text, range }`) — see spec 03 for its dispatch semantics. The selected text is represented in-memory as rich-js `Content` spanning the selection range across widgets, so styled selections preserve their segment styles. Plain-text copy flattens via `Content.plainText`; rich clipboard paths preserve styles where the destination supports them. Selection gestures over widgets where `ALLOW_SELECT` is `false` are ignored; they do not suppress other mouse handling.
+
+// [LAW:single-enforcer] `Screen._selectAllInWidget` is the sole enforcer of selection state for a screen. Widgets call `textSelectAll()` which delegates; they never mutate selection directly.
 
 ## Focus and Input
 
-- `can_focus` / `can_focus_children` are class attributes; `allow_focus()` / `allow_focus_children()` are overridable predicates defaulting to those attributes. `focusable` combines them with ancestor walk.
-- `ALLOW_MAXIMIZE` controls the `allow_maximize` predicate (default: focusable widgets may be maximized).
-- `focus(scroll_visible=True)` calls `self.refresh()`, then schedules `screen.set_focus(self, scroll_visible=...)` via `app.call_later`. `blur()` calls `screen._reset_focus(self)`. Both tolerate `NoScreen`.
-- Key dispatch: `_on_key` → `handle_key` → `dispatch_key(self, event)`. `check_consume_key(key, character)` is the hook widgets override to claim a key (e.g. `Input`, `TextArea`); Screen's `_binding_chain` calls it to strip consumed keys from ancestor binding maps.
-- Mouse capture: `capture_mouse(True)` calls `app.capture_mouse(self)`, `release_mouse()` releases only if currently captured, and `_on_mouse_capture`/`_on_mouse_release` are hooks invoked when capture state changes. The app owns the single `mouse_captured` slot; widgets cooperate but do not duplicate that state.
+### Focus management
 
-## Event Forwarding, Messages, and Actions
+| Method / Property | Description |
+|-------------------|-------------|
+| `canFocus` | Static property — whether this widget type can receive focus |
+| `canFocusChildren` | Static property — whether children can receive focus |
+| `allowFocus()` | Runtime check — returns `false` when disabled or loading |
+| `allowFocusChildren()` | Runtime check — returns `false` when disabled |
+| `focus(scrollVisible?)` | Request focus. Schedules `screen.setFocus(this)`. If `scrollVisible`, scrolls the widget into view. |
+| `blur()` | Release focus. Calls `screen.resetFocus(this)`. |
+| `hasFocus` | MobX observable — whether this widget currently has focus |
 
-- `_forward_event(event)` marks the event forwarded via `event._set_forwarded()` then `post_message(event)` on the widget; Screen uses this to re-dispatch mouse events onto the widget under the pointer (with coordinate translation for maximized/offset regions).
-- Message bubbling is inherited from `DOMNode`/`MessagePump`; `Widget.post_message` adds a debug assertion that `Message.__init__` was called and a dev warning if a widget receives messages while not running.
-- `broker_event(event_name, event)` delegates to `App._broker_event`, letting style metadata (e.g. `@click="..."`) be translated into actions from `_on_mouse_down`/`_on_mouse_up`/`_on_click`.
-- `run_action(action, namespaces=None)` forwards to `App.run_action` with `self` as default namespace. Action targets (`app`, `screen`, `focused`) are resolved by `App`; individual widgets do not maintain an `action_targets` map.
-- `check_action(action, parameters)` (inherited from `DOMNode`) is the hook a widget overrides to dynamically enable/disable bindings; `Screen.active_bindings` calls `App._check_action_state` for every entry in `_modal_binding_chain` and discards any binding whose state is `False`.
+### Key consumption
 
-## Print Capture
+`checkConsumeKey(key, character)` is the hook widgets override to claim a key. When a widget consumes a key, the binding chain does not check that key on ancestor widgets.
 
-Widgets can opt in to stdout/stderr capture via `begin_capture_print(stdout=True, stderr=True)` and `end_capture_print()`; captured text is delivered as `events.Print` messages. Both methods are thin forwards to `App.begin_capture_print`/`end_capture_print`.
+Used by input-capturing widgets like `Input` and `TextArea` — they consume printable character keys so typing doesn't trigger bindings.
 
-## Selection Helpers
+### Mouse capture
 
-`text_select_all()` delegates to `Screen._select_all_in_widget`. `_on_click` honors `ALLOW_SELECT`/`Screen.allow_select`/`App.ALLOW_SELECT`, selects the widget on double-click and the `select_container` on triple-click, then dispatches the `click` broker event.
+| Method | Description |
+|--------|-------------|
+| `captureMouse()` | Request mouse capture — all mouse events route to this widget regardless of position |
+| `releaseMouse()` | Release capture (only if this widget currently has it) |
 
-## Container vs. Widget Distinction
+The app owns the single `mouseCaptured` slot. Only one widget can have capture at a time.
 
-- `is_container` reports whether the widget has children and should participate in layout arrangement; the default `render()` path uses it to choose between keyline/blank and the leaf CSS-identifier render.
-- `is_scrollable` reports whether the widget can own scrollbars. `ScrollView` hard-codes `is_scrollable=True` and `is_container=False`.
+## Event Forwarding and Actions
 
-## ScrollView Contract
+### Event forwarding
 
-`ScrollView` extends `ScrollableContainer` and is the base for Line API widgets that manage their own content (i.e. not composed from child widgets).
+`forwardEvent(event)` marks the event as forwarded then posts it to the widget. Screen uses this to dispatch mouse events to the widget under the pointer, with coordinate translation.
 
-- Forces `is_scrollable=True`, `is_container=False`, `ALLOW_MAXIMIZE=True`, and `overflow-x/y: auto` in default CSS.
-- Subclasses own `virtual_size` and override `get_content_width` / `get_content_height` to report it; `_size_updated` synchronizes the container size and pushes `virtual_size` into the scrollbars via `_scroll_update`.
-- `watch_scroll_x`/`watch_scroll_y` update scrollbar positions and call `refresh(self.size.region)` when the integer-rounded scroll position changes.
-- `scroll_to` is overridden to call `_scroll_to` directly (no `call_after_refresh` detour) so line-based subclasses can request immediate repaints.
-- `refresh_line(y)` / `refresh_lines(y_start, line_count)` refresh a rectangle computed from `scroll_offset` and `max(virtual_size.width, size.width)`.
-- Default `render()` returns a debug `Panel` — subclasses must override `render_line` (and optionally `render_lines`) to produce actual output.
+### Message bubbling
 
-## Scrollbar Contract
+Messages with `bubble: true` propagate upward through the widget registry's parent chain (registered ancestors in the React tree). See spec 03 for full dispatch semantics.
 
-`ScrollBar` is a `Widget` subclass used internally as a child of any widget that shows scrollbars.
+### Action dispatch
 
-- Reactive state: `window_virtual_size`, `window_size`, `position`, `mouse_over`, `grabbed` (an `Offset | None`).
-- `position` has 1/8-cell granularity enforced by `validate_position`.
-- Rendering uses the parent's `scrollbar-*` style tokens, picks active/hover/normal variants from `grabbed`/`mouse_over`, then delegates to `ScrollBar.renderer` (a class-level `ScrollBarRender` that can be overridden globally or per instance).
-- Mouse down/up/click are stopped on the scrollbar so they do not bubble to the parent; `action_grab` captures the mouse, `_on_mouse_capture` stores `grabbed_position`/`grabbed` and releases the parent's anchor, `_on_mouse_release` clears `grabbed` and re-checks the parent's anchor.
-- While grabbed, `_on_mouse_move` converts pointer delta into a virtual-space offset and posts `ScrollTo(x, y)` to the parent.
-- `ScrollBarCorner` fills the gap between horizontal and vertical scrollbars.
-- Scroll messages (`ScrollUp`/`ScrollDown`/`ScrollLeft`/`ScrollRight`/`ScrollTo`) are `Message` subclasses with `bubble=False`; they are handled by the scrollable parent.
+| Method | Description |
+|--------|-------------|
+| `runAction(action, namespaces?)` | Forward to `app.runAction` with this widget as default namespace |
+| `checkAction(action, params)` | Override to dynamically enable/disable bindings. Return `true` (enabled), `null` (disabled but visible), `false` (hidden). |
+
+## Container vs Leaf
+
+| Property | Returns | Description |
+|----------|---------|-------------|
+| `isContainer` | `boolean` | Whether the widget has children and participates in layout arrangement |
+| `isScrollable` | `boolean` | Whether the widget can own scrollbars (has `overflow: scroll \| auto`) |
 
 ## Screen Contract
 
-`Screen` is the compose root and the coordination point for focus, bindings, maximize/minimize, selection, and modal behavior.
-
-### Mount and compose
-
-- `_extend_compose` inserts the internal `Tooltip` and `ToastRack` into the composed widget list (unless disabled on the app).
-- `_on_mount` subscribes to `screen_layout_refresh_signal` for tooltip clearing.
-- `Screen.size` is `app.size - gutter.totals`, making it the sole authority on screen dimensions.
-- `layers` appends internal layers (`_loading`, `_toastrack`, `_tooltips`) to the parent layers tuple.
+`Screen` is a widget that acts as the compose root for a view. It owns focus management, the binding chain, and modal behavior.
 
 ### Focus chain
 
-- `focused` is a reactive `Widget | None`; do not mutate it directly — use `set_focus`.
-- `focus_chain` walks the DOM for all focusable widgets in tab order.
-- `set_focus(widget, scroll_visible=True, from_app_focus=False)` is the single enforcer: it early-exits if already focused, posts `Blur` to the previous focus, posts `Focus(from_app_focus=...)` to the new one, updates focus styles, and schedules `refresh_bindings` after the next refresh. If `scroll_visible` is set and the widget cannot be fully viewed, it schedules `scroll_to_center` on the next tick.
-- `_reset_focus(widget)` moves focus away from a blurring widget; `focus_next`/`focus_previous(selector="*")` walk `focus_chain`; `_move_focus(...)` is the internal helper.
+The screen's focus chain is the ordered list of all focusable widgets in the screen's subtree:
 
-### Bindings and `_binding_chain`
+```tsx
+// Focus chain = all widgets where allowFocus() returns true, in DOM order
+const chain = query('*').results()
+  .filter(w => w.allowFocus())
+  .sort(byDomOrder);
+```
 
-- `_binding_chain` constructs `[(namespace, BindingsMap)]` starting at the focused widget's `ancestors_with_self` (or `[screen, app]` when nothing is focused or the focused widget is loading). Each returned `BindingsMap` is a copy so filtering does not mutate the source of truth.
-- It then walks the chain and, for each earlier namespace, calls `filter_namespace.check_consume_key(key, character)` on every later binding, dropping keys claimed by widgets like `Input` or `TextArea`. Finally it applies `App._keymap` to every map, raising `handle_bindings_clash` on conflicts.
-- `_modal_binding_chain` truncates `_binding_chain` at the first modal ancestor — bindings behind a modal screen never fire.
-- `active_bindings` walks `_modal_binding_chain`, asks `App._check_action_state` for each binding's action, drops bindings whose state is `False`, and merges priority bindings on top of existing ones.
-- `refresh_bindings()` publishes `bindings_updated_signal`. It is invoked automatically from `_watch_focused`, `_watch_stack_updates`, and after `set_focus`.
+| Method | Description |
+|--------|-------------|
+| `focused` | MobX observable — currently focused widget (or null) |
+| `focusChain` | All focusable widgets in tab order |
+| `setFocus(widget, scrollVisible?)` | **Single enforcer**: posts `Blur` to previous, `Focus` to new, updates `:focus` pseudo-class, refreshes bindings |
+| `resetFocus(widget)` | Move focus away from a widget that is blurring |
+| `focusNext()` | Focus the next widget in the chain |
+| `focusPrevious()` | Focus the previous widget in the chain |
 
-### Maximize / minimize
+// [LAW:single-enforcer] `setFocus` is the single enforcer of focus changes. It posts the Blur/Focus messages, updates pseudo-class state, and refreshes bindings. Widgets call `focus()` which delegates to `setFocus`. No widget directly mutates focus state.
 
-- `maximized` is a reactive `Widget | None` with `layout=True`. Setting it drives `_watch_maximized`, which toggles `-maximized-view` on the screen and `-maximized` on the widget — the classes are derived state, the reactive is the source of truth.
-- `maximize(widget, container=True)` respects `widget.allow_maximize`; with `container=True` it walks ancestors looking for the nearest maximizable one and assigns that.
-- `minimize()` clears `maximized` and, if there is a focused widget, re-centers it after the next refresh.
-- `action_maximize`/`action_minimize` are the keyboard entry points; `ALLOW_IN_MAXIMIZED_VIEW` (on the screen or app) selects additional direct children that remain visible alongside the maximized widget. `arrange()` caches the layout keyed by `(size, _nodes._updates, maximized)`.
+### Binding chain
 
-### Event forwarding and mouse capture
+The screen constructs the binding chain from the focused widget:
 
-- `Screen._forward_event` is the single place mouse/pointer events are translated from screen coordinates to the target widget and re-posted via `widget._forward_event`, including offset translation for maximized regions.
-- The screen coordinates mouse capture through `App.mouse_captured`; widgets call `capture_mouse`/`release_mouse`, but the screen is where pointer events are routed (and where disabled-state filtering via `check_message_enabled` decides whether the event is delivered).
+1. Start at the focused widget (or the screen if nothing is focused).
+2. Walk ancestors upward to the screen, then the app.
+3. At each node, collect its `BindingsMap`.
+4. For each binding, call `checkConsumeKey` on widgets below it in the chain — drop keys already consumed by input-capturing widgets.
+5. Truncate at the first modal ancestor (inclusive).
 
-### Modal and system screens
+`activeBindings` walks this chain, calls `checkAction` for each binding, drops hidden bindings (`false`), marks disabled bindings (`null`), and merges priority bindings on top. The result is used by the Footer widget.
 
-- `ModalScreen` sets `self._modal = True` in `__init__`; the flag is surfaced through `is_modal` and consumed by `_modal_binding_chain` so a modal truncates the binding chain of ancestors.
-- `SystemModalScreen` extends `ModalScreen` with `inherit_css=False` for internal dialogs.
-- `dismiss(result=None)` returns an `AwaitComplete` that pops the screen; `pop_until_active()` unwinds any background screens stacked above this one; `action_dismiss(result=None)` is the keyboard entry point.
+`refreshBindings()` publishes `bindings_updated_signal` — the Footer subscribes to this to update its display.
 
-// [LAW:one-source-of-truth] Widget state (virtual size, scroll offsets, focused widget, maximized widget, bindings) lives in reactives/attributes on `Widget`/`Screen`; derived caches (render, styles, arrangement, rich-style, binding chain copies) are rebuilt from those sources rather than written to independently.
-// [LAW:single-enforcer] Focus changes, binding resolution, mouse capture, and event forwarding are all enforced at `Screen` (with `App` for cross-screen concerns). Widgets cooperate by posting messages or calling screen/app methods; they do not duplicate that enforcement.
-// [LAW:dataflow-not-control-flow] `refresh()` records intent on flags and `_check_refresh` executes the same message pipeline every idle tick; scroll, layout, repaint, recompose, and style updates are all data-driven transitions resolved uniformly rather than ad-hoc branches inside callers.
+### Modal screens
+
+- `ModalScreen` is a screen variant with `isModal: true`.
+- The modal flag truncates the binding chain — bindings behind a modal screen never fire.
+- `dismiss(result?)` pops the modal from the screen stack and delivers the result to the `pushScreen` callback.
+
+```tsx
+const ConfirmDialog = observer(() => {
+  const { dismiss } = useTextual();
+
+  return (
+    <ModalScreen>
+      <Text>Are you sure?</Text>
+      <Button onClick={() => dismiss(true)}>Yes</Button>
+      <Button onClick={() => dismiss(false)}>No</Button>
+    </ModalScreen>
+  );
+});
+
+// Usage:
+pushScreen(ConfirmDialog, (confirmed) => {
+  if (confirmed) performAction();
+});
+```
+
+### Screen internal composition
+
+When a Screen mounts, the framework composes internal widgets into the screen subtree. These are not part of the user-authored JSX — they are appended by the Screen base contract. The same insertion runs every mount; which internals actually render is driven by App-level data (flags and observable widget state).
+
+| Internal widget | Condition | Purpose |
+|-----------------|-----------|---------|
+| `Tooltip` | `App.showTooltips !== false` | Renders the active widget's `tooltip` text near the mouse pointer |
+| `ToastRack` | `App.showNotifications !== false` | Renders active notifications as a stack of toasts |
+| `LoadingOverlay` | Always mounted; visible when any widget in the screen has `loading: true` | Dims the screen and renders a loading indicator |
+
+Screens implicitly declare a set of internal layers, appended to any user-declared `layers`, stacked above user content in this order (bottom to top):
+
+```
+layers: [ ...userLayers, '_loading', '_toastrack', '_tooltips' ]
+```
+
+- `_loading` hosts `LoadingOverlay`.
+- `_toastrack` hosts `ToastRack`.
+- `_tooltips` hosts `Tooltip` (topmost).
+
+`Screen.size` is derived: `app.size - gutter.totals`. The Screen is the sole authority on its own dimensions — widgets read `Screen.size` rather than re-deriving from the app.
+
+On mount, the Screen subscribes to `screenLayoutRefreshSignal`; any layout refresh clears the tooltip so a stale tooltip does not persist over newly positioned content.
+
+// [LAW:one-source-of-truth] `Screen.size` is the authoritative screen dimension; widgets derive from it rather than recomputing from `App.size`.
+// [LAW:dataflow-not-control-flow] Internal widgets are mounted unconditionally; their visibility is a function of reactive data (`App.showTooltips`, per-widget `loading`, notification list), not of whether the Screen chose to insert them.
+
+### HelpPanel and KeyPanel
+
+`HelpPanel` and `KeyPanel` are internal framework widgets that surface the active binding chain to the user. They are not part of the public widget catalog (see spec 10) — applications do not compose them directly. They exist as framework-provided affordances that can be toggled via bindings or app configuration.
+
+| Widget | Presentation | Default trigger |
+|--------|-------------|-----------------|
+| `HelpPanel` | Pop-out panel listing all active bindings for the focused widget in a readable format (key, description, grouped by source) | Key binding, default `f1` |
+| `KeyPanel` | Vertical scrolling table of active bindings, styled similarly to `Footer` but more detailed (intended as a persistent side panel) | App-level toggle |
+
+Both widgets:
+
+- Read the focused widget's `activeBindings` from the Screen's binding chain (see "Binding chain" above).
+- Subscribe to `bindingsUpdatedSignal` on mount and rebuild their content whenever that signal fires.
+- Apply `checkAction` results: hidden bindings (`false`) are omitted, disabled bindings (`null`) are rendered dimmed.
+
+// [LAW:one-source-of-truth] `HelpPanel` and `KeyPanel` derive their content from `Screen.activeBindings`; they do not maintain their own binding registry.
+
+// [LAW:one-source-of-truth] Widget state (virtual size, scroll offsets, focused widget, bindings) lives in MobX observables; derived views are rebuilt from those sources.
+// [LAW:single-enforcer] Focus changes, binding resolution, mouse capture, and event forwarding are enforced at Screen (with App for cross-screen concerns). Widgets cooperate by calling the Screen API; they do not duplicate enforcement.
+// [LAW:dataflow-not-control-flow] Refresh records intent in MobX observables and observer() executes the same render pipeline every cycle; scroll, layout, repaint, and style updates are data-driven transitions, not ad-hoc branches.

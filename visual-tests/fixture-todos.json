@@ -1,0 +1,644 @@
+[
+  {
+    "name": "button_disabled",
+    "stage": "7",
+    "component": "Button",
+    "reason": "Pre-seeded Python baseline for Stage 7 Button implementation"
+  },
+  {
+    "name": "button_focused",
+    "stage": "7",
+    "component": "Button",
+    "reason": "Pre-seeded Python baseline for Stage 7 Button implementation"
+  },
+  {
+    "name": "checkbox_disabled",
+    "stage": "7",
+    "component": "Checkbox",
+    "reason": "Pre-seeded Python baseline for Stage 7 Checkbox implementation"
+  },
+  {
+    "name": "checkbox_states",
+    "stage": "7",
+    "component": "Checkbox",
+    "reason": "Pre-seeded Python baseline for Stage 7 Checkbox implementation"
+  },
+  {
+    "name": "collapsible_collapsed",
+    "stage": "8",
+    "component": "Collapsible",
+    "reason": "Pre-seeded Python baseline for Stage 8 Collapsible implementation"
+  },
+  {
+    "name": "collapsible_expanded",
+    "stage": "8",
+    "component": "Collapsible",
+    "reason": "Pre-seeded Python baseline for Stage 8 Collapsible implementation"
+  },
+  {
+    "name": "containers_center",
+    "stage": "8",
+    "component": "containers",
+    "reason": "Pre-seeded Python baseline for Stage 8 containers implementation"
+  },
+  {
+    "name": "containers_grid",
+    "stage": "8",
+    "component": "containers",
+    "reason": "Pre-seeded Python baseline for Stage 8 containers implementation"
+  },
+  {
+    "name": "containers_horizontal_row",
+    "stage": "8",
+    "component": "containers",
+    "reason": "Pre-seeded Python baseline for Stage 8 containers implementation"
+  },
+  {
+    "name": "containers_middle",
+    "stage": "8",
+    "component": "containers",
+    "reason": "Pre-seeded Python baseline for Stage 8 containers implementation"
+  },
+  {
+    "name": "containers_vertical_stack",
+    "stage": "8",
+    "component": "containers",
+    "reason": "Pre-seeded Python baseline for Stage 8 containers implementation"
+  },
+  {
+    "name": "content_switcher_initial",
+    "stage": "8",
+    "component": "ContentSwitcher",
+    "reason": "Pre-seeded Python baseline for Stage 8 ContentSwitcher implementation"
+  },
+  {
+    "name": "content_switcher_switched",
+    "stage": "8",
+    "component": "ContentSwitcher",
+    "reason": "Pre-seeded Python baseline for Stage 8 ContentSwitcher implementation"
+  },
+  {
+    "name": "data_table_basic",
+    "stage": "9",
+    "component": "DataTable",
+    "reason": "Pre-seeded Python baseline for Stage 9 DataTable implementation"
+  },
+  {
+    "name": "data_table_cursor_row",
+    "stage": "9",
+    "component": "DataTable",
+    "reason": "Pre-seeded Python baseline for Stage 9 DataTable implementation"
+  },
+  {
+    "name": "data_table_fixed_columns",
+    "stage": "9",
+    "component": "DataTable",
+    "reason": "Pre-seeded Python baseline for Stage 9 DataTable implementation"
+  },
+  {
+    "name": "data_table_with_header",
+    "stage": "9",
+    "component": "DataTable",
+    "reason": "Pre-seeded Python baseline for Stage 9 DataTable implementation"
+  },
+  {
+    "name": "data_table_with_row_labels",
+    "stage": "9",
+    "component": "DataTable",
+    "reason": "Pre-seeded Python baseline for Stage 9 DataTable implementation"
+  },
+  {
+    "name": "digits_basic",
+    "stage": "7",
+    "component": "Digits",
+    "reason": "Pre-seeded Python baseline for Stage 7 Digits implementation"
+  },
+  {
+    "name": "digits_large",
+    "stage": "7",
+    "component": "Digits",
+    "reason": "Pre-seeded Python baseline for Stage 7 Digits implementation"
+  },
+  {
+    "name": "directory_tree_basic",
+    "stage": "9",
+    "component": "DirectoryTree",
+    "reason": "Pre-seeded Python baseline for Stage 9 DirectoryTree implementation"
+  },
+  {
+    "name": "footer_empty",
+    "stage": "7",
+    "component": "Footer",
+    "reason": "Pre-seeded Python baseline for Stage 7 Footer implementation"
+  },
+  {
+    "name": "footer_with_bindings",
+    "stage": "7",
+    "component": "Footer",
+    "reason": "Pre-seeded Python baseline for Stage 7 Footer implementation"
+  },
+  {
+    "name": "header_default",
+    "stage": "7",
+    "component": "Header",
+    "reason": "Pre-seeded Python baseline for Stage 7 Header implementation"
+  },
+  {
+    "name": "header_with_subtitle",
+    "stage": "7",
+    "component": "Header",
+    "reason": "Pre-seeded Python baseline for Stage 7 Header implementation"
+  },
+  {
+    "name": "help_panel_default",
+    "stage": "10",
+    "component": "HelpPanel",
+    "reason": "Pre-seeded Python baseline for Stage 10 HelpPanel implementation"
+  },
+  {
+    "name": "input_empty",
+    "stage": "7",
+    "component": "Input",
+    "reason": "Pre-seeded Python baseline for Stage 7 Input implementation"
+  },
+  {
+    "name": "input_filled",
+    "stage": "7",
+    "component": "Input",
+    "reason": "Pre-seeded Python baseline for Stage 7 Input implementation"
+  },
+  {
+    "name": "input_focused",
+    "stage": "7",
+    "component": "Input",
+    "reason": "Pre-seeded Python baseline for Stage 7 Input implementation"
+  },
+  {
+    "name": "input_invalid",
+    "stage": "7",
+    "component": "Input",
+    "reason": "Pre-seeded Python baseline for Stage 7 Input implementation"
+  },
+  {
+    "name": "input_password",
+    "stage": "7",
+    "component": "Input",
+    "reason": "Pre-seeded Python baseline for Stage 7 Input implementation"
+  },
+  {
+    "name": "input_placeholder_only",
+    "stage": "7",
+    "component": "Input",
+    "reason": "Pre-seeded Python baseline for Stage 7 Input implementation"
+  },
+  {
+    "name": "key_panel_default",
+    "stage": "10",
+    "component": "KeyPanel",
+    "reason": "Pre-seeded Python baseline for Stage 10 KeyPanel implementation"
+  },
+  {
+    "name": "label_basic",
+    "stage": "7",
+    "component": "Label",
+    "reason": "Pre-seeded Python baseline for Stage 7 Label implementation"
+  },
+  {
+    "name": "label_markup",
+    "stage": "7",
+    "component": "Label",
+    "reason": "Pre-seeded Python baseline for Stage 7 Label implementation"
+  },
+  {
+    "name": "link_basic",
+    "stage": "7",
+    "component": "Link",
+    "reason": "Pre-seeded Python baseline for Stage 7 Link implementation"
+  },
+  {
+    "name": "link_styled",
+    "stage": "7",
+    "component": "Link",
+    "reason": "Pre-seeded Python baseline for Stage 7 Link implementation"
+  },
+  {
+    "name": "list_view_basic",
+    "stage": "8",
+    "component": "ListView",
+    "reason": "Pre-seeded Python baseline for Stage 8 ListView implementation"
+  },
+  {
+    "name": "list_view_highlighted",
+    "stage": "8",
+    "component": "ListView",
+    "reason": "Pre-seeded Python baseline for Stage 8 ListView implementation"
+  },
+  {
+    "name": "list_view_with_rich_items",
+    "stage": "8",
+    "component": "ListView",
+    "reason": "Pre-seeded Python baseline for Stage 8 ListView implementation"
+  },
+  {
+    "name": "loading_indicator",
+    "stage": "7",
+    "component": "LoadingIndicator",
+    "reason": "Pre-seeded Python baseline for Stage 7 LoadingIndicator implementation"
+  },
+  {
+    "name": "log_basic",
+    "stage": "9",
+    "component": "Log",
+    "reason": "Pre-seeded Python baseline for Stage 9 Log implementation"
+  },
+  {
+    "name": "log_multiline",
+    "stage": "9",
+    "component": "Log",
+    "reason": "Pre-seeded Python baseline for Stage 9 Log implementation"
+  },
+  {
+    "name": "markdown_basic",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_blockquote",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_code_block",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_headings",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_inline_links",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_lists",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_table",
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Pre-seeded Python baseline for Stage 10 Markdown implementation"
+  },
+  {
+    "name": "markdown_viewer_no_toc",
+    "stage": "10",
+    "component": "MarkdownViewer",
+    "reason": "Pre-seeded Python baseline for Stage 10 MarkdownViewer implementation"
+  },
+  {
+    "name": "markdown_viewer_with_toc",
+    "stage": "10",
+    "component": "MarkdownViewer",
+    "reason": "Pre-seeded Python baseline for Stage 10 MarkdownViewer implementation"
+  },
+  {
+    "name": "masked_input_empty",
+    "stage": "9",
+    "component": "MaskedInput",
+    "reason": "Pre-seeded Python baseline for Stage 9 MaskedInput implementation"
+  },
+  {
+    "name": "masked_input_filled",
+    "stage": "9",
+    "component": "MaskedInput",
+    "reason": "Pre-seeded Python baseline for Stage 9 MaskedInput implementation"
+  },
+  {
+    "name": "masked_input_partial",
+    "stage": "9",
+    "component": "MaskedInput",
+    "reason": "Pre-seeded Python baseline for Stage 9 MaskedInput implementation"
+  },
+  {
+    "name": "option_list_basic",
+    "stage": "8",
+    "component": "OptionList",
+    "reason": "Pre-seeded Python baseline for Stage 8 OptionList implementation"
+  },
+  {
+    "name": "option_list_highlighted",
+    "stage": "8",
+    "component": "OptionList",
+    "reason": "Pre-seeded Python baseline for Stage 8 OptionList implementation"
+  },
+  {
+    "name": "option_list_with_separators",
+    "stage": "8",
+    "component": "OptionList",
+    "reason": "Pre-seeded Python baseline for Stage 8 OptionList implementation"
+  },
+  {
+    "name": "placeholder_default",
+    "stage": "7",
+    "component": "Placeholder",
+    "reason": "Pre-seeded Python baseline for Stage 7 Placeholder implementation"
+  },
+  {
+    "name": "placeholder_variants",
+    "stage": "7",
+    "component": "Placeholder",
+    "reason": "Pre-seeded Python baseline for Stage 7 Placeholder implementation"
+  },
+  {
+    "name": "pretty_basic",
+    "stage": "7",
+    "component": "Pretty",
+    "reason": "Pre-seeded Python baseline for Stage 7 Pretty implementation"
+  },
+  {
+    "name": "pretty_nested",
+    "stage": "7",
+    "component": "Pretty",
+    "reason": "Pre-seeded Python baseline for Stage 7 Pretty implementation"
+  },
+  {
+    "name": "progress_complete",
+    "stage": "7",
+    "component": "ProgressBar",
+    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
+  },
+  {
+    "name": "progress_empty",
+    "stage": "7",
+    "component": "ProgressBar",
+    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
+  },
+  {
+    "name": "progress_indeterminate",
+    "stage": "7",
+    "component": "ProgressBar",
+    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
+  },
+  {
+    "name": "progress_no_eta",
+    "stage": "7",
+    "component": "ProgressBar",
+    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
+  },
+  {
+    "name": "progress_partial",
+    "stage": "7",
+    "component": "ProgressBar",
+    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
+  },
+  {
+    "name": "radio_button_states",
+    "stage": "7",
+    "component": "RadioButton",
+    "reason": "Pre-seeded Python baseline for Stage 7 RadioButton implementation"
+  },
+  {
+    "name": "radio_set_default",
+    "stage": "7",
+    "component": "RadioSet",
+    "reason": "Pre-seeded Python baseline for Stage 7 RadioSet implementation"
+  },
+  {
+    "name": "radio_set_disabled",
+    "stage": "7",
+    "component": "RadioSet",
+    "reason": "Pre-seeded Python baseline for Stage 7 RadioSet implementation"
+  },
+  {
+    "name": "radio_set_selected",
+    "stage": "7",
+    "component": "RadioSet",
+    "reason": "Pre-seeded Python baseline for Stage 7 RadioSet implementation"
+  },
+  {
+    "name": "rich_log_basic",
+    "stage": "9",
+    "component": "RichLog",
+    "reason": "Pre-seeded Python baseline for Stage 9 RichLog implementation"
+  },
+  {
+    "name": "rich_log_highlight",
+    "stage": "9",
+    "component": "RichLog",
+    "reason": "Pre-seeded Python baseline for Stage 9 RichLog implementation"
+  },
+  {
+    "name": "rich_log_markup",
+    "stage": "9",
+    "component": "RichLog",
+    "reason": "Pre-seeded Python baseline for Stage 9 RichLog implementation"
+  },
+  {
+    "name": "rich_log_styled",
+    "stage": "9",
+    "component": "RichLog",
+    "reason": "Pre-seeded Python baseline for Stage 9 RichLog implementation"
+  },
+  {
+    "name": "rule_horizontal",
+    "stage": "7",
+    "component": "Rule",
+    "reason": "Pre-seeded Python baseline for Stage 7 Rule implementation"
+  },
+  {
+    "name": "rule_line_styles",
+    "stage": "7",
+    "component": "Rule",
+    "reason": "Pre-seeded Python baseline for Stage 7 Rule implementation"
+  },
+  {
+    "name": "rule_vertical",
+    "stage": "7",
+    "component": "Rule",
+    "reason": "Pre-seeded Python baseline for Stage 7 Rule implementation"
+  },
+  {
+    "name": "scroll_horizontal_overflow",
+    "stage": "8",
+    "component": "ScrollableContainer",
+    "reason": "Pre-seeded Python baseline for Stage 8 ScrollableContainer implementation"
+  },
+  {
+    "name": "scroll_vertical_overflow",
+    "stage": "8",
+    "component": "ScrollableContainer",
+    "reason": "Pre-seeded Python baseline for Stage 8 ScrollableContainer implementation"
+  },
+  {
+    "name": "select_closed",
+    "stage": "8",
+    "component": "Select",
+    "reason": "Pre-seeded Python baseline for Stage 8 Select implementation"
+  },
+  {
+    "name": "select_opened",
+    "stage": "8",
+    "component": "Select",
+    "reason": "Pre-seeded Python baseline for Stage 8 Select implementation"
+  },
+  {
+    "name": "select_with_selection",
+    "stage": "8",
+    "component": "Select",
+    "reason": "Pre-seeded Python baseline for Stage 8 Select implementation"
+  },
+  {
+    "name": "selection_list_multi",
+    "stage": "8",
+    "component": "SelectionList",
+    "reason": "Pre-seeded Python baseline for Stage 8 SelectionList implementation"
+  },
+  {
+    "name": "selection_list_none_selected",
+    "stage": "8",
+    "component": "SelectionList",
+    "reason": "Pre-seeded Python baseline for Stage 8 SelectionList implementation"
+  },
+  {
+    "name": "sparkline_basic",
+    "stage": "9",
+    "component": "Sparkline",
+    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
+  },
+  {
+    "name": "sparkline_summary_max",
+    "stage": "9",
+    "component": "Sparkline",
+    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
+  },
+  {
+    "name": "sparkline_summary_min",
+    "stage": "9",
+    "component": "Sparkline",
+    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
+  },
+  {
+    "name": "sparkline_uneven",
+    "stage": "9",
+    "component": "Sparkline",
+    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
+  },
+  {
+    "name": "static_markup",
+    "stage": "7",
+    "component": "Static",
+    "reason": "Pre-seeded Python baseline for Stage 7 Static implementation"
+  },
+  {
+    "name": "static_multiline",
+    "stage": "7",
+    "component": "Static",
+    "reason": "Pre-seeded Python baseline for Stage 7 Static implementation"
+  },
+  {
+    "name": "switch_disabled",
+    "stage": "7",
+    "component": "Switch",
+    "reason": "Pre-seeded Python baseline for Stage 7 Switch implementation"
+  },
+  {
+    "name": "switch_focused",
+    "stage": "7",
+    "component": "Switch",
+    "reason": "Pre-seeded Python baseline for Stage 7 Switch implementation"
+  },
+  {
+    "name": "tabbed_content_default",
+    "stage": "8",
+    "component": "TabbedContent",
+    "reason": "Pre-seeded Python baseline for Stage 8 TabbedContent implementation"
+  },
+  {
+    "name": "tabbed_content_second_tab",
+    "stage": "8",
+    "component": "TabbedContent",
+    "reason": "Pre-seeded Python baseline for Stage 8 TabbedContent implementation"
+  },
+  {
+    "name": "tabs_active_second",
+    "stage": "8",
+    "component": "Tabs",
+    "reason": "Pre-seeded Python baseline for Stage 8 Tabs implementation"
+  },
+  {
+    "name": "tabs_basic",
+    "stage": "8",
+    "component": "Tabs",
+    "reason": "Pre-seeded Python baseline for Stage 8 Tabs implementation"
+  },
+  {
+    "name": "tabs_disabled",
+    "stage": "8",
+    "component": "Tabs",
+    "reason": "Pre-seeded Python baseline for Stage 8 Tabs implementation"
+  },
+  {
+    "name": "text_area_empty",
+    "stage": "9",
+    "component": "TextArea",
+    "reason": "Pre-seeded Python baseline for Stage 9 TextArea implementation"
+  },
+  {
+    "name": "text_area_filled",
+    "stage": "9",
+    "component": "TextArea",
+    "reason": "Pre-seeded Python baseline for Stage 9 TextArea implementation"
+  },
+  {
+    "name": "text_area_focused",
+    "stage": "9",
+    "component": "TextArea",
+    "reason": "Pre-seeded Python baseline for Stage 9 TextArea implementation"
+  },
+  {
+    "name": "text_area_read_only",
+    "stage": "9",
+    "component": "TextArea",
+    "reason": "Pre-seeded Python baseline for Stage 9 TextArea implementation"
+  },
+  {
+    "name": "text_area_syntax_python",
+    "stage": "9",
+    "component": "TextArea",
+    "reason": "Pre-seeded Python baseline for Stage 9 TextArea implementation"
+  },
+  {
+    "name": "tree_basic",
+    "stage": "9",
+    "component": "Tree",
+    "reason": "Pre-seeded Python baseline for Stage 9 Tree implementation"
+  },
+  {
+    "name": "tree_expanded",
+    "stage": "9",
+    "component": "Tree",
+    "reason": "Pre-seeded Python baseline for Stage 9 Tree implementation"
+  },
+  {
+    "name": "tree_with_cursor",
+    "stage": "9",
+    "component": "Tree",
+    "reason": "Pre-seeded Python baseline for Stage 9 Tree implementation"
+  },
+  {
+    "name": "welcome_default",
+    "stage": "7",
+    "component": "Welcome",
+    "reason": "Pre-seeded Python baseline for Stage 7 Welcome implementation"
+  }
+]

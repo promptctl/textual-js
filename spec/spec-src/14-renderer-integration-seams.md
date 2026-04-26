@@ -1,541 +1,378 @@
-# Renderer Integration Seams
+# React/Ink Integration Architecture
 
-This spec defines the API boundaries between textual-js (headless widget
-framework) and external renderers. The first renderer is textual-js-ink
-(React/Ink), where every Textual widget is a React component. A traditional
-compositor-based renderer (direct terminal output, like Python Textual) will
-be added later as a second backend.
+## Overview
 
-textual-js MUST NOT import from any renderer package. The renderer depends on
-textual-js, never the reverse.
+textual-js is built directly on React/Ink. There is no separate "headless core" and "renderer" — React/Ink is the foundation, and the framework layer (TCSS, focus, bindings, screen stack, widgets) sits on top of it.
 
-// [LAW:one-way-deps] textual-js → rich-js. Renderer → textual-js + rich-js.
-// No back-edges.
+This spec documents the integration points between the framework and its React/Ink foundation, the internal subsystem boundaries, and the public integration surfaces available to user code.
 
----
+// [LAW:one-way-deps] The framework depends on React/Ink APIs. React/Ink do not depend on the framework.
+// [LAW:single-enforcer] MobX `observer()` is the single bridge between framework state and React rendering. No manual forceUpdate, no custom subscription system.
 
-## Design Principle: Widgets Are React Components
-
-In textual-js-ink, each Textual widget maps to a React component. The
-renderer does not receive a pre-composed screen buffer. Instead, it builds a
-React component tree that mirrors the textual-js widget tree, where each
-component:
-
-1. Reads its placement from textual-js's layout engine
-2. Reads its computed styles from textual-js's TCSS engine
-3. Calls `widget.render()` to get rich-js `Renderable` content
-4. Renders as a positioned Ink `<Box>` with styled content
-
-This means Ink's React reconciler does real work — granular updates, React
-DevTools, component-level re-renders. The compositor (z-ordering, clipping,
-dirty tracking) lives in the React rendering layer, not in textual-js.
+## Integration Stack
 
 ```
-textual-js (headless)              textual-js-ink (React renderer)
-─────────────────────              ────────────────────────────────
-Widget tree                   →    React component tree
-TCSS engine → ComputedStyles  →    Box props + style application
-Layout engine → Placements    →    Absolute positioning in <Box>
-widget.render() → Renderable  →    renderToString() → <Text>
-Message pump ← events         ←    useInput / mouse handlers
-Screen stack                  →    Conditional rendering
-Reactivity → refresh()        →    React state updates → re-render
+┌──────────────────────────────────────────────────────┐
+│ User Code                                            │
+│   App component, custom widgets, screen components   │
+├──────────────────────────────────────────────────────┤
+│ Framework (textual-js)                               │
+│   Hooks: useTextual, useStyles, useWorker, etc.      │
+│   Stores: FocusManager, ScreenStack, WidgetRegistry  │
+│   Engines: TCSS cascade, Binding resolver, Animator  │
+├──────────────────────┬───────────────────────────────┤
+│ MobX                 │ rich-js                       │
+│ Observable state,    │ Content, Style, Color,        │
+│ observer(),          │ Segment, Strip, markup,       │
+│ reaction(), computed │ renderables, cell measurement │
+├──────────────────────┴───────────────────────────────┤
+│ React                                                │
+│   Component tree, reconciler, hooks, context         │
+├──────────────────────────────────────────────────────┤
+│ Ink                                                  │
+│   Yoga layout, ANSI output, stdin, raw mode          │
+├──────────────────────────────────────────────────────┤
+│ Terminal                                             │
+└──────────────────────────────────────────────────────┘
 ```
 
----
+Each layer depends only on the layers below it. User code depends on the framework. The framework depends on MobX, rich-js, and React/Ink. MobX and rich-js are peer dependencies under the framework; neither depends on the other.
 
-## What textual-js Owns (Headless Core)
+## Widgets Are React Components
 
-textual-js is a headless widget framework. It has no terminal I/O, no
-render loop, and no compositor. It provides:
-
-### Widget tree and lifecycle
-
-```ts
-abstract class Widget extends DOMNode {
-  // Identity
-  readonly id: string | undefined;
-  readonly cssClasses: Set<string>;
-  readonly cssTypeName: string;
-
-  // Tree
-  readonly parent: Widget | null;
-  readonly children: ReadonlyArray<Widget>;
-
-  // Lifecycle
-  compose(): Iterable<Widget>;
-  mount(...widgets: Widget[]): void;
-  remove(): void;
-
-  // Content — returns what this widget displays.
-  // The renderer decides HOW to display it.
-  render(): Renderable;
-
-  // Styles — computed by the TCSS engine, read by the renderer.
-  readonly styles: ComputedStyles;
-
-  // Scroll state
-  scrollOffset: Offset;
-  virtualSize: Size;
-
-  // Focus
-  readonly canFocus: boolean;
-  readonly hasFocus: boolean;
-
-  // Signals the framework that this widget needs visual update.
-  // The renderer observes this and re-renders the corresponding component.
-  refresh(options?: { repaint?: boolean; layout?: boolean }): void;
-}
-```
-
-### TCSS engine
-
-Parsing, selectors, cascade, specificity, `!important`, variables, themes.
-Produces `ComputedStyles` per widget. The renderer reads these — it never
-parses TCSS or resolves specificity.
-
-### Layout engine
-
-Produces `WidgetPlacement[]` per container. The renderer positions its
-components according to these placements.
-
-```ts
-interface WidgetPlacement {
-  widget: Widget;
-  region: Region;       // { x, y, width, height } in character cells
-  order: number;        // painting z-order (back-to-front)
-  fixed: boolean;       // exempt from scrolling (docked/split widgets)
-  overlay: boolean;     // escapes parent clip (modals, tooltips)
-}
-
-interface LayoutStrategy {
-  arrange(
-    parent: Widget,
-    children: Widget[],
-    size: Size,
-    greedy: boolean,
-  ): WidgetPlacement[];
-}
-```
-
-Layout strategies: `VerticalLayout`, `HorizontalLayout`, `GridLayout`,
-`StreamLayout`. The global arrange pipeline (layers → splits → docks →
-strategy → alignment → absolute positioning) runs above the strategies.
-
-The renderer calls `widget.arrange(size)` — never layout strategies directly.
-
-### Reactivity
-
-Reactive attributes, watchers, validators, computes, data binding. When a
-reactive changes, `widget.refresh()` fires. The renderer observes refresh
-signals to trigger React re-renders.
-
-### Message system
-
-`MessagePump`, typed messages, dispatch, bubbling, handler resolution. The
-renderer posts platform events (key, mouse, resize) into the message pump.
-textual-js routes them to the correct widget.
-
-### Screen stack
-
-`push_screen`, `pop_screen`, `switch_screen`, modes, modal behavior. The
-renderer observes the active screen to know which component tree to render.
-
-### Animation
-
-The `Animator` interpolates style transitions over time, updating
-`widget.styles` and calling `widget.refresh()` each frame. The renderer
-just re-renders when refresh fires — it doesn't need to know about
-animation.
-
-### Focus management
-
-Focus chain, `set_focus`, `focus_next`/`focus_previous`, binding chain
-construction. The renderer reads `widget.hasFocus` for visual focus
-indicators and may use Ink's `useFocus` to integrate with Ink's focus
-system if appropriate.
-
----
-
-## What textual-js Does NOT Own
-
-These live in the renderer, not in textual-js:
-
-- **Compositor / composition** — z-ordering rendered widgets, clipping
-  scroll viewports, merging overlapping regions. In textual-js-ink, React's
-  reconciler and Ink's rendering handle this.
-- **Dirty tracking** — React handles granular updates. When
-  `widget.refresh()` fires, the corresponding React component re-renders.
-- **Strip/line caching** — `_styles_cache` from Python Textual is not
-  needed. React's reconciler handles caching via virtual DOM diffing.
-- **Terminal I/O** — raw mode, alternate screen, mouse protocol, ANSI
-  output. Ink owns this.
-- **Border/padding chrome rendering** — the renderer draws borders and
-  applies padding based on `widget.styles`. textual-js computes the styles;
-  the renderer draws them.
-
----
-
-## Seam 1: Layout
-
-### textual-js provides
-
-`widget.arrange(size) → ArrangeResult` — the full placement pipeline.
-
-### Renderer consumes
-
-Placements tell the renderer where to position each widget component.
+Every textual-js widget is a React function component wrapped in MobX's `observer()`. Widgets render using Ink primitives (`<Box>`, `<Text>`) with TCSS-resolved styles translated to Ink props.
 
 ```tsx
-// textual-js-ink: each widget is a <Box> positioned by its placement
-function WidgetComponent({ widget, placement }: Props) {
-  const content = useWidgetContent(widget);
-  const boxStyles = useComputedBoxStyles(widget);
+const MyWidget = observer(({ id, classes, children }) => {
+  const { register, postMessage } = useTextual();
+  const styles = useStyles();
+
+  useEffect(() => register({
+    id,
+    classes,
+    typeName: 'MyWidget',
+    canFocus: true,
+  }), []);
 
   return (
-    <Box
-      position="absolute"
-      left={placement.region.x}
-      top={placement.region.y}
-      width={placement.region.width}
-      height={placement.region.height}
-      {...boxStyles}
-    >
-      <Text>{content}</Text>
+    <Box {...styles.box} onClick={() => postMessage(new MyWidget.Pressed())}>
+      <Text {...styles.text}>{children}</Text>
     </Box>
   );
-}
-```
-
-### Renderer MUST NOT
-
-- Call layout strategies directly. Always go through `widget.arrange()`.
-- Interpret TCSS layout properties (`grid-size`, `dock`, etc.). The layout
-  engine handles those.
-- Use Yoga/flexbox as an alternative to textual-js's layout for widget
-  positioning. Ink's `<Box>` uses absolute positioning from placements.
-  Yoga is NOT used for Textual widget layout.
-
----
-
-## Seam 2: Styles
-
-### textual-js provides
-
-`widget.styles: ComputedStyles` — the merged result of TCSS cascade +
-inline styles.
-
-### Renderer consumes
-
-The renderer translates `ComputedStyles` into visual presentation:
-
-```ts
-function useComputedBoxStyles(widget: Widget) {
-  const s = widget.styles;
-  return {
-    // Border → box-drawing characters
-    borderStyle: s.border,
-    borderColor: s.border.color,
-
-    // Padding → inset
-    paddingTop: s.padding.top,
-    paddingRight: s.padding.right,
-    paddingBottom: s.padding.bottom,
-    paddingLeft: s.padding.left,
-
-    // Visual
-    opacity: s.opacity,
-    // ... etc
-  };
-}
-```
-
-Color, background, text style, opacity, tint → applied to content rendering.
-Border/outline → drawn as box-drawing characters.
-Scrollbar theming → applied to renderer-managed scrollbar components.
-
-### Renderer MUST NOT
-
-- Parse TCSS. Style computation is textual-js's job.
-- Resolve scalar units (`fr`, `%`, `vw`). The layout engine does this.
-
----
-
-## Seam 3: Widget Content
-
-### textual-js provides
-
-`widget.render() → Renderable` — a rich-js renderable representing the
-widget's content (text, table, tree, etc.).
-
-### Renderer consumes
-
-The renderer serializes the renderable to visual output. In textual-js-ink,
-this means `renderToString()` from rich-js-ink (or directly via rich-js's
-segment pipeline).
-
-```ts
-function useWidgetContent(widget: Widget): string {
-  const renderable = widget.render();
-  const { width, height } = widget.contentSize;
-  return renderToString(renderable, { width });
-}
-```
-
-### Renderer MUST NOT
-
-- Call `widget.render()` and cache the result independently of React's
-  lifecycle. React's re-render cycle is the cache.
-
----
-
-## Seam 4: Refresh / Re-render Bridge
-
-This is the critical integration point between textual-js's reactivity and
-React's rendering.
-
-### textual-js provides
-
-`widget.refresh()` — signals that a widget needs visual update. This fires
-when:
-- A reactive attribute changes
-- Styles are recomputed
-- Layout changes
-- User code calls `refresh()` explicitly
-
-### Renderer implements
-
-The renderer subscribes to refresh signals and triggers React re-renders:
-
-```ts
-// Conceptual — the renderer bridges textual-js refresh to React state
-function useWidgetRefresh(widget: Widget) {
-  const [, forceUpdate] = useReducer(x => x + 1, 0);
-
-  useEffect(() => {
-    const unsub = widget.onRefresh(() => forceUpdate());
-    return unsub;
-  }, [widget]);
-}
-```
-
-textual-js needs to expose a subscription mechanism on `Widget.refresh()`.
-This is the primary seam — the hook point where the headless framework
-meets the renderer.
-
-```ts
-// textual-js exposes:
-class Widget {
-  // Called by the framework when this widget needs re-render.
-  // Renderer subscribes to this.
-  onRefresh(callback: () => void): () => void;  // returns unsubscribe
-
-  // Called by the framework when layout changed for this container.
-  onLayoutChange(callback: () => void): () => void;
-}
-```
-
----
-
-## Seam 5: Events
-
-### textual-js provides
-
-`MessagePump` — the event dispatch system. `postMessage()` is the
-ingress for external events.
-
-### Renderer provides
-
-The renderer translates platform input into textual-js events:
-
-```ts
-// In textual-js-ink, Ink's useInput drives keyboard events
-useInput((input, key) => {
-  app.postMessage(new KeyEvent({ key: input, ...key }));
 });
 
-// Mouse events from Ink's mouse handling
-app.postMessage(new MouseEvent({ x, y, button }));
-
-// Resize from Ink's useWindowSize
-app.postMessage(new ResizeEvent({ width, height }));
+MyWidget.DEFAULT_CSS = `MyWidget { padding: 1 2; }`;
 ```
 
-### Renderer MUST NOT
+React's reconciler handles rendering, diffing, and updates. MobX's `observer()` triggers re-renders when observed state changes. There is no custom compositor, dirty tracking, or strip-based rendering.
 
-- Implement event bubbling. textual-js's `MessagePump` handles dispatch.
-- Route events to specific widgets. textual-js's `Screen._forward_event`
-  handles hit-testing using layout placements.
+## Subsystem Integration Points
 
----
+Each framework subsystem integrates with React/Ink through specific hooks and context values.
 
-## Seam 6: Screen Stack
+### Context providers
 
-### textual-js provides
+The App component installs a tree of React context providers that expose framework services to all descendants:
 
-```ts
-app.screenStack: ReadonlyArray<Screen>;
-app.activeScreen: Screen;
+| Context | Provides | Consumed by |
+|---------|----------|-------------|
+| `TextualContext` | Core framework handle (messagePump, widget registry, query) | `useTextual()` |
+| `StyleContext` | TCSS engine, resolved styles per widget | `useStyles()` |
+| `FocusContext` | FocusManager | `useFocusManager()`, focus chain logic |
+| `BindingContext` | Binding resolver, active bindings | `useBindings()`, Footer widget |
+| `ScreenContext` | Screen stack, active mode | `useScreen()`, screen-aware widgets |
+| `AppContext` | App-level services (theme, notifications, workers, signals, logger) | `useApp()`, most hooks |
+| `ParentContext` | Parent widget registration handle | Widget registration (parent chain derivation) |
+
+### Framework hooks
+
+Public hooks that widget authors use:
+
+| Hook | Returns | Purpose |
+|------|---------|---------|
+| `useTextual()` | `{ register, postMessage, query, queryOne, runAction, log, ... }` | Primary widget API |
+| `useStyles()` | `{ box: InkBoxProps, text: InkTextProps, style: Style, components: Map<string, Style> }` | Full TCSS-resolved output: Ink props plus rich-js styles for content segments and component classes |
+| `useApp()` | App context (theme, notifications, signals, suspend) | App-level services |
+| `useScreen()` | Active screen reference + stack operations | Screen navigation |
+| `useWorker(fn, options?)` | `{ worker, start, cancel }` | Managed async tasks |
+| `useFocusManager()` | `{ setFocus, focusNext, focusPrevious, focusedWidget }` | Focus control |
+| `useBindings()` | `{ activeBindings, bindingChain }` | Binding inspection (Footer) |
+| `useTimer(name, delay, callback)` | — | Registered timer with auto-cleanup |
+| `useSignal(signal, callback)` | — | Subscribe to a signal with auto-cleanup |
+
+## Layout Integration
+
+Ink provides Yoga flexbox layout via `<Box>` component props. The framework translates TCSS properties to Ink layout props during style resolution (see spec 04 and 05).
+
+Widgets do not position children manually. Ink/Yoga handles all positioning.
+
+TCSS features that require framework layering above Yoga:
+
+| TCSS feature | How it integrates with Ink |
+|--------------|----------------------------|
+| `fr` units | Framework resolves to cells before passing to Ink (Yoga doesn't understand `fr`) |
+| `dock` | Framework wraps docked children in a flex layout structure (see spec 05) |
+| `layers` | Framework renders layered widgets as stacked `<Box position="absolute">` |
+| `overlay: screen` | Framework uses React portal to the app's root overlay container |
+| Pseudo-class selectors | Framework's TCSS cascade updates styles; Ink receives the resolved props |
+
+## Style Translation
+
+The TCSS engine produces resolved styles per widget. These are translated to Ink-compatible props:
+
+| TCSS category | Ink props |
+|---------------|-----------|
+| Dimensions (`width`, `height`, `min-*`, `max-*`) | `width`, `height`, `minWidth`, `minHeight`, etc. |
+| Spacing (`margin`, `padding`) | `marginTop`, `paddingTop`, etc. |
+| Border (`border`, `border-color`) | `borderStyle`, `borderColor` |
+| Colors (`background`, `color`) | `backgroundColor`, `color` |
+| Text (`text-style`, `text-align`) | `bold`, `italic`, `underline`, text alignment |
+| Display (`display: none`) | `display="none"` |
+| Flex (`align`, `content-align`) | `alignItems`, `justifyContent`, `alignSelf` |
+
+Properties with no direct Ink equivalent (e.g., `dock`, `layers`, `hatch`) are stored on the resolved styles for the framework to interpret.
+
+`useStyles()` returns `{ box, text, style, components }`. `box` and `text` are ready to spread onto Ink primitives; `style` and `components` feed Line API widgets that render rich-js content.
+
+## Reactivity → Re-render Bridge
+
+MobX observables are the bridge between framework state and React rendering. This is the single most important integration point in the framework.
+
+```
+Framework state change
+      │
+      ▼
+MobX observable update (inside runInAction)
+      │
+      ▼
+MobX notifies observer() wrappers that read this observable
+      │
+      ▼
+observer() triggers React re-render on affected widgets only
+      │
+      ▼
+Widget function body runs, reads MobX observables (fresh values)
+      │
+      ▼
+Ink's React reconciler diffs the output
+      │
+      ▼
+Ink writes ANSI escape sequences for changed cells
 ```
 
-Plus `ScreenMount`/`ScreenUnmount` messages.
+### Why this works
 
-### Renderer consumes
+| Property | Explanation |
+|----------|-------------|
+| **Fine-grained** | Only widgets that read the changed observable re-render — not the whole app |
+| **Automatic** | No manual `forceUpdate` or subscription management |
+| **Batched** | `runInAction` batches multiple mutations into one render cycle |
+| **Glitch-free** | MobX's reaction scheduler prevents intermediate inconsistent states |
 
-The renderer conditionally renders based on the active screen:
+// [LAW:single-enforcer] `observer()` is the single bridge. Framework state changes never directly call React APIs — they mutate observables and let MobX handle the rest.
+
+## Content → Ink Bridge
+
+Line API widgets produce rich-js `Strip`s, one per visible row. The framework converts a `Strip` to Ink JSX by emitting one `<Text>` element per consecutive style run:
 
 ```tsx
-function AppShell({ app }: { app: App }) {
-  const screen = useActiveScreen(app);
-  return <ScreenComponent screen={screen} />;
+// Conceptual — framework-internal
+function stripToInk(strip: Strip): ReactNode {
+  return strip.mergedStyleRuns.map((run, i) => (
+    <Text key={i} {...styleToInkProps(run.style)}>
+      {run.text}
+    </Text>
+  ));
 }
 ```
 
-Modal screens render on top of the previous screen. Non-modal background
-screens may or may not render depending on the renderer's capabilities.
+`styleToInkProps` maps a rich-js `Style` to Ink `<Text>` props:
 
----
+- `style.fg` → `color` (via `Color.toAnsi(colorDepth)`)
+- `style.bg` → `backgroundColor`
+- `style.bold` → `bold`
+- `style.italic` → `italic`
+- `style.underline` → `underline`
+- `style.strike` → `strikethrough`
+- `style.dim` → `dimColor`
 
-## Seam 7: Scrolling
+This is the single seam between rich-js content and Ink rendering. No widget performs its own `Strip`-to-Ink conversion.
 
-### textual-js provides
+// [LAW:single-enforcer] Content → Ink conversion is centralized in one bridge function. Widgets hand the framework `Strip` or `Content` values; the framework produces Ink JSX.
 
-```ts
-widget.scrollOffset: Offset;    // current scroll position
-widget.virtualSize: Size;       // total scrollable content size
-widget.size: Size;              // visible viewport size
-```
+## Output Filter Pipeline (Ink → Terminal)
 
-Scroll state is reactive — changes trigger `widget.refresh()`.
+After Ink's reconciler produces the component tree and Yoga lays it out, Ink prepares ANSI output for stdout. Before those bytes reach the terminal, the framework's `LineFilter` pipeline transforms the per-line rich-js `Segment[]` stream.
 
-### Renderer consumes
+Filters operate on rendered segments rather than on widgets. They may strip colors (`Monochrome`), remove color while preserving bold/italic (`NoColor`), dim styles (`DimFilter`), or normalize color output. Filters compose in declaration order through `App.filters`, and environment-driven filters such as `NO_COLOR` are prepended during app startup. The pipeline always runs; an empty filter list is a no-op.
 
-The renderer uses scroll offset to translate child positions within a
-scrollable container:
+## Event Integration
+
+Ink receives terminal input and delivers it via `useInput()` and mouse event handlers. The framework translates these into framework messages and routes them through the message system.
+
+### Input translation (Ink → framework)
+
+| Ink source | Framework translation |
+|-----------|----------------------|
+| `useInput((input, key) => ...)` | Translated to `Key` messages with canonical key names |
+| Mouse event handlers | Translated to `MouseDown`/`MouseUp`/`MouseMove`/`Click` messages |
+| `useStdout().columns/rows` change | `Resize` message with new dimensions |
+
+### Message routing (framework)
+
+- Key events: priority binding check → focused widget → bubble up checking non-priority bindings
+- Mouse events: routed to target widget via hit-testing
+- Resize events: trigger layout recomputation (Ink handles this natively, framework posts message for subscribers)
+
+The framework owns event routing, bubbling, and handler resolution. Ink owns terminal input parsing.
+
+## Screen Stack Integration
+
+The `TextualApp` component conditionally renders based on the active screen:
 
 ```tsx
-function ScrollableWidget({ widget }: Props) {
-  const { scrollOffset, virtualSize } = widget;
-  // Children are offset by -scrollOffset within the viewport
-  // Clipping is handled by the renderer (overflow: hidden on the container)
-}
+// Conceptual — inside TextualApp
+const TextualApp = observer(({ children }) => {
+  const { activeStack } = useScreen();
+
+  return (
+    <>
+      {activeStack.map((screen, i) => (
+        <Box
+          key={screen.id}
+          display={i === activeStack.length - 1 ? 'flex' : 'none'}
+          flexDirection="column"
+          width="100%"
+          height="100%"
+        >
+          {screen.component}
+        </Box>
+      ))}
+      <OverlayContainer />
+    </>
+  );
+});
 ```
 
-### Renderer provides
+- Each screen in the stack is rendered, but only the topmost is visible (`display="flex"` vs `display="none"`).
+- Background screens retain their React state (hooks, MobX observables) — pushing and popping does not re-initialize them.
+- Modal screens render with the previous screen visible underneath (different display logic).
+- `OverlayContainer` is a React portal target for `overlay: screen` widgets (notifications, tooltips).
 
-Scroll input events (wheel, scroll gestures) are posted as textual-js
-events. textual-js's scroll handling updates `scrollOffset`, which triggers
-refresh, which triggers React re-render.
+## Focus Integration
 
----
+The framework extends Ink's basic focus model with the focus chain, focus groups, and pseudo-class integration.
 
-## Seam 8: Focus
+| Framework concern | Ink support | Framework addition |
+|-------------------|------------|---------------------|
+| Focus state | `useFocus()` hook | MobX observable per widget, integrated with `:focus` pseudo-class |
+| Tab navigation | `useFocusManager().focusNext()` | Framework focus chain (considers `canFocus`, `disabled`, `display`) |
+| Focus trap (modals) | — | Framework truncates chain at modal boundary |
+| Auto-focus | — | `AUTO_FOCUS` selector resolved on screen mount |
 
-### textual-js provides
+Ink's `useFocus()` tracks focus at the component level. The framework maintains its own focus manager (MobX store) that:
+- Decides which widget should receive focus based on the focus chain.
+- Toggles the `:focus` pseudo-class on focus change.
+- Posts `Focus`/`Blur` messages to widgets.
+- Bubbles `DescendantFocus`/`DescendantBlur` to ancestors.
 
-```ts
-widget.hasFocus: boolean;
-widget.canFocus: boolean;
-screen.focusedWidget: Widget | null;
-screen.focusNext(): void;
-screen.focusPrevious(): void;
-```
+The framework's focus manager drives Ink's focus, not the other way around.
 
-### Renderer consumes
+## Scroll Integration
 
-The renderer reads focus state for visual indicators (focus ring, cursor
-position). It may also integrate with Ink's focus system for tab
-navigation, bridging Ink's `useFocus` to textual-js's `screen.setFocus()`.
+Scrollable widgets manage scroll state as MobX observables.
 
----
+| State | Type | Description |
+|-------|------|-------------|
+| `scrollOffset` | observable `Offset` | Current scroll position |
+| `virtualSize` | observable `Size` | Total scrollable content size |
+| `showVerticalScrollbar` | observable `boolean` | Whether vertical scrollbar is rendered |
+| `showHorizontalScrollbar` | observable `boolean` | Whether horizontal scrollbar is rendered |
 
-## Seam 9: Composition / Z-ordering
+Scroll flow:
 
-In the React renderer model, composition is the renderer's responsibility.
+1. Scroll input (wheel, keys, scrollbar click) triggers a scroll API call (`scrollTo`, `scrollBy`, etc.).
+2. The call updates `scrollOffset` inside a `runInAction`.
+3. `observer()` re-renders the scrollable widget with the new offset.
+4. Content is rendered with a translation based on the offset (implemented via Ink `<Box>` positioning).
 
-### textual-js provides
+Scrollbars are rendered as framework widgets positioned at the edges of the scrollable area.
 
-`WidgetPlacement.order` — the painting z-order for each widget.
+## Theme Integration
 
-### Renderer implements
+Themes integrate through the TCSS cascade:
 
-The renderer sorts children by `order` and renders them back-to-front.
-In React, this means rendering in order within a container, with later
-elements painting over earlier ones (CSS `position: absolute` stacking).
+1. `App.theme` is a MobX observable.
+2. Changing the theme triggers `setVariables` on the TCSS stylesheet (clears parse cache).
+3. Next TCSS resolution uses the new theme's CSS variables.
+4. All widgets with theme-dependent styles re-render automatically (observables updated → observer() re-runs).
 
-For overlays (modals, tooltips), the renderer uses `overlay: true` from
-the placement to render the widget outside its parent's clipping boundary
-— typically via a portal or a top-level overlay container.
+`theme_changed_signal` is published for subscribers that need explicit notification (rather than just re-rendering on the observable change).
 
-For clipping (scroll viewports), the renderer applies `overflow: hidden`
-on scrollable container components.
+## Animation Integration
 
----
+The Animator integrates via MobX observables and Ink's render loop.
 
-## Seam 10: Border and Chrome Rendering
+| Step | Mechanism |
+|------|-----------|
+| Start animation | `animate(widget, property, target, duration)` creates animation entry |
+| Animation tick | `setInterval` callback computes interpolated value, updates observable in `runInAction` |
+| Render | `observer()` picks up observable change, React re-renders, Ink renders to terminal |
+| Complete | Final value set, entry removed, `onComplete` scheduled via `callLater` |
 
-### textual-js provides
+Animation runs at approximately 60fps via `setInterval`. Each tick batches all active animations into a single `runInAction` for glitch-free rendering.
 
-`widget.styles.border` — per-side border type and color.
-`widget.styles.padding` — per-side padding.
-`widget.borderTitle` / `widget.borderSubtitle` — optional title text.
+## Testing Integration
 
-### Renderer implements
+`ink-testing-library` provides the test rendering environment. The framework's `runTest()` uses it to render apps and returns a `Pilot` for programmatic interaction.
 
-The renderer draws borders using rich-js `Box` characters and positions
-content within the padding inset. This is renderer work because different
-renderers may draw borders differently (e.g., box-drawing characters for
-terminal, HTML/CSS borders for a web renderer).
+See spec 13 for the full test harness API.
 
----
+## Public Integration Surfaces
 
-## Summary: What Lives Where
+These are the stable APIs that user code may depend on:
 
-| Concern | textual-js (headless) | Renderer (textual-js-ink) |
-|---|---|---|
-| Widget tree + lifecycle | owns | mirrors as React components |
-| TCSS parsing + cascade | owns | — |
-| Style computation | owns | reads `widget.styles` |
-| Layout algorithms | owns | reads placements |
-| Grid cell-map | owns | — |
-| Compositor / z-ordering | — | owns (React rendering order) |
-| Clipping / overflow | — | owns (`overflow: hidden`) |
-| Dirty tracking | signals via `refresh()` | React reconciler |
-| Border/chrome rendering | provides specs | draws characters |
-| Scroll state | owns | reads offsets, posts scroll events |
-| Event dispatch + bubbling | owns | posts platform events |
-| Screen stack | owns | conditional rendering |
-| Animation | owns (Animator) | re-renders on refresh |
-| Focus management | owns | reads state, bridges to Ink focus |
-| Reactivity | owns | subscribes to refresh signals |
-| Terminal I/O | — | owns (Ink) |
-| Raw mode / alt screen | — | owns (Ink) |
-| Mouse protocol | — | owns (Ink) |
-| Keyboard input | — | translates to textual-js events |
-| Resize detection | — | posts resize events |
+### User-facing component API
 
----
+| Export | Description |
+|--------|-------------|
+| `<TextualApp>` | Root application component |
+| `<Screen>` | Screen container component |
+| Built-in widgets | `<Button>`, `<Input>`, `<DataTable>`, etc. (see spec 10) |
 
-## Future: Traditional Compositor Renderer
+### User-facing hooks
 
-After textual-js-ink validates the seam design, a second renderer
-(textual-js-terminal or similar) can be added that works like Python
-Textual:
+| Hook | Use case |
+|------|----------|
+| `useTextual()` | Connect a custom widget to the framework |
+| `useStyles()` | Apply TCSS-resolved styles to Ink components |
+| `useWorker()` | Managed async task |
+| `useFocusManager()` | Programmatic focus control |
 
-- Owns a compositor that takes placements + rendered content → strips
-- Owns dirty region tracking and incremental updates
-- Writes directly to stdout via ANSI escape sequences
-- No React, no Ink — pure terminal output
+### Re-exported rich-js surface
 
-This renderer uses the exact same textual-js APIs (widget tree, styles,
-placements, refresh signals, events). The seam interfaces are
-renderer-agnostic by design.
+The framework re-exports rich-js types and helpers unchanged as part of its public integration surface:
 
-```
-textual-js (headless core)
-├── textual-js-ink        (React/Ink renderer — widgets as components)
-└── textual-js-terminal   (compositor renderer — strips to stdout)
-```
+- `Content`, `StyledText`, `Style`, `Segment`, `Strip`, `Color`
+- Renderables: `Bar`, `Gradient`, `LinearGradient`, `VerticalGradient`, `Sparkline`, `Digits`, `Tint`, `TextOpacity`
+- Helpers: `parseAnsi`, `stripAnsi`, `cellLength`, `columnIndex`, `cellIndex`
 
-Both renderers consume the same headless core. The seam proves itself when
-the second renderer works without changes to textual-js.
+### User-facing conventions
+
+| Convention | Purpose |
+|-----------|---------|
+| `<WidgetName>.DEFAULT_CSS` | Default TCSS for a widget type |
+| `<WidgetName>.BINDINGS` | Key bindings for a widget type |
+| `<WidgetName>.canFocus` | Whether the widget can receive focus |
+| Handler methods: `onMessage`, `action_<name>`, `validate_<name>`, `watch_<name>`, `compute_<name>` | Convention-based method discovery |
+
+### Not public
+
+| Internal | Reason |
+|----------|--------|
+| MobX stores (FocusManager, ScreenStack, etc.) | Access via hooks only |
+| Widget registry | Access via query API |
+| TCSS AST | Framework internal |
+| Message pump internals | Widgets post/handle messages; dispatch is framework-owned |
+
+// [LAW:one-way-deps] Framework internals (stores, registry, AST, pump) are not part of the public surface. Extensions happen through documented hooks, conventions, and public components.

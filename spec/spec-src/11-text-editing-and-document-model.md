@@ -1,166 +1,527 @@
 # Text Editing and Document Model
 
-## Subsystem Components
+## Overview
 
-Primary modules (all under `src/textual/`):
+The text editing subsystem provides a multi-line code editor widget (`TextArea`) backed by a document model, navigation engine, edit history, and syntax highlighting. The widget surface is defined in spec 10; this spec defines the engine underneath.
 
-- widget surface: `widgets._text_area.TextArea` (plus `TextAreaLanguage` dataclass and the `BUILTIN_LANGUAGES` list).
-- theme: `_text_area_theme.TextAreaTheme` (dataclass with base/gutter/cursor/selection/bracket styles plus a `syntax_styles` dict mapping capture names to `rich.style.Style`).
-- data model: `document._document` — `DocumentBase` (abstract), `Document` (concrete), `Selection` (NamedTuple), `EditResult`, `Location` (row/column tuple), and `Newline` literal.
-- syntax-aware extension: `document._syntax_aware_document.SyntaxAwareDocument` + `SyntaxAwareDocumentError`.
-- navigation model: `document._document_navigator.DocumentNavigator`.
-- edit operations/history: `document._edit.Edit`, `document._history.EditHistory` + `HistoryException`.
-- wrapping projection: `document._wrapped_document.WrappedDocument`.
-- tree-sitter bridge: `_tree_sitter.get_language` (lazy import of `tree_sitter_<name>`, per-process cache, `xml` calls `language_xml()` rather than `language()`) and the `TREE_SITTER` availability flag.
-- tab expansion: `expand_tabs.get_tab_widths` / `expand_tabs_inline` / `expand_text_tabs_from_widths`.
-- wrap computation: `_wrap.compute_wrap_offsets` (consumed by `WrappedDocument`).
-- highlight queries: `tree-sitter/highlights/*.scm` bundled for every built-in language.
+### Subsystem components
 
-Note: `src/textual/selection.py` defines a separate `Selection` for screen-text selection overlay and is unrelated to `TextArea` editing. The editing `Selection` lives in `document._document`.
+| Component | Responsibility |
+|-----------|---------------|
+| `Document` | Line-based text storage, single mutation primitive (`replaceRange`) |
+| `WrappedDocument` | Word-wrap projection over a Document |
+| `DocumentNavigator` | Cursor movement with wrap awareness |
+| `EditHistory` | Undo/redo stack with batch checkpointing |
+| `Edit` | Single edit operation (do/undo/after) |
+| `Selection` | Cursor position and selection range |
+| `TextAreaTheme` | Syntax and UI styling for the editor |
+| **Shiki** | Syntax highlighting via TextMate grammars |
+
+// [LAW:one-source-of-truth] The Document is the single source of truth for text content. TextArea renders from it. WrappedDocument projects it. Navigator reads it. No secondary text buffer exists.
+
+// [LAW:single-enforcer] `Document.replaceRange` is the single mutation primitive. All edits — user keystrokes, paste, programmatic API — flow through `replaceRange`. No other method mutates the document's text.
 
 ## TextArea Contract
 
-`TextArea` extends `ScrollView` and hosts a `DocumentBase`, a `WrappedDocument`, a `DocumentNavigator`, and an `EditHistory`.
+`TextArea` hosts a `Document`, a `WrappedDocument`, a `DocumentNavigator`, and an `EditHistory`. It is a React component wrapped in `observer()` that renders the document as styled text using Ink primitives.
 
-### Reactives and construction
+### Reactive properties
 
-- content/language: `language` (str or `None`, `always_update=True`), default theme is `"css"`.
-- selection: `selection: Selection` with `always_update=True`; `Selection.end` is always the cursor.
-- presentation toggles: `soft_wrap` (default `True`), `show_line_numbers` (default `False`), `line_number_start` (default `1`), `compact` (toggles the `-textual-compact` CSS class), `highlight_cursor_line` (default `True`), `match_cursor_bracket`, `cursor_blink`.
-- editing policy: `read_only` (toggles the `-read-only` class; programmatic edits still allowed), `tab_behavior` (`"focus"` default, or `"indent"`), `indent_width` (default `4`; also used as tab display width by `WrappedDocument`).
-- read-only cursor visibility: `show_cursor`.
-- suggestion/placeholder: `suggestion`, `hide_suggestion_on_blur`, `placeholder` (`str | Content`).
-- blink state: private `_cursor_visible`.
-- constructor extras: `max_checkpoints` (forwarded to `EditHistory`), `tooltip`, standard widget kwargs. A `TextArea.code_editor(...)` classmethod returns a preset with `soft_wrap=False`, `tab_behavior="indent"`, `show_line_numbers=True`.
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `language` | `string \| null` | `null` | Shiki language grammar name (e.g., `"typescript"`, `"python"`) |
+| `theme` | `string` | `"default"` | TextArea theme name |
+| `selection` | `Selection` | `{ start: [0,0], end: [0,0] }` | Cursor and selection range. `Selection.end` is always the cursor. `alwaysUpdate: true`. |
+| `softWrap` | `boolean` | `true` | Whether to wrap long lines |
+| `showLineNumbers` | `boolean` | `false` | Whether to display line numbers in the gutter |
+| `lineNumberStart` | `number` | `1` | Starting line number for display |
+| `indentWidth` | `number` | `4` | Number of spaces per indent level |
+| `readOnly` | `boolean` | `false` | Prevent user edits (programmatic edits via API still allowed). Toggles the `-read-only` CSS class on the root. See "Read-only state class". |
+| `tabBehavior` | `"focus" \| "indent"` | `"focus"` | Whether Tab moves focus or inserts indent |
+| `compact` | `boolean` | `false` | Compact display mode |
+| `highlightCursorLine` | `boolean` | `true` | Highlight the line containing the cursor |
+| `matchCursorBracket` | `boolean` | `true` | Highlight matching bracket at cursor. See "Matching Bracket Highlighting". |
+| `cursorBlink` | `boolean` | `true` | Whether cursor blinks |
+| `showCursor` | `boolean` | `true` | Whether cursor is visible |
+| `suggestion` | `string \| null` | `null` | Autocomplete suggestion displayed at cursor |
+| `hideSuggestionOnBlur` | `boolean` | `true` | Hide suggestion when widget loses focus |
+| `placeholder` | `string \| Content` | `""` | Placeholder text when document is empty |
 
-### Interaction and editing
+### Key bindings
 
-- `BINDINGS` covers cursor motion (arrows, word, line start/end, page up/down), shifted variants for selection, `f6` select line, `f7` select all, deletion (`backspace`, `ctrl+w`, `delete`/`ctrl+d`, `ctrl+f`, `ctrl+u`, `ctrl+k`, `ctrl+shift+k`), clipboard (`ctrl+x`/`ctrl+c`/`ctrl+v`), `ctrl+z`/`ctrl+y` undo/redo.
-- Actions map to `action_cursor_*`, `action_select_*`, `action_delete_*`, `action_undo`, `action_redo`, `action_cut`, `action_copy`, `action_paste`.
-- `edit(edit: Edit)` applies an `Edit`, updates the wrapped document, records history, posts `TextArea.Changed`.
-- `load_text` / `text=` replaces content, rebuilds the document (via `_set_document`), clears `history`, moves cursor to `(0, 0)`, and posts `TextArea.Changed`.
-- Tab key only inserts when `tab_behavior == "indent"`; in `read_only` keystrokes that would mutate are dropped.
+| Category | Bindings |
+|----------|----------|
+| **Cursor motion** | `left`, `right`, `up`, `down`, `home`, `end`, `ctrl+home`, `ctrl+end`, `pageup`, `pagedown` |
+| **Word motion** | `ctrl+left`, `ctrl+right` |
+| **Selection** | `shift+` any motion key (extends selection), `f6` → `action_selectLine` (select the line containing the cursor), `f7` → `action_selectAll` (select the entire document) |
+| **Deletion** | `backspace`, `delete`, `ctrl+backspace` (delete word left), `ctrl+delete` (delete word right), `ctrl+w` (delete word), `ctrl+u` (delete to line start), `ctrl+k` (delete to line end), `ctrl+f` (delete to end of line), `ctrl+shift+k` (delete line) |
+| **Clipboard** | `ctrl+c` (copy), `ctrl+x` (cut), `ctrl+v` (paste) |
+| **Undo/redo** | `ctrl+z` (undo), `ctrl+y` / `ctrl+shift+z` (redo) |
+| **Indent** | `tab` (indent, when `tabBehavior === "indent"`), `shift+tab` (dedent) |
 
-### Messaging
+Selection actions (`action_selectLine`, `action_selectAll`) set `selection.start` and `selection.end` to span the target range and post `TextArea.SelectionChanged`. They do not mutate the document, so they work in `readOnly` mode.
 
-- `TextArea.Changed`: content changed (has `text_area` and `.control`).
-- `TextArea.SelectionChanged`: cursor/selection changed (has `selection`, `text_area`, `.control`).
+In `readOnly` mode, keystrokes that would mutate the document are dropped. Navigation and selection (including `f6` and `f7`) still work.
 
-### Styling surface
+### Editing API
 
-- component classes: `text-area--cursor`, `text-area--gutter`, `text-area--cursor-gutter`, `text-area--cursor-line`, `text-area--selection`, `text-area--matching-bracket`, `text-area--suggestion`, `text-area--placeholder`.
-- `register_theme(theme: TextAreaTheme)` and `register_language(name, language=None, highlight_query=...)` add entries to per-instance dictionaries; `available_themes` unions built-ins with registered names; using an unknown theme/language raises `ThemeDoesNotExist` / `LanguageDoesNotExist`.
-- `_text_area_theme.TextAreaTheme` carries base/gutter/cursor/cursor-line/cursor-gutter/bracket/selection styles plus a `syntax_styles: dict[str, Style]` mapping tree-sitter capture names to Rich styles.
+| Method | Description |
+|--------|-------------|
+| `edit(edit: Edit)` | Apply an Edit, update wrapped document, record in history, post `TextArea.Changed` |
+| `loadText(text)` | Replace entire content: rebuild document, clear history, cursor to (0,0), post `TextArea.Changed` |
+| `text` (setter) | Same as `loadText` |
+| `text` (getter) | Returns the full document text |
+| `insertTextAtCursor(text)` | Insert text at the current cursor position |
+
+### Messages
+
+| Message | When |
+|---------|------|
+| `TextArea.Changed(textArea)` | Content changed (edit, load, paste) |
+| `TextArea.SelectionChanged(textArea, selection)` | Cursor or selection changed (navigation, click, selection extension) |
+
+### Component classes (for TCSS theming)
+
+| Class | Target |
+|-------|--------|
+| `text-area--cursor` | Cursor element |
+| `text-area--gutter` | Line number gutter |
+| `text-area--cursor-gutter` | Gutter cell for the cursor's line |
+| `text-area--cursor-line` | Full line containing the cursor |
+| `text-area--selection` | Selected text region |
+| `text-area--matching-bracket` | Bracket matching highlight (applied to both brackets of a matched pair) |
+| `text-area--suggestion` | Autocomplete suggestion overlay |
+| `text-area--placeholder` | Placeholder text |
+
+### Read-only state class
+
+Setting `readOnly: true` toggles the CSS class `-read-only` on the TextArea root element. TCSS can target this class to visually distinguish read-only editors (e.g., dimmed cursor, alternate background, hidden gutter):
+
+```tcss
+TextArea.-read-only {
+  background: $surface-darken-1;
+}
+TextArea.-read-only > .text-area--cursor {
+  opacity: 50%;
+}
+```
+
+`readOnly` interaction rules:
+
+| Surface | Behavior when `readOnly: true` |
+|---------|-------------------------------|
+| Mutating keystrokes (typing, paste, delete, indent) | Dropped — key handler returns without calling `replaceRange`. |
+| Navigation keys (arrows, home, end, word motion, pageup/pagedown) | Work normally. |
+| Selection keys (`shift+` motion, `f6`, `f7`) | Work normally — selection is not a document mutation. |
+| Programmatic `edit()`, `loadText()`, `insertTextAtCursor()` | Apply regardless of `readOnly`. The flag blocks user input only. |
+| `-read-only` CSS class | Present on root while `readOnly === true`, absent otherwise. |
+
+// [LAW:single-enforcer] The `readOnly` check lives at the key-handler boundary. Programmatic mutation paths do not re-check the flag, keeping API edits unconditional.
+
+### Theme and language registration
+
+| Method | Description |
+|--------|-------------|
+| `registerTheme(theme: TextAreaTheme)` | Register a theme for this TextArea instance |
+| `registerLanguage(name, options?)` | Register a Shiki language grammar for this instance |
+
+- Unknown theme → throws `ThemeDoesNotExist`.
+- Unknown language → throws `LanguageDoesNotExist`.
+- Registrations are per-instance, not global.
+
+## Line Rendering Pipeline
+
+For each visible row `y` after scroll translation, `TextArea` produces a rich-js `Strip`:
+
+1. **Base style**: start with `theme.base` applied to the full line.
+2. **Tab expansion**: expand tabs using rich-js-aware cell-width measurement so visual columns match render width.
+3. **Syntax tokens**: when `language` is set, Shiki tokenizes the line. Each token maps to a rich-js `Style` via `theme.syntaxStyles`, overriding the base style for that token's range.
+4. **Cursor-line highlight**: when `highlightCursorLine` is true and the cursor is on this row, merge `theme.cursorLine` over the full line.
+5. **Selection overlay**: when the row intersects the selection range, merge `theme.selection` over the selected columns.
+6. **Matching bracket overlay**: when bracket matching returns a pair on this row, merge `theme.matchingBracket` over those character positions.
+7. **Cursor overlay**: when the cursor is on this row, merge `theme.cursor` over the cursor cell.
+8. **Suggestion overlay**: when `suggestion` is set and the cursor is at end-of-line on this row, append the suggestion text as a `Segment` with `theme.suggestion`. Suggestion text is not part of the document; accepting it inserts new document text through `edit()`.
+9. **Placeholder**: when the document is empty, placeholder is set, and this is row 0, render placeholder content with `theme.placeholder`.
+10. **Gutter**: when `showLineNumbers` is enabled, prepend gutter segments styled with `theme.gutter` (or the cursor-line gutter style for the active row).
+
+Each overlay is applied via rich-js `Style` merge, with later overlays winning. The final rendered row is a `Strip` of `Segment`s, which the framework converts to Ink `<Text>` elements grouped by consecutive style run.
 
 ## Document Model
 
-`DocumentBase` (abstract) defines the contract consumed by `TextArea`, `WrappedDocument`, and `DocumentNavigator`:
+`Document` is the data model consumed by TextArea, WrappedDocument, and DocumentNavigator. It stores text as a newline-stripped array of strings (MobX observable array).
 
-- mutation: `replace_range(start, end, text) -> EditResult` (the only mutation API).
-- text access: `text`, `lines`, `get_line(index)`, `get_text_range(start, end)`, `__getitem__` (int or slice).
-- newline handling: `newline` property (`"\n"`, `"\r\n"`, or `"\r"`).
-- structure: `line_count`, `start`, `end`, `get_size(indent_width) -> Size`.
-- syntax hooks (default no-ops returning `{}` / `None`): `prepare_query(query_str)`, `query_syntax_tree(query, start_point, end_point)`.
+### Storage format
 
-`Document` is the default implementation:
+- Text is split into lines and stored without newline characters.
+- If the source text ends with a newline (or is empty), an extra empty line is appended so trailing newlines round-trip correctly.
+- Newline style is auto-detected (preference order: `\r\n` → `\n` → `\r` → fallback `\n`).
+- The `newline` property reports the detected style.
 
-- stores text as a newline-stripped `list[str]`. If the source text ends with a newline (or is empty), an extra empty line is appended so trailing newlines round-trip.
-- detects newline style via `_detect_newline_style` (preference order `\r\n`, `\n`, `\r`, fallback `\n`).
-- `replace_range` is the single mutation primitive for line/column edits; handles multi-line replacements, single newline insertion, and returns an `EditResult(end_location, replaced_text)`.
-- `get_text_range` returns `""` when `start == end`, and joins lines with the detected newline.
-- `get_size(tab_width)` computes document width using tab-expanded cell widths.
-- location/index helpers: `get_index_from_location(location)` and `get_location_from_index(index)` for codepoint-based indexing (not byte-based); `get_location_from_index` raises `ValueError` out of range.
+### Mutation
 
-`EditResult` is a dataclass carrying the `end_location` after the edit and the `replaced_text` that was removed. `Location` is `Tuple[int, int]` (row, column, codepoint-indexed).
+`replaceRange(start: Location, end: Location, text: string): EditResult`
 
-`Selection` (from `document._document`) is a `NamedTuple(start, end)` with both defaulting to `(0, 0)`. `Selection.cursor(location)` builds a zero-width selection, `is_empty` reports zero width, `contains_line(y)` checks row membership. There is no separate `EditableDocument` type — `Document`/`SyntaxAwareDocument` are the only concrete documents.
+This is the **single mutation primitive**. All edits flow through it.
 
-## Syntax-Aware Extension
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | `Location` `[row, col]` | Start of the range to replace |
+| `end` | `Location` `[row, col]` | End of the range to replace |
+| `text` | `string` | Replacement text (may be empty for deletion, multi-line for paste) |
 
-`SyntaxAwareDocument` subclasses `Document` and maintains a tree-sitter parse tree alongside the line list.
+Returns `EditResult { endLocation: Location, replacedText: string }`.
 
-- Requires tree-sitter at import time; constructing one without `tree_sitter` raises `RuntimeError`.
-- Holds a `Parser` bound to a `tree_sitter.Language` and a `Tree` produced from a read callback over the line list.
-- `replace_range` first captures old byte/point coordinates, delegates to `Document.replace_range`, then calls `self._syntax_tree.edit(...)` with old/new byte and point spans and reparses incrementally using the retained tree.
-- `_read_callable` serves tree-sitter byte ranges line-by-line, appending the document newline; handles `\r\n` split correctly.
-- `prepare_query(query_str)` compiles a `tree_sitter.Query`; `query_syntax_tree(query, start_point, end_point)` runs it through a `QueryCursor`, optionally scoped to a byte/point range (defaults span the whole tree), and returns a dict of capture name → list of `Node`.
+Examples:
 
-### Language/document selection in `TextArea._set_document`
+| Operation | replaceRange call |
+|-----------|-------------------|
+| Insert "hello" at row 3, col 5 | `replaceRange([3,5], [3,5], "hello")` |
+| Delete character at row 0, col 10 | `replaceRange([0,10], [0,11], "")` |
+| Replace selection with paste | `replaceRange(selection.start, selection.end, clipboardText)` |
+| Delete line 5 | `replaceRange([5,0], [6,0], "")` |
 
-Behavior (not a graceful-fall-through on every branch):
+### Read access
 
-- tree-sitter available AND `language` provided:
-  - if the language is registered on the instance, use that `TextAreaLanguage`'s `language` (falling back to `get_language(name)` if the registration left `language=None`) and its `highlight_query`.
-  - otherwise look up a built-in language via `_tree_sitter.get_language` and load the bundled `highlights/<name>.scm` as the query.
-  - if `get_language` returned `None` (language not installed) the call raises `LanguageDoesNotExist` — this is a loud failure, not a silent fallback.
-  - if `SyntaxAwareDocument` construction raises `SyntaxAwareDocumentError`, fall back to plain `Document` and log a warning.
-- tree-sitter NOT available AND `language` provided: log a warning, construct a plain `Document`.
-- `language` is `None`/`""`: construct a plain `Document`.
-- After choosing the document, `_set_document` always rebuilds `wrapped_document` and `navigator`, rebuilds the highlight map, moves the cursor to `(0, 0)`, and refreshes the virtual size.
+| Property / Method | Description |
+|-------------------|-------------|
+| `text` | Full document text (lines joined with `newline`) |
+| `lines` | Array of line strings (observable) |
+| `lineCount` | Number of lines |
+| `getLine(index)` | Single line string |
+| `getTextRange(start, end)` | Text between two locations. Returns `""` when `start === end`. |
+| `start` | Location `[0, 0]` |
+| `end` | Location of the end of the document |
+| `getSize(indentWidth)` | `Size` of the document in visual cells |
+| `getIndexFromLocation(loc)` | Codepoint-based index from location |
+| `getLocationFromIndex(idx)` | Location from codepoint-based index |
+
+### Read-only mode and API edits
+
+When `TextArea.readOnly` is true:
+- User keystrokes that would call `replaceRange` are dropped.
+- Programmatic calls to `edit()`, `loadText()`, and `insertTextAtCursor()` **still work**. Read-only prevents user input, not API mutations.
+
+## Selection
+
+`Selection` is `{ start: Location, end: Location }`.
+
+| Property / Method | Description |
+|-------------------|-------------|
+| `start` | Start of selection `[row, col]` |
+| `end` | End of selection (always the cursor position) `[row, col]` |
+| `isEmpty` | Whether start === end (zero-width, cursor only) |
+| `Selection.cursor(location)` | Factory: builds a zero-width selection at the given location |
+
+Default: both start and end at `[0, 0]`.
+
+## Syntax Highlighting via Shiki
+
+textual-js uses **Shiki** for syntax highlighting instead of tree-sitter (Python Textual's approach).
+
+### Why Shiki
+
+- Uses TextMate grammars — same as VS Code.
+- Supports hundreds of languages out of the box.
+- Works in Node.js (terminal context).
+- Produces tokenized output with color/style information.
+- No native compilation needed (unlike tree-sitter WASM).
+
+### Highlight pipeline
+
+```
+Document text
+    │
+    ▼
+Shiki tokenizer (TextMate grammar for the language)
+    │
+    ▼
+Token array: [{ content: "const", color: "#569CD6" }, { content: " ", color: "#D4D4D4" }, ...]
+    │
+    ▼
+TextArea renders each token as <Text color={token.color}>{token.content}</Text>
+    │
+    ▼
+Ink outputs styled text to terminal
+```
+
+1. When `language` is set, Shiki loads the corresponding TextMate grammar.
+2. Shiki tokenizes the document content line by line.
+3. Each token carries a color/style from the active Shiki theme.
+4. The token stream feeds the TextArea line-rendering pipeline, which converts tokens into rich-js `Style` overlays before the final `Strip` is translated to Ink `<Text>`.
+5. When the document changes, affected lines are re-tokenized.
+
+### Theme mapping
+
+Shiki themes provide color values for token types. `TextAreaTheme.syntaxStyles` maps Shiki token types to framework styles:
+
+```tsx
+interface TextAreaTheme {
+  name: string;
+  base: Style;               // rich-js Style — default text style
+  gutter: Style;             // rich-js Style — line number gutter
+  cursor: Style;             // rich-js Style — cursor element
+  cursorLine: Style;         // rich-js Style — highlighted cursor line
+  selection: Style;          // rich-js Style — selected text overlay
+  matchingBracket: Style;    // rich-js Style — matching-bracket overlay
+  suggestion: Style;         // rich-js Style — autocomplete suggestion
+  placeholder: Style;        // rich-js Style — placeholder text
+  syntaxStyles: Map<string, Style>; // Shiki token scope → rich-js Style
+}
+```
+
+All `TextAreaTheme` style fields are rich-js `Style` instances, including `syntaxStyles`.
+
+### Language and theme registration
+
+```tsx
+// Register a language
+textArea.registerLanguage('typescript');
+textArea.registerLanguage('python');
+textArea.registerLanguage('rust');
+
+// Register a custom theme
+textArea.registerTheme({
+  name: 'my-theme',
+  base: { color: '#d4d4d4', background: '#1e1e1e' },
+  gutter: { color: '#858585' },
+  cursor: { color: '#ffffff', background: '#007acc' },
+  // ...
+});
+
+// Use them
+<TextArea language="typescript" theme="my-theme" />
+```
+
+Shiki owns syntax-token identification (keywords, strings, comments, etc.). Tab expansion and bracket matching below are framework concerns applied during rendering, independent of the Shiki token stream.
+
+## Matching Bracket Highlighting
+
+When `matchCursorBracket: true` and the cursor is adjacent to a bracket character, the framework scans the document for the matching pair and applies the `-matching-bracket` component class (`text-area--matching-bracket`) to both bracket positions.
+
+### Bracket pairs
+
+| Open | Close |
+|------|-------|
+| `{` | `}` |
+| `[` | `]` |
+| `(` | `)` |
+
+### Algorithm
+
+```
+findMatchingBracket(document, cursorLocation):
+  char = character at or adjacent to cursor
+  if char not in bracket pairs: return null
+
+  direction = forward if char is an opening bracket else backward
+  target   = matching counterpart of char
+  depth    = 1
+
+  scan characters in `direction` from cursor:
+    if char === same-kind opening: depth += 1
+    if char === same-kind closing: depth -= 1
+    if depth === 0: return current location
+
+  return null   // unbalanced — no highlight, no error
+```
+
+### Behavior contract
+
+| Condition | Result |
+|-----------|--------|
+| Cursor adjacent to opening bracket with balanced pair | Both bracket positions receive `theme.matchingBracket` as a rich-js `Style` overlay. |
+| Cursor adjacent to closing bracket with balanced pair | Both bracket positions receive the overlay. Scan runs backward. |
+| Cursor not adjacent to any bracket | No highlight. |
+| Unbalanced document (no match found) | No highlight, no error, no log. |
+| `matchCursorBracket: false` | Bracket scan never runs. |
+| Bracket inside a string or comment | Still matched by this algorithm — language-aware matching is **not** a base contract. Widgets can override by subclassing and consulting the Shiki token stream. |
+
+Scan complexity is O(N) in the worst case over unbalanced documents. The framework may bound scan distance for performance; unbounded documents that do not contain a match within the bound are treated as unmatched.
+The match result is `{ start: Location, end: Location } | null`. When non-null, the line renderer overlays `theme.matchingBracket` at those two character positions during `Strip` construction. There is no separate render path for matched brackets; the match result is just another input to the line pipeline.
+
+// [LAW:dataflow-not-control-flow] Bracket matching always runs when `matchCursorBracket: true` — the output is either a pair of locations or `null`. Rendering applies the class unconditionally based on that value; there is no "skip bracket matching" branch.
+
+## Tab Expansion
+
+Tab characters are stored verbatim in the `Document`. Tab expansion happens **during rendering only** — it is never baked into the document.
+
+### Tab stop algorithm
+
+Tabs advance the cursor to the next tab stop. The width of a given tab depends on its column:
+
+```
+cellsToNextTabStop = indentWidth - (currentColumn % indentWidth)
+```
+
+When computing `currentColumn`, double-width characters (CJK, emoji) count as two cells. The same algorithm feeds width calculation, wrapping, and cursor placement so all three agree on visual geometry.
+
+### Framework helpers
+
+These are implementation-level utilities used by the TextArea renderer. They are not part of the user-facing API surface.
+
+| Helper | Description |
+|--------|-------------|
+| `expandTabsInline(text, indentWidth)` | Returns a tab-expanded string. Used for width calculation and for plain (non-syntax-highlighted) rendering. |
+| `expandTextTabsFromWidths(text, widths)` | Applies pre-computed per-tab widths to styled text so Shiki highlighting spans survive the expansion. Used by syntax-highlighted rendering. |
+
+The two-stage form (`expandTextTabsFromWidths`) exists because Shiki-tokenized output carries style spans that must be preserved when tab characters are replaced with variable-width whitespace. A naive string replacement would desynchronize span boundaries from character positions.
+
+### Contract
+
+| Expectation | Verification |
+|-------------|-------------|
+| Document storage | `document.text` contains raw `\t` characters, never spaces. |
+| Width agreement | `expandTabsInline` and `expandTextTabsFromWidths` produce identical visible widths for identical input. |
+| Cursor placement | Cursor column after a tab equals `currentColumn + cellsToNextTabStop`. |
+| Wrap boundary | `WrappedDocument` wrap decisions use the same expanded width. |
+
+// [LAW:one-source-of-truth] Tab widths are computed from `indentWidth` and column position. No second representation (e.g., a parallel expanded-text buffer) is stored; expansion is derived on demand during rendering.
 
 ## Navigation Semantics
 
-`DocumentNavigator` wraps a `WrappedDocument` plus its source `DocumentBase` and provides wrapping-aware cursor movement.
+`DocumentNavigator` provides wrapping-aware cursor movement. It wraps a `WrappedDocument` and its source `Document`.
+All column and width math uses rich-js cell-width helpers (`cellLength`, `columnIndex`, `cellIndex`), not JavaScript `str.length`. Wrap boundaries, cursor placement, `lastXOffset`, and click-to-position hit-testing all measure terminal cells, so CJK, emoji, tabs, ANSI escapes, and combining characters behave correctly.
 
-- translates between document-space `Location` and visual `Offset` via the wrapped document.
-- handles wrapped-line boundaries for home/end/up/down/page/word motion; "smart home" treats the first non-whitespace column as an intermediate home target.
-- word boundaries use a compiled regex `(?<=\W)(?=\w)|(?<=\w)(?=\W)`.
-- retains `last_x_offset` (visual cell column) so vertical movement preserves horizontal intent across lines of differing widths and across wrapped sections.
+### Position translation
+
+| Method | Description |
+|--------|-------------|
+| `offsetToLocation(offset)` | Visual offset (row, col in wrapped space) → document Location |
+| `locationToOffset(location)` | Document Location → visual offset |
+
+### Movement operations
+
+| Movement | Behavior |
+|----------|----------|
+| **Left / Right** | Move one character. At line boundaries, wraps to previous/next line. |
+| **Up / Down** | Move one visual row (respects wrapping). Preserves `lastXOffset` — vertical movement retains horizontal intent across lines of differing widths. |
+| **Home** | "Smart home": first press goes to first non-whitespace column, second press goes to column 0. |
+| **End** | End of the current visual line (wrap-aware). |
+| **Ctrl+Home / Ctrl+End** | Document start / document end. |
+| **Page Up / Page Down** | Move by one visible page (scrollport height). |
+| **Word left / Word right** | Move to word boundary. Word boundaries use a regex pattern matching word/non-word transitions. |
+
+### lastXOffset
+
+When moving vertically, the navigator retains the visual column position (`lastXOffset`) so the cursor returns to the same column when moving through lines of varying length:
+
+```
+Line 1: "Hello, world!"        cursor at col 10
+Line 2: "Hi"                   cursor at col 2 (line is short) but lastXOffset = 10
+Line 3: "This is a longer line" cursor returns to col 10 (lastXOffset preserved)
+```
+
+`lastXOffset` is reset when the cursor moves horizontally.
 
 ## Edit and Edit History
 
-`Edit` is a dataclass describing a single `replace_range` invocation:
+### Edit
 
-- fields: `text`, `from_location`, `to_location`, `maintain_selection_offset`, and private `_original_selection`, `_updated_selection`, `_edit_result`.
-- `top`/`bottom` derive the sorted span.
-- `do(text_area, record_selection=True)` records the current selection, applies `document.replace_range(top, bottom, text)`, and computes the post-edit selection:
-  - if `maintain_selection_offset`, shift the existing selection rows/columns by the edit's row/column delta when the edit lies at or before the selection endpoints on the same row.
-  - otherwise collapse the selection to a cursor at `edit_result.end_location`.
-- `undo(text_area)` replays `replace_range` over the edit's new span with the saved `replaced_text` and restores `_original_selection`.
-- `after(text_area)` runs after re-wrap/refresh: applies `_updated_selection` and calls `record_cursor_width()` so the navigator's `last_x_offset` matches the post-wrap cursor.
+`Edit` describes a single `replaceRange` invocation with undo support.
 
-`EditHistory` manages batched undo/redo with deterministic checkpoint rules:
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | `string` | Replacement text |
+| `fromLocation` | `Location` | Start of the range to replace |
+| `toLocation` | `Location` | End of the range to replace |
+| `maintainSelectionOffset` | `boolean` | Whether to shift the existing selection by the edit's delta (vs. collapsing to cursor at end) |
 
-- fields: `max_checkpoints`, `checkpoint_timer` (seconds since last edit), `checkpoint_max_characters`; internal `_undo_stack: deque[list[Edit]]` (bounded by `max_checkpoints`), `_redo_stack: deque[list[Edit]]` (unbounded), `_last_edit_time`, `_character_count`, `_force_end_batch`, `_previously_replaced`.
-- `record(edit)` raises `HistoryException` if the edit has not been `do()`-ed yet; no-ops when both `edit.text` and `replaced_text` are empty.
-- A new batch is forced when any of the following is true: the undo stack is empty; `_force_end_batch` is set (via `checkpoint()`); the edit inserts more than one character (paste); the edit text or replaced text contains `\n`; the edit's "is replacement" flag differs from the previous edit; the elapsed time since the last edit exceeds `checkpoint_timer`; adding the edit would exceed `checkpoint_max_characters`.
-- After recording, the redo stack is cleared. Edits that contain a newline or are longer than one character additionally force a checkpoint so the *next* edit starts a fresh batch (paste isolation).
-- `_pop_undo` / `_pop_redo` move whole batches between stacks; a redo pops into the undo stack and immediately forces a checkpoint so subsequent typing cannot append to the redone batch.
-- `clear()` empties both stacks and resets batching state (used by `load_text`). `checkpoint()` is a public API that the TextArea calls on blur, explicit cursor placement via mouse, and non-edit keyboard motion.
+#### Edit lifecycle
 
-// [LAW:dataflow-not-control-flow] Editing is modeled as deterministic transformations over document state with explicit edit records and batch checkpoints, not ad hoc UI-only mutation branches.
+| Method | Description |
+|--------|-------------|
+| `do(textArea, recordSelection?)` | Record current selection, apply `document.replaceRange(top, bottom, text)`, compute post-edit selection. |
+| `undo(textArea)` | Replay `replaceRange` over the edit's new span with the saved `replacedText`. Restore `originalSelection`. |
+| `after(textArea)` | Runs after re-wrap/refresh: apply `updatedSelection`, call `recordCursorWidth()`. |
+
+Post-edit selection behavior:
+- If `maintainSelectionOffset`: shift the existing selection rows/columns by the edit's row/column delta (used for indent/dedent of selected blocks).
+- Otherwise: collapse the selection to a cursor at `editResult.endLocation` (used for normal typing, paste, delete).
+
+### EditHistory
+
+Manages batched undo/redo with deterministic checkpoint rules.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `maxCheckpoints` | `number` | `50` | Maximum undo stack depth |
+| `checkpointTimer` | `number` | `2` | Seconds of inactivity before forcing a new batch |
+| `checkpointMaxCharacters` | `number` | `100` | Characters typed before forcing a new batch |
+
+#### Batching rules
+
+`record(edit)` adds an edit to the current batch. A **new batch is forced** when:
+
+| Condition | Rationale |
+|-----------|-----------|
+| Undo stack is empty | First edit starts a new batch |
+| Explicit checkpoint requested | `checkpoint()` called |
+| Edit inserts more than one character | Paste should be one undo step |
+| Edit contains `\n` | Newline inserts are discrete actions |
+| "Is replacement" flag differs from previous edit | Delete vs insert are separate actions |
+| Elapsed time exceeds `checkpointTimer` | Pause in typing starts a new batch |
+| Character count exceeds `checkpointMaxCharacters` | Long unbroken typing is chunked |
+
+After recording, the redo stack is cleared (new edits invalidate the redo future).
+
+#### Undo / Redo
+
+| Method | Description |
+|--------|-------------|
+| `undo()` | Undo the entire current batch (all edits in the batch are reversed in LIFO order) |
+| `redo()` | Redo the entire next batch |
+| `clear()` | Empty both stacks (called by `loadText`) |
+| `checkpoint()` | Force a batch boundary. Called on: blur, mouse click (explicit cursor placement), non-edit keyboard motion. |
+
+Undo/redo move whole batches between stacks — the unit of undo is a batch, not a single character.
 
 ## Wrapping Projection
 
-`WrappedDocument` wraps a `DocumentBase` at a given width and indent/tab width and projects it into visual lines:
+`WrappedDocument` projects a `Document` into visual lines at a given width.
 
-- state: `_wrap_offsets[line]` (codepoint indices where each line breaks), `_offset_to_line_info[y_offset]` (maps visual y to `(line_index, section_offset)`), `_line_index_to_offsets[line]` (the reverse), `_tab_width_cache[line]` (per-tab expansion widths).
-- `wrap(width, tab_width=None)` rebuilds all caches; `width=0` disables wrapping.
-- `wrap_range(start, old_end, new_end)` performs incremental rewrap after an edit: rewraps only the affected line span, splices the new visual lines into the caches, and shifts y-offsets / line indices below the edit region.
-- `offset_to_location(offset)` and `location_to_offset(location)` translate between visual `Offset` and document `Location`, honoring tab expansion via `expand_tabs_inline` and `cell_width_to_column_index`.
-- `get_sections(line_index)` exposes the wrapped sections for a raw line; `get_offsets(line_index)` exposes its wrap offsets; `get_tab_widths(line_index)` exposes the cached tab expansions.
-- `height` is the total number of visual rows; `wrapped` reports whether any line actually wrapped at the current width.
+### API
 
-Tab expansion is computed by `expand_tabs.get_tab_widths`, which walks the line advancing the cell position and computing `tab_size - (cell_position % tab_size)` for each tab (accounting for double-width characters). `expand_tabs_inline` materializes a tab-expanded string; `expand_text_tabs_from_widths` applies precomputed widths to a Rich `Text` so highlighting spans survive expansion.
+| Method / Property | Description |
+|-------------------|-------------|
+| `wrap(width, tabWidth?)` | Rebuild all wrapping caches. `width === 0` disables wrapping. |
+| `wrapRange(start, oldEnd, newEnd)` | Incremental rewrap after an edit (only recomputes affected lines). |
+| `offsetToLocation(offset)` | Visual offset `[visualRow, visualCol]` → document `Location [docRow, docCol]` |
+| `locationToOffset(location)` | Document `Location` → visual offset |
+| `height` | Total number of visual rows (including wrapped continuations) |
+| `wrapped` | Whether any line actually wrapped (boolean) |
+| `getLine(visualRow)` | Content of a visual row |
 
-## Syntax Highlighting Pipeline
+### Wrap algorithm
 
-`TextArea` highlight flow:
+1. For each document line, compute break points based on the available width and tab expansion.
+2. A line that fits within the width produces one visual row.
+3. A line that exceeds the width is broken at word boundaries (or at the width boundary if no word boundary exists).
+4. Each visual row tracks its corresponding document line index and column offset.
+5. Tab characters are expanded to `tabWidth` spaces for width calculation but stored as tabs in the document.
 
-1. Pick a language (built-in via `_tree_sitter.get_language`, or user-registered) and load the matching `.scm` highlight query (bundled queries under `src/textual/tree-sitter/highlights/`).
-2. `SyntaxAwareDocument.prepare_query` compiles the query; `TextArea._build_highlight_map` calls `query_syntax_tree` and builds a per-line list of `(start_column, end_column, capture_name)` highlights.
-3. During rendering each line is tab-expanded, styled from the current `TextAreaTheme` (`base_style` + `syntax_styles[name]`), and overlaid with selection, cursor-line, cursor, and matching-bracket styles.
-4. Matching brackets are located by `find_matching_bracket`, which scans forward or backward from the cursor using a bracket stack keyed off `_OPENING_BRACKETS` / `_CLOSING_BRACKETS` (`{}`, `[]`, `()`).
-
-Built-in languages (each with a bundled `tree-sitter/highlights/*.scm`): `python`, `markdown`, `json`, `toml`, `yaml`, `html`, `css`, `javascript`, `rust`, `go`, `regex`, `sql`, `java`, `bash`, `xml`. The `xml` language is special-cased in `get_language` because its tree-sitter module exposes `language_xml()` instead of `language()`.
+Incremental rewrap (`wrapRange`) recomputes only the affected document lines, preserving visual rows for unmodified lines.
 
 ## Verifiable Behavior Expectations
 
-- `load_text` / setting `text`: clears `EditHistory`, rebuilds `document`/`wrapped_document`/`navigator`, resets the cursor to `(0, 0)`, and posts `TextArea.Changed`.
-- Edits round-trip through `Edit.do` / `Edit.undo` / `Edit.after`, producing identical document text and cursor state (`_original_selection` restored on undo).
-- Cursor/selection changes emit `SelectionChanged`, update `last_x_offset` at appropriate points, and scroll the cursor into view.
-- Assigning `language` or `theme` re-runs `_set_document` / theme resolution and invalidates the line cache so rendering reflects the new configuration.
-- Requesting a language that is not installed or registered raises `LanguageDoesNotExist`; requesting an unknown theme raises `ThemeDoesNotExist`.
-- `EditHistory` batching rules are observable through `undo_stack` / `redo_stack` snapshots after scripted edit sequences (e.g. paste, newline, timed gaps).
+These are the deterministic properties tests should verify:
 
+| Expectation | Verification |
+|-------------|-------------|
+| `loadText` / setting `text` | Clears EditHistory, rebuilds document/wrappedDocument/navigator, resets cursor to (0,0), posts `TextArea.Changed`. |
+| Edit round-trip | `edit.do()` followed by `edit.undo()` produces identical document text and cursor state. |
+| Selection changes | Emit `SelectionChanged`, update `lastXOffset`, scroll cursor into view. |
+| Language assignment | Re-runs Shiki tokenization and invalidates rendering. |
+| Theme assignment | Re-applies theme styles and invalidates rendering. |
+| Unknown language | Throws `LanguageDoesNotExist`. |
+| Unknown theme | Throws `ThemeDoesNotExist`. |
+| EditHistory batching | Observable through undo/redo stack depth after scripted edit sequences. |
+| Read-only + API edit | `readOnly: true` blocks keystrokes but `edit()` and `loadText()` still work. |
+| Read-only CSS class | `readOnly: true` adds `-read-only` to the root; `readOnly: false` removes it. |
+| Select line / select all | `f6` collapses selection to cover the cursor's line; `f7` covers the entire document. |
+| Delete to end of line / delete line | `ctrl+f` removes `[cursor..lineEnd]`; `ctrl+shift+k` removes the full line (including its newline). |
+| Bracket match | With balanced input, cursor adjacent to a bracket yields both bracket positions in the matching-bracket set; unbalanced input yields an empty set without error. |
+| Tab expansion width | Rendered cell width of a tab at column `c` equals `indentWidth - (c % indentWidth)`. |
+| Newline round-trip | `document.text` after `loadText(text)` produces identical text (including trailing newline preservation). |
+
+// [LAW:dataflow-not-control-flow] Editing is modeled as deterministic transformations over document state with explicit edit records and batch checkpoints, not ad-hoc mutation.
 // [LAW:verifiable-goals] Editor correctness is checkable through deterministic document text/selection/history state after scripted edit operations.

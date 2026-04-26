@@ -1,163 +1,437 @@
 # Input, Bindings, Actions, and Command System
 
+## Overview
+
+Input arrives from Ink's terminal stdin handling. The framework provides three layers on top:
+
+1. **Bindings**: declarative key-to-action mappings resolved through a priority chain.
+2. **Actions**: named methods (`action_<name>`) dispatched by the binding system.
+3. **Command palette**: fuzzy-searchable command discovery and execution (powered by uFuzzy).
+
+Ink handles input parsing and key normalization. The framework handles binding resolution, action dispatch, and the command palette.
+
+## Input Flow
+
+```
+Terminal stdin
+    │
+    ▼
+Ink useInput() / stdin parser
+    │
+    ▼
+Normalized Key/Mouse event
+    │
+    ▼
+App input router
+    ├── Priority bindings check (app → screen → ... → focused)
+    │   └── Match found → dispatch action → done
+    ├── Forward to focused widget (Key) or target widget (Mouse)
+    │   └── Widget handlers → bubble upward
+    │       └── At each node: check non-priority bindings
+    └── Fallback: key_<name> handler dispatch
+```
+
+// [LAW:single-enforcer] Binding evaluation is centralized in `checkBindings` and `activeBindings`. Action dispatch is centralized in `runAction` / `dispatchAction`. No other code path invokes `action_*` methods from input handling.
+
 ## Binding Model
 
-`textual.binding.Binding` is a frozen dataclass mapping a key to an action string with metadata:
+### Binding declaration
 
-- `key` (single key or comma-separated list), `action`, `description`,
-- display controls: `show` (footer visibility; forced to `False` when `description` is empty), `key_display` (overrides `App.get_key_display`; ignored when a keymap rewrites the binding), `tooltip`,
-- `priority` flag (see dispatch ordering),
-- `system` flag (hides from the key panel),
-- optional globally-addressable `id` for keymap overrides,
-- optional `group` (`Binding.Group(description, compact)`) for grouped footer rendering.
+`Binding` maps a key to an action string with metadata:
 
-`Binding.make_bindings(iterable)` accepts `Binding` instances or `(key, action)` / `(key, action, description)` tuples, expands comma-separated key lists into one `Binding` per key, strips whitespace, raises `InvalidBinding` on empty keys, raises `BindingError` on malformed tuples, and promotes single printable characters to their long-form key name via `keys._character_to_key`.
+```tsx
+interface Binding {
+  key: string;              // Key name or comma-separated list: "ctrl+s", "f1,question_mark"
+  action: string;           // Action string: "save", "app.quit", "focus('input')"
+  description?: string | Content; // Human-readable description (shown in Footer)
+  show?: boolean;           // Whether to show in Footer (default: true, forced false if description empty)
+  priority?: boolean;       // Priority bindings are checked before the event reaches widgets
+  system?: boolean;         // System bindings are hidden from the key panel
+  keyDisplay?: string;      // Override display text (e.g., "?" instead of "question_mark")
+  tooltip?: string | Content; // Tooltip text for the binding
+  id?: string;              // Optional ID for keymap overrides
+  group?: string;           // Group name for grouped Footer rendering
+}
+```
 
-`Binding.with_key(key, key_display=None)` returns a copy with the key replaced (used by keymap application, which always clears `key_display`).
+Plain `description` / `tooltip` strings render with the ambient Footer or tooltip style. Markup strings are parsed by rich-js at render time, and pre-built `Content` is used directly.
+
+### Declaring bindings
+
+Bindings are declared as static properties on widget, screen, or app components:
+
+```tsx
+const MyScreen = observer(() => {
+  // ...
+});
+
+MyScreen.BINDINGS = [
+  { key: 'ctrl+s', action: 'save', description: 'Save' },
+  { key: 'ctrl+z', action: 'undo', description: 'Undo' },
+  { key: 'escape', action: 'dismiss', description: 'Close' },
+  { key: 'f1,question_mark', action: 'help', description: 'Help' }, // Two keys, same action
+  { key: 'ctrl+q', action: 'app.quit', description: 'Quit', priority: true },
+];
+```
+
+Shorthand tuple form is also accepted: `['ctrl+s', 'save', 'Save']` expands to a full Binding.
+
+### Binding expansion
+
+`makeBindings(iterable)` processes binding declarations:
+
+- Accepts `Binding` objects or `[key, action]` / `[key, action, description]` tuples.
+- Expands comma-separated key lists into one `Binding` per key: `"f1,question_mark"` → two bindings.
+- Strips whitespace from keys.
+- Throws `InvalidBinding` on empty keys.
+- Promotes single printable characters to their canonical key name: `"?"` → `"question_mark"`.
 
 ### BindingsMap
 
-`BindingsMap` stores `key_to_bindings: dict[str, list[Binding]]` (same key may have multiple bindings). It supports:
+`BindingsMap` stores `keyToBindings: Map<string, Binding[]>` — the same key may have multiple bindings (from different levels of the chain).
 
-- construction from any `BindingType` iterable (dispatches through `Binding.make_bindings`),
-- `from_keys`, `copy`, iteration over `(key, binding)` pairs,
-- `bind(keys, action, ...)` for late/programmatic additions,
-- `get_bindings_for_key(key)` raising `NoBinding` when absent,
-- `shown_keys` (bindings with `show=True`),
-- `merge(iterable[BindingsMap])` — flat concatenation of per-key lists across maps. Merge is list-preserving; precedence is determined by the caller's iteration order at dispatch time, not by merge.
+| Method | Description |
+|--------|-------------|
+| `bind(keys, action, ...)` | Programmatic addition |
+| `getBindingsForKey(key)` | Returns bindings for a key. Throws `NoBinding` when absent. |
+| `shownKeys` | Bindings with `show: true` (for Footer rendering) |
+| `merge(maps)` | Flat concatenation of per-key lists across maps. Precedence is determined by iteration order at dispatch time, not by merge. |
 
-### Keymap application
+## Binding Chain and Dispatch Order
 
-`BindingsMap.apply_keymap(keymap)` rewrites bindings in place:
+Binding resolution happens on every `Key` event delivered to the App. It follows a hard-coded precedence step followed by a two-phase process:
 
-- only bindings whose `id` appears in `keymap` are eligible; others are untouched,
-- for each matching binding the old key entry is removed and one new `Binding` is inserted for every key in the (comma-separated) override string, produced via `with_key` (so `key_display` is reset to `None`),
-- if an override key is already bound (by default or by a previous override that is not itself being rebound) the pre-existing bindings are collected into a `KeymapApplyResult.clashed_bindings` set and removed,
-- returns `KeymapApplyResult(clashed_bindings)`.
+### Phase 0: Escape-to-minimize (hard-coded precedence)
 
-`Screen._binding_chain` invokes `apply_keymap` on each namespace's bindings when `App._keymap` is non-empty and forwards clashes to `App.handle_bindings_clash(clashed_bindings, node)` (default implementation is a no-op, intended for subclass override).
+// [LAW:single-enforcer] Maximize/minimize is owned by the app; Escape's minimize behavior is handled here, not duplicated as a user-defined binding.
 
-## Keymap Override API
+Before priority bindings run, the App checks a single hard-coded condition:
 
-`App.set_keymap(keymap)` replaces `App._keymap`; `App.update_keymap(keymap)` merges into it. Both normalize incoming key strings through `_normalize_keymap` (long-form names, e.g. `"question_mark"` not `"?"`) and then call `refresh_bindings()`.
+- If a widget is currently maximized **and** `ESCAPE_TO_MINIMIZE` is enabled on the app, an `escape` key event is consumed to call `minimize()` on the maximized widget.
+- This precedence is fixed — it runs before Phase 1 and takes precedence over user-defined priority bindings for `escape`.
+- When no widget is maximized (or `ESCAPE_TO_MINIMIZE` is disabled), Escape flows through the normal binding pipeline unchanged.
 
-## Binding Chains and Dispatch Order
+This is not a regular binding and cannot be overridden via `App.keymap`. It is the single authoritative exit from the maximized state.
 
-Binding resolution happens on every `events.Key` delivered to `App.on_event`:
+### Phase 1: Priority bindings
 
-1. If a widget is maximized and `App.escape_to_minimize` is true, `escape` minimizes and the event is consumed before binding dispatch.
-2. `App._check_bindings(event.key, priority=True)` runs — this walks `reversed(screen._binding_chain)` (App → Screen → … → focused) and fires only bindings whose `priority` flag is `True`.
-3. If not handled, the event is forwarded to `self.focused or self.screen` via `_forward_event`, which bubbles through the DOM. When the bubble reaches a node whose `_on_key` runs, `Widget._on_key` calls `App._check_bindings(event.key, priority=False)` — this walks `screen._modal_binding_chain` (focused → … → nearest modal ancestor inclusive) and fires non-priority bindings. If nothing handles it, `dispatch_key(self, event)` is called.
+Walk the binding chain from App → Screen → ... → focused widget. Check only bindings with `priority: true`. First match fires the action. If no priority binding matches, proceed to Phase 2.
+
+### Phase 2: Normal bindings (during bubble)
+
+The key event is forwarded to the focused widget (or screen if nothing is focused). As the event bubbles upward through the widget tree, non-priority bindings are checked at each node. The binding chain is truncated at the nearest ancestor with `isModal: true` (inclusive), so modal screens contain their key handling.
 
 ### Binding chain construction
 
-`App._binding_chain`:
+| Scenario | Chain (first checked to last) |
+|----------|-------------------------------|
+| Widget focused | focused → parent → ... → screen → app |
+| No widget focused | screen → app |
+| Modal screen | focused → parent → ... → modal screen (stops here) |
 
-- if `self.focused is None`: `[(screen, screen._bindings), (app, app._bindings)]`,
-- otherwise: `[(node, node._bindings) for node in focused.ancestors_with_self]` (focused-first, ending at the App).
+### Keymap overrides
 
-`Screen._binding_chain` is the same list after each namespace's bindings have had `apply_keymap(app._keymap)` applied (clashes reported to `handle_bindings_clash`).
+// [LAW:one-source-of-truth] `App.keymap` is the single authoritative source of user-facing key rebindings. Bindings themselves declare intent via `id`; the keymap is applied uniformly as the chain is assembled.
 
-`Screen._modal_binding_chain` truncates the chain at the nearest ancestor with `is_modal=True` (inclusive), so modal screens contain their bubble.
+The keymap mechanism allows user/app configuration to rewrite which key triggers a given binding without editing the binding declaration:
 
-`Screen.active_bindings` walks `_modal_binding_chain` and produces the de-duplicated `dict[key, ActiveBinding]` used by the Footer/key panel. Within a key, the first binding encountered wins unless a later binding has `priority=True` and the incumbent does not, in which case priority replaces it. Each candidate is filtered through `App._check_action_state` which delegates to the owning node's `check_action(action, params)`:
+- Only bindings declared with an `id` field are eligible for keymap overrides. Bindings without an `id` are never rewritten.
+- `App.keymap` (or equivalent configuration) is a `Map<string, string>` (or plain record) mapping binding IDs to replacement key strings (same grammar as `Binding.key`, e.g. `"ctrl+s"`, `"f2,alt+s"`).
+- When the screen's binding chain is assembled, every `BindingsMap` in the chain is run through the keymap: any binding whose `id` matches a keymap entry has its `key` rewritten to the replacement. Expansion of comma-separated keys happens after rewriting, identical to the normal `makeBindings` path.
+- If a keymap override targets a key that already has bindings on the same namespace (the same `BindingsMap`), the pre-existing bindings on that key are collected as **clashes**. Clashes are removed from the map (the new override wins) and reported to `app.handleBindingsClash(clashes, namespace)`.
+- `handleBindingsClash` has a default implementation that is a no-op. Subclasses may observe and surface warnings.
+- Clashes are reported **once per namespace per chain assembly** — re-assembling the chain (e.g., focus change) is a new reporting cycle, but within one assembly each namespace reports at most one clash batch.
 
-- `True` → binding included and enabled,
-- `None` → binding included but disabled (grayed-out in footer),
-- `False` → binding omitted entirely.
+```tsx
+// [LAW:one-source-of-truth] `id` is the stable handle; `key` is a derived/configurable surface.
+MyScreen.BINDINGS = [
+  { id: 'save', key: 'ctrl+s', action: 'save', description: 'Save' },
+  { id: 'help', key: 'f1', action: 'help', description: 'Help' },
+  { key: 'ctrl+q', action: 'app.quit' }, // No id — cannot be keymap-overridden
+];
+
+// In app configuration:
+App.keymap = new Map([
+  ['save', 'ctrl+shift+s'], // Rewrite save to a new key
+  ['help', '?'],            // Promoted to question_mark
+]);
+```
+
+### Active bindings (for Footer display)
+
+`activeBindings` walks the modal binding chain and produces the de-duplicated binding map used by the Footer widget:
+
+- Within a key, the first binding encountered wins unless a later binding has `priority: true` and the incumbent does not.
+- Each binding is filtered through `checkAction(action, params)`:
+
+| Return value | Effect |
+|-------------|--------|
+| `true` | Binding included and enabled |
+| `null` | Binding included but disabled (grayed-out in Footer) |
+| `false` | Binding omitted entirely |
+
+`null` means disabled but visible, `false` means hidden.
 
 ## Action Parsing and Dispatch
 
-### Parse format
+### Action string format
 
-`textual.actions.parse(action)` (LRU-cached) returns `(namespace, action_name, params)`:
+`parseAction(action)` returns `{ namespace, actionName, params }`:
 
-- bare action: `"quit"` → `("", "quit", ())`,
-- call form: `"focus('input')"` → `("", "focus", ("input",))` (arguments parsed with `ast.literal_eval` after being wrapped as a trailing-comma tuple so a single tuple argument is disambiguated from a comma-separated list),
-- dotted namespace: `"app.quit"`, `"screen.dismiss()"` → namespace is the dotted prefix before the final segment.
-- malformed argument lists raise `ActionError`.
+| Input | Parsed result |
+|-------|---------------|
+| `"quit"` | `{ namespace: "", actionName: "quit", params: [] }` |
+| `"focus('input')"` | `{ namespace: "", actionName: "focus", params: ["input"] }` |
+| `"app.quit"` | `{ namespace: "app", actionName: "quit", params: [] }` |
+| `"screen.dismiss()"` | `{ namespace: "screen", actionName: "dismiss", params: [] }` |
+| `"delete(confirm=true)"` | `{ namespace: "", actionName: "delete", params: [{ confirm: true }] }` |
 
-`SkipAction` (raised inside an action method) tells dispatch to treat the action as not handled so bubbling bindings can run.
+- Malformed argument lists throw `ActionError`.
+- Unknown namespace names throw `ActionError`. Valid namespaces: `"app"`, `"screen"`, `"focused"`.
 
 ### Dispatch flow
 
-`App.run_action(action, default_namespace=None, namespaces=None)`:
+`runAction(action, defaultNamespace?)`:
 
-1. `_parse_action` turns the string (or pre-parsed tuple) into `(action_target, action_name, params)`. The target is chosen by:
-   - explicit `namespaces` mapping if it contains the namespace,
-   - otherwise a namespace name must be in `App._action_targets` (`{"app", "screen", "focused"}`) and is resolved via `getattr(self, namespace)`; unknown namespaces raise `ActionError`,
-   - no namespace → `default_namespace` (or `self` when `None`).
-2. `action_target.check_action(action_name, params)` gates execution. A falsy/`None` return aborts and `run_action` returns `False`.
-3. `_dispatch_action` looks up `_action_<name>` first, then `action_<name>`, and `invoke`s the first callable found with `*params`. Returns `True` on successful invocation, `False` if neither method exists. `SkipAction` raised by the method is caught and reported as not handled.
+1. **Parse**: extract `{ target, actionName, params }`. Target resolved by:
+   - Named namespace (`"app"`, `"screen"`, `"focused"`) → the corresponding object.
+   - No namespace → `defaultNamespace`, or the caller if unspecified.
+2. **Gate**: `target.checkAction(actionName, params)`. Falsy/null return aborts — `runAction` returns `false`.
+3. **Invoke**: look up `_action_<name>` first, then `action_<name>` on the target. Invoke the first found with `...params`. Returns `true` on success, `false` if neither exists.
 
-// [LAW:single-enforcer] Action parse and dispatch behavior is centralized in `actions.parse` + `App._parse_action` / `App.run_action` / `App._dispatch_action`. Binding evaluation is centralized in `App._check_bindings` and `Screen.active_bindings`.
+`SkipAction` thrown inside an action method is caught and treated as "not handled" — allows higher-level bindings to run.
+
+### Defining actions
+
+Actions are methods on a widget's handler object or store:
+
+```tsx
+const MyScreen = observer(() => {
+  const { postMessage } = useTextual();
+
+  const handlers = {
+    action_save() {
+      // Perform save
+      postMessage(new SaveCompleted());
+    },
+
+    action_focus(selector: string) {
+      // Focus a widget by selector
+      const target = queryOne(selector);
+      if (target) setFocus(target);
+    },
+
+    checkAction(name: string): boolean | null {
+      if (name === 'save') {
+        return hasUnsavedChanges ? true : null; // Disabled when nothing to save
+      }
+      return true;
+    },
+  };
+
+  return <Screen handlers={handlers}>...</Screen>;
+});
+```
 
 ## Key Name Normalization and Aliases
 
-`textual.keys` owns the name space:
+### Normalization
 
-- `KEY_NAME_REPLACEMENTS` maps punctuation/short names (e.g. `?` → `question_mark`) to canonical long forms. `_xterm_parser` applies this when emitting keys so the binding layer only ever sees canonical names.
-- `_character_to_key` (used by `Binding.make_bindings`) promotes single printable characters to their canonical name so `("?", "help")` and `("question_mark", "help")` are equivalent.
-- `events.Key.name_aliases` (via `keys._get_key_aliases`) expands the canonical key into the ordered list of handler method suffixes that `dispatch_key` will try.
+Ink's stdin parser delivers key names. The framework normalizes them to canonical forms before the binding layer sees them:
+
+| Raw input | Canonical name |
+|-----------|----------------|
+| `?` | `question_mark` |
+| `!` | `exclamation_mark` |
+| `@` | `at` |
+| `/` | `forward_slash` |
+| `\` | `backslash` |
+| `Return` | `enter` |
+| `Esc` | `escape` |
+| Ctrl+C | `ctrl+c` |
+| Shift+Tab | `shift+tab` |
+
+Single printable characters in binding declarations are promoted to their canonical name, so `["?", "help"]` and `["question_mark", "help"]` are equivalent.
+
+### Key aliases
+
+Key names may have aliases — ordered lists of handler method suffixes that `dispatchKey` tries:
+
+| Key | Aliases tried |
+|-----|---------------|
+| `ctrl+c` | `ctrl_c` |
+| `f1` | `f1` |
+| `enter` | `enter`, `return` |
+| `escape` | `escape`, `esc` |
 
 ## Widget-Level Key Handler Dispatch
 
-`dispatch_key(node, event)` (`textual._dispatch_key`) is the fallback after binding resolution:
+`dispatchKey(widget, event)` is the fallback after binding resolution fails — it checks for a `key_<name>` handler method directly on the widget:
 
-- returns `False` immediately if `event.name` is empty,
-- iterates `event.name_aliases` and for each alias looks up `key_<alias>` then `_key_<alias>` on the node,
-- if more than one alias resolves to a handler, raises `DuplicateKeyHandlers`,
-- aborts without invoking when the owning screen is no longer active,
-- a handler returning `False` explicitly is treated as *not handled* so the event continues to bubble; any other return value (including `None`) counts as handled.
+1. Returns `false` immediately if `event.name` is empty.
+2. Iterates `event.nameAliases` and for each alias looks up `key_<alias>` on the widget's handler object.
+3. If more than one alias resolves to a handler, throws `DuplicateKeyHandlers`.
+4. A handler returning `false` explicitly is treated as not handled (event continues to bubble). Any other return value (including `undefined`) counts as handled.
 
-Widget key path: `Widget._on_key → Widget.handle_key → dispatch_key(self, event)`. Widgets can override bindings, implement `check_consume_key(key, character)` to claim raw keys before binding dispatch (used by `Screen._forward_event` to short-circuit input-capturing widgets), and define `key_*` / `action_*` methods.
+```tsx
+// Direct key handler — bypasses the binding system
+const handlers = {
+  key_enter() {
+    // Handle Enter key directly
+    activateCurrentItem();
+  },
 
-## Brokered Style-Meta Event Actions
+  key_escape() {
+    return false; // Explicitly not handled — let it bubble
+  },
+};
+```
 
-`App._broker_event(event_name, event, default_namespace)` lets click/hover actions be attached to styled content:
+## Command Palette
 
-- reads `event.style.meta`, extracts `(modifiers, action)` via `_event_broker.extract_handler_actions`, stops the event on success,
-- a string action is dispatched through `run_action`,
-- a `(action_name, params)` tuple re-parses the name through `actions.parse` and dispatches with the externally supplied `params`,
-- malformed tuples log a warning in debug mode and return `False`.
-
-## Command Palette Architecture
-
-Core types in `textual.command`:
-
-- `Hit` (scored, with `match_display`, `command`, `text`, `help`) and `DiscoveryHit` (unscored, ordered by provider yield order),
-- `Hits = AsyncIterator[Hit | DiscoveryHit]`,
-- abstract `Provider` plus `SimpleProvider` / `SimpleCommand` for lightweight callers,
-- `CommandPalette` (a `SystemModalScreen`), its `CommandInput` and `CommandList` widgets.
+The command palette provides fuzzy-searchable command discovery and execution. It is opened by a key binding (default: `ctrl+p`) and displayed as a pushed screen.
 
 ### Provider contract
 
-- constructed with `(screen, match_style)`; exposes `screen`, `app`, `focused`, `match_style`, and `matcher(user_input, case_sensitive=False)` that returns a `fuzzy.Matcher`,
-- optional async `startup()` and `shutdown()` (wrapped in `_post_init` / `_shutdown` which log exceptions via `rich.traceback`),
-- abstract `async search(query)` for typed search,
-- optional `async discover()` for empty-query defaults,
-- `_search(query)` awaits init, then dispatches to `discover()` when `query` is empty and `search()` otherwise, and gates all output on `_init_success`; hits equal to `NotImplemented` are filtered out.
+Command providers supply commands to the palette:
 
-### CommandPalette runtime
+```tsx
+interface Provider {
+  // Called when the palette opens
+  startup?(): Promise<void>;
 
-- provider set resolved from an explicit argument, else `Screen.COMMANDS` ∪ `App.COMMANDS` (`App.COMMANDS` defaults to `{get_system_commands_provider}`),
-- `App.ENABLE_COMMAND_PALETTE` gates availability; `App.COMMAND_PALETTE_BINDING` (default `ctrl+p`) and `App.COMMAND_PALETTE_DISPLAY` define its launch key (added as a priority binding during App init),
-- results gathered concurrently under `@work(exclusive=True, group=...)` and streamed into the option list in batches sized by `_RESULT_BATCH_TIME`,
-- busy and no-match indicators are driven by timers,
-- emits `Opened`, `Closed`, and option-highlight messages.
+  // Called when the palette closes
+  shutdown?(): Promise<void>;
+
+  // Return commands matching the query (async iterable)
+  search(query: string): AsyncIterable<Hit>;
+
+  // Return commands to show when query is empty (discovery mode)
+  discover?(): AsyncIterable<DiscoveryHit>;
+}
+
+interface Hit {
+  score: number;             // Match quality (higher = better)
+  matchDisplay: VisualInput; // Display value shown in the palette
+  text?: string;             // Plain-text search key; required for non-text displays
+  command: () => void;       // Callback to execute when selected
+  helpText?: string;         // Additional description
+}
+
+interface DiscoveryHit {
+  display: VisualInput;   // Display value shown in the palette
+  text?: string;          // Plain-text search/display key when display is non-textual
+  command: () => void;    // Callback to execute
+  helpText?: string;      // Additional description
+}
+```
+
+- When the query is empty, `discover()` is called for default/recent commands.
+- When the query has text, `search()` is called with fuzzy matching via **uFuzzy**.
+
+### Provider resolution
+
+- Provider set: `Screen.COMMANDS` union with `App.COMMANDS`.
+- Overriding app-level `COMMANDS` replaces the app's default provider set. Screen-level providers are added by union.
+- `ENABLE_COMMAND_PALETTE` gates availability.
+- `COMMAND_PALETTE_BINDING` (default: `ctrl+p`) defines the launch key.
+
+### Palette options
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `runOnSelect` | `true` | When `true`, selecting a command immediately executes it and dismisses the palette. When `false`, selection only highlights the result; a separate confirmation step (pressing Enter again, or a second click) is required to execute. Useful for preview-then-confirm palettes. |
+| `noMatchesTimeout` | ~250ms | Delay before the "No matches found" entry appears after a query returns zero results (see below). **Intentional divergence**: this timeout value is a textual-js UX choice; upstream Textual does not have this specific debounce behavior. |
+
+// [LAW:dataflow-not-control-flow] `runOnSelect` selects between two fixed dispatch paths — single-step or two-step — rather than branching in event handlers. The same "select" event fires either way; the option decides whether "execute" follows.
+
+### Runtime behavior
+
+- Discovery hits are visible immediately when the palette opens.
+- Results are gathered concurrently from all providers and streamed into the result list in batches.
+- Fuzzy matching uses **uFuzzy** against the hit's plain-text `text` value. If a hit's display value is not directly textual, the provider must supply `text`; the framework does not flatten arbitrary renderables for search.
+- uFuzzy returns match ranges as `[start, end]` pairs per command. The framework may convert those ranges into styled text for textual displays, or keep the provider's display visual intact and use `text` solely for ranking/matching.
+- Keyboard navigation: Up/Down to select, Enter to execute (or Enter to confirm when `runOnSelect` is `false`), Escape or click-away to dismiss.
+- Executing a command closes the palette and invokes the hit's callback (subject to `runOnSelect`).
+
+### "No matches" countdown
+
+// [LAW:dataflow-not-control-flow] The countdown is a fixed data-driven transition (`pending` → `shown`/`cleared`), not a conditional skip of the empty-state UI. The timer always starts; the arriving data always cancels or commits it.
+
+When a typed query returns zero results, the palette does **not** immediately show "No matches found." A short countdown timer (`noMatchesTimeout`, default ~250ms) gates the message so fast typing does not flash it:
+
+- On every query change that yields zero results, the countdown (re)starts.
+- If any result arrives during the countdown, the countdown is canceled and the message is never shown for that query.
+- If the countdown completes with the result set still empty, a disabled **"No matches found"** entry is appended to the result list.
+- This entry is non-selectable: keyboard selection skips over it, and clicking / pressing Enter on it is a no-op. It carries no `command` callback.
+- The entry's display is rich-js `Content` using a component class such as `command-palette--no-matches`, allowing TCSS to theme it as dimmed, italic, or otherwise visually distinct.
+- Typing a new query clears the entry and resets the cycle.
 
 ### System commands provider
 
-`SystemCommandsProvider` (`textual.system_commands`) drives both `discover()` and `search()` from `App.get_system_commands(screen)`. Each `SystemCommand` carries `(name, help_text, callback, discover)`; `discover()` yields only commands whose `discover` flag is true, and `search()` fuzzy-matches all of them via `Provider.matcher`. Subclasses override `App.get_system_commands` to add/remove entries.
+The built-in system commands provider drives both `discover()` and `search()` from `App.getSystemCommands(screen)`:
 
-## Built-in App-Level Input Actions
+```tsx
+interface SystemCommand {
+  name: VisualInput;      // Command display value
+  text?: string;          // Plain-text matching key when name is non-textual
+  helpText: string | Content; // Description
+  callback: () => void;   // What to execute
+  discover: boolean;      // Whether to show in discovery (empty query) mode
+}
+```
 
-`App` ships default action methods including (non-exhaustive): `action_quit`, `action_bell`, `action_focus`, `action_focus_next` / `action_focus_previous`, `action_switch_screen`, `action_push_screen`, `action_pop_screen`, `action_switch_mode`, `action_back`, `action_add_class` / `action_remove_class` / `action_toggle_class`, `action_change_theme`, `action_toggle_dark`, `action_screenshot`, `action_notify`, `action_show_help_panel` / `action_hide_help_panel`, `action_command_palette`, `action_simulate_key`, `action_suspend_process`, and `action_help_quit` (the ctrl+C hint that surfaces the real quit binding via `active_bindings`).
+Strings without markup syntax render as plain text; markup strings are parsed via rich-js at render time; `Content` is used directly; rich-js renderables remain renderables. Discovery yields only commands with `discover: true`. Search fuzzy-matches the resolved `text` value for each command.
+
+## Built-in App-Level Actions
+
+| Action | Description | Default binding |
+|--------|-------------|-----------------|
+| `action_quit` | Exit the app | `ctrl+q` |
+| `action_bell` | Terminal bell | — |
+| `action_focus(selector)` | Focus widget matching selector | — |
+| `action_focus_next` | Focus next widget in chain | `tab` |
+| `action_focus_previous` | Focus previous widget in chain | `shift+tab` |
+| `action_switch_screen(name)` | Switch to named screen | — |
+| `action_push_screen(name)` | Push named screen | — |
+| `action_pop_screen` | Pop current screen | — |
+| `action_switch_mode(name)` | Switch to named mode | — |
+| `action_back` | Pop screen or switch to previous mode | — |
+| `action_add_class(selector, class)` | Add CSS class to matching widgets | — |
+| `action_remove_class(selector, class)` | Remove CSS class from matching widgets | — |
+| `action_toggle_class(selector, class)` | Toggle CSS class on matching widgets | — |
+| `action_toggle_dark` | Toggle dark/light theme | `ctrl+d` |
+| `action_notify(message)` | Show a notification | — |
+| `action_command_palette` | Open the command palette | `ctrl+p` |
+| `action_dismiss` | Dismiss (pop) the current screen | `escape` |
 
 ## Input Event Routing Summary
 
-- Driver emits low-level `events.InputEvent` instances into `App.on_event`.
-- Non-forwarded `MouseEvent`s update `App.mouse_position`, drive click-chain detection, and are forwarded via `screen._forward_event`; click synthesis matches `MouseUp` to the widget under the original `MouseDown` with chain counting gated by `CLICK_CHAIN_TIME_THRESHOLD`.
-- Non-forwarded `Key` events run priority bindings, then forward to `self.focused or self.screen`.
-- Non-forwarded `Paste` events are forwarded directly to the focused widget (or screen).
-- `Widget`'s disabled state suppresses most mouse interactions except scroll-wheel pass-through (enforced inside `_forward_event`).
+### Key events
+
+1. Ink delivers normalized key event to the App.
+2. App checks priority bindings (walking the full binding chain). If a priority binding matches and its action succeeds, the event is consumed.
+3. If not consumed, the event is forwarded to the focused widget.
+4. The widget's `on<Key>` handler runs (if defined). If it calls `stop()`, processing ends.
+5. If not stopped, the event bubbles upward. At each ancestor, non-priority bindings are checked.
+6. If still not consumed after bubbling, `dispatchKey` tries `key_<name>` handlers.
+7. If nothing handled the key, it is ignored.
+
+### Mouse events
+
+1. Ink delivers mouse event with position to the App.
+2. App updates internal mouse position tracking.
+3. Mouse event is forwarded to the active screen for routing to the target widget (based on position).
+4. `MouseDown` / `MouseUp` on the same widget synthesizes a `Click` message.
+5. Widget `disabled` state suppresses most mouse interactions except scroll-wheel pass-through.
+6. Mouse capture: while a widget has capture, all mouse events route to it regardless of position.
+
+### Focus events
+
+1. When `setFocus(widget)` is called on the focus manager:
+2. Previous widget receives `Blur` message. Its `:focus` pseudo-class is cleared.
+3. New widget receives `Focus` message. Its `:focus` pseudo-class is set.
+4. `DescendantBlur` bubbles from the old widget upward. `DescendantFocus` bubbles from the new widget upward.
+5. TCSS recalculation runs for widgets affected by `:focus` / `:focus-within` selectors.
+
+// [LAW:dataflow-not-control-flow] The input routing pipeline is fixed: normalize → priority check → forward → bubble → fallback. The data (key name, binding declarations, handler methods) determines outcomes, not conditional branches in the routing logic.

@@ -26,9 +26,9 @@ Each `Provider` instance exposes the execution context through three properties:
 
 Providers yield results as `Hit` or `DiscoveryHit` objects.
 
-A `Hit` is constructed with a score (numeric), display text, a callable to invoke, match text, and an optional help string. Higher scores rank higher.
+A `Hit` is constructed with a score (numeric), a visual-bearing display value, a callable to invoke, plain-text search text, and an optional help string. Higher scores rank higher.
 
-A `DiscoveryHit` is constructed with display text, a callable, and match text. It has no score because discovery results are shown before any search occurs.
+A `DiscoveryHit` is constructed with a visual-bearing display value, a callable, and optional plain-text search text. It has no score because discovery results are shown before any search occurs.
 
 ## Discovery Mode
 
@@ -40,8 +40,8 @@ A provider may implement a `discover()` async generator method that yields `Disc
 
 ### Search and Result Display
 
-- On open, the result list (`CommandList`) is hidden until the user types a query.
-- Typing a character triggers a search across all providers. Results appear in the `CommandList`, and the first item is highlighted (index 0).
+- On open, the result list (`CommandList`) visibility depends on discovery: if providers yielded discovery hits, the list is immediately visible showing those hits (consistent with the Discovery Results on Open section above). If there are no discovery hits, the list stays hidden until the user types a query (verified in original codebase).
+- Typing a character triggers a search across all providers. Results appear in the `CommandList`, and the first item is highlighted (index 0). Matching is performed against each hit's plain-text search text, not by flattening arbitrary renderables. If a typed query produces no matches, a "No matches found" indicator is shown.
 - Pressing `down` advances the highlight to the next item.
 - Pressing `enter` on a highlighted item selects it: the palette dismisses and the hit's callable is invoked.
 
@@ -113,6 +113,7 @@ Using the command palette must not cancel or interfere with workers that the app
 - A `CommandPalette` with no associated screen must have an empty provider class set.
 - `SystemCommandsProvider` is included by default when no app-level `COMMANDS` override it; screen-level `COMMANDS` always add to (never replace) the system commands.
 - Providers must have access to the correct app, base screen, and focused widget -- not the palette's own screen or widgets.
+- Display values may be textual or renderable. Providers that return non-textual display values must also provide plain-text search text.
 - Discovery hits must be visible immediately on open without requiring user input.
 - The "No matches found" indicator must be a disabled option (not selectable).
 - `CommandPalette.Closed` must accurately report whether a selection was made.

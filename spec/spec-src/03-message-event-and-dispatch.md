@@ -2,118 +2,318 @@
 
 ## Message Base Model
 
-`textual.message.Message` is the base class for all messages and events. It carries transport metadata and propagation state.
+`Message` is the base class for all framework messages and events. It carries transport metadata and propagation state. Messages are distinct from React synthetic events — they are the Textual framework's communication protocol, bubbling through the widget registry's parent chain.
 
-- class-level declarations (set via `__init_subclass__` kwargs):
-  - `bubble` (default `True`) — message bubbles to parent pump after local dispatch,
-  - `verbose` (default `False`) — excluded from the console log unless verbose logging is enabled,
-  - `no_dispatch` (default `False`) — dispatcher short-circuits before any handler invocation *and* before bubbling,
-  - `namespace` (default `""`) — prefix for the derived `handler_name`,
-  - `handler_name` — always derived at class creation time from the class qualname (last two dotted components, camel-to-snake), or from `f"{namespace}_{camel_to_snake(cls_name)}"` when `namespace` is supplied, and stored as `f"on_{name}"`,
-  - `ALLOW_SELECTOR_MATCH` — set of additional attribute names that `@on` may selector-match; each such attribute must resolve to a `Widget` at dispatch time.
-- per-instance state set in `__post_init__` (so dataclass subclasses work):
-  - `_sender` — captured from `active_message_pump` context var at construction,
-  - `time` — monotonic timestamp at construction,
-  - `_forwarded`, `_no_default_action`, `_stop_propagation`, `_prevent` (set of prevented message types).
-- runtime controls:
-  - `prevent_default(prevent=True)` — sets `_no_default_action`; the dispatcher uses this to stop walking further classes in the MRO (i.e. base-class handlers are skipped),
-  - `stop(stop=True)` — sets `_stop_propagation`; suppresses bubbling after local dispatch,
-  - `set_sender(sender)` — override the automatically-captured sender,
-  - `can_replace(other)` — default `False`; subclasses override to declare coalescing eligibility,
-  - `control` — default `None`; subclasses override to expose the associated widget for `@on` selector matching,
-  - `_bubble_to(parent)` — resets `_no_default_action` and re-posts the same instance to the parent pump.
+### Class-level declarations
 
-## MessagePump Contract
+| Property | Default | Description |
+|----------|---------|-------------|
+| `bubble` | `true` | Message bubbles to parent after local dispatch |
+| `verbose` | `false` | Excluded from log unless verbose logging is enabled |
+| `noDispatch` | `false` | Dispatcher short-circuits before any handler invocation and before bubbling |
+| `canReplace` | `false` | Whether newer messages of this type replace older queued ones (coalescing) |
+| `namespace` | `""` | Prefix for the derived handler name |
+| `handlerName` | derived | Derived from class name at creation time. `ButtonPressed` → `onButtonPressed`. When `namespace` is supplied: `on<Namespace><Name>` |
+| `ALLOW_SELECTOR_MATCH` | `new Set()` | Additional attribute names that `on()` handlers may selector-match |
 
-`textual.message_pump.MessagePump` is the queue-driven dispatcher shared by App, Screen, and Widget.
+### Per-instance state
 
-### Queue and lifecycle
+| Property | Description |
+|----------|-------------|
+| `sender` | The widget that created the message (set automatically at construction) |
+| `time` | Timestamp at construction |
+| `forwarded` | Whether this message has been forwarded from another widget |
+| `stopped` | Whether `stop()` has been called (suppresses bubbling) |
+| `prevented` | Whether `preventDefault()` has been called (suppresses base-class handlers) |
 
-- each pump owns an `asyncio`-backed queue and a single processing task created by `_start_messages`,
-- `_pre_process` dispatches `events.Compose` then `events.Mount` (the latter under a `prevent(...)` scope seeded from the enclosing `prevent_message_types_stack` snapshot captured at construction), then calls `_post_mount()`; the `_mounted_event` is set in a `finally` clause so waiters unblock even if mount raises,
-- the main loop `_process_messages_loop` runs until the queue is closed (sentinel `None`) or a handler raises,
-- `_close_messages` sets `_closing`, stops bound timers, resets reactives, and enqueues the `None` sentinel; `_close_messages_no_wait` enqueues a `CloseMessages` message instead.
+### Runtime controls
 
-### Posting and suppression
+| Method | Effect |
+|--------|--------|
+| `preventDefault()` | Sets `prevented`. Base-class handlers are skipped; already-yielded derived handlers finish. |
+| `stop()` | Sets `stopped`. Suppresses bubbling after local dispatch. |
+| `setSender(sender)` | Override the automatically-captured sender. |
 
-- `post_message(message)` returns `False` when the pump is closing/closed or when `type(message)` is in `_disabled_messages`; otherwise it stamps `message._prevent` with the caller's current prevented-types set and enqueues,
-- when `post_message` is called from a thread other than the pump's owning thread, it enqueues via `loop.call_soon_threadsafe`,
-- `prevent(*types)` is a context manager that pushes a superset onto a `ContextVar` stack; the top of that stack is what `post_message` stamps onto outgoing messages and what `_dispatch_message` re-applies locally before handler invocation,
-- `disable_messages(...)`/`enable_messages(...)` toggle per-pump type suppression; the check is exact-type (`type(message) not in _disabled_messages`), not subclass-aware,
-- `check_message_enabled(message)` exposes the disabled-type check.
+### Coalescing
 
-### Coalescing and idle
+`canReplace` is a static property on the Message subclass. When `true`, and a message of the same type is already in the queue, the newer message replaces the older one. This is data-driven — the message declares whether it coalesces, the dispatch system applies it uniformly.
 
-- after dequeuing a message, the loop peeks the queue and, while `current.can_replace(pending)` is true, dequeues and replaces `current` with `pending` — coalescing is data-driven by `can_replace`,
-- after each dispatch, an idle pass runs when the queue is empty or `_max_idle` has been exceeded: the loop directly walks `_get_dispatch_methods("on_idle", Idle())` and invokes matching handlers without re-entering `_dispatch_message` or the queue (`Idle` is a pseudo-event),
-- after the idle pass, `_flush_next_callbacks` drains the local `_next_callbacks` list,
-- `_dispatch_message` also flushes `_next_callbacks` immediately after the per-message handler work if any were queued during dispatch,
-- `message_signal.publish(message)` fires for every processed message in the loop's `finally` block (before idle/flush).
+Built-in coalescing messages:
+- `Resize` — resize storms coalesce to the latest resize
+- `MouseMove` — mouse move events coalesce
+- `Idle` — idle ticks coalesce
 
-### call_next / call_later / call_after_refresh
+## Message System Architecture
 
-- `call_next(callback, ...)` wraps the callable in an `events.Callback`, copies the current prevented-types set onto the callback message, and appends it to the local `_next_callbacks` list (not the queue); `check_idle` is pinged so an empty-queue pump wakes,
-- `call_later(...)` posts an `events.Callback` through the normal queue,
-- `call_after_refresh(...)` posts a `messages.InvokeLater`; the base-class handler `_on_invoke_later` forwards the callback to `app.screen._invoke_later` using the original sender.
+### Relationship to React events
+
+The framework has two event systems that work together:
+
+1. **Ink/React events**: terminal input (keypress, mouse) arrives via Ink's `useInput()` hook. These are translated into framework `Key`, `Click`, `MouseDown`, etc. messages by the App component.
+2. **Framework messages**: `Message` instances that flow through the widget registry's parent chain. These include lifecycle events (`Compose`, `Mount`), user interaction events (translated from Ink), and widget-specific messages (`Button.Pressed`, `Input.Changed`).
+
+Ink events are the *input*. Framework messages are the *transport*. The App translates one into the other.
+
+### Message queue
+
+The framework maintains a message queue per widget. Messages are processed sequentially within each widget.
+
+- On mount, `Compose` then `Mount` messages are dispatched (via React `useEffect`) before normal processing begins.
+- The queue processes until empty, then waits for new messages.
+- On unmount, the queue is drained and closed.
+
+In practice, most message processing is synchronous within a single microtask — a message is posted, its handler runs, side effects (MobX mutations) are batched, and React re-renders at the end of the batch. The queue exists to guarantee deterministic ordering when multiple messages are posted in rapid succession.
+
+### Posting
+
+`postMessage(message)` enqueues a message on the target widget's queue:
+
+- Returns `false` when the widget is unmounting or when the message type is disabled.
+- Otherwise enqueues the message and schedules processing (via `queueMicrotask` or equivalent).
+- In textual-js, the meaningful safety contract is **event-loop re-entrancy safety**, not Python thread safety. Posting from handlers, timers, `callNext`, `callLater`, Promise continuations, and worker-completion callbacks must append deterministically to the same main-runtime queue.
+- True cross-thread posting is out of scope for the current Node/Ink runtime. If future `worker_threads`, browser workers, or external processes participate, they must marshal data back to the main runtime and let that boundary call `postMessage`.
+
+Widgets post messages via `useTextual()`:
+
+```tsx
+const { postMessage } = useTextual();
+postMessage(new ButtonPressed());
+```
+
+### Message suppression
+
+- `prevent(...types)` creates a scope where specified message types are suppressed for the duration. Useful for batch operations that should not trigger intermediate handlers.
+- `disableMessages(...types)` / `enableMessages(...types)` toggle per-widget type suppression. The check is exact-type, not subclass-aware.
 
 ## Dispatch Pipeline
 
-`_dispatch_message(message)` is the single enforcer of per-message handling:
+Message dispatch is the single enforcer of per-message handling. No widget reimplements dispatch — widgets extend behavior via handler methods.
 
-1. if `message.no_dispatch` is set, return immediately — no handlers, no bubbling,
-2. invoke the `message_hook` context var if one is registered,
-3. enter `prevent(*message._prevent)` so handlers see the originator's prevented-types scope,
-4. if `isinstance(message, Event)` call `on_event(message)`; otherwise call `_on_message(message)` directly. In debug mode the non-event branch times the call and logs a warning when it exceeds `SLOW_THRESHOLD`. `on_event` in the base class simply delegates to `_on_message` — the Event branch exists as a subclass hook (e.g. Widget/App) rather than a separate handler phase,
-5. if handler execution queued anything into `_next_callbacks`, flush it before returning.
+### Pipeline steps
 
-`_on_message(message)` drives handler discovery via `_get_dispatch_methods(handler_name, message)` and, after all discovered handlers have been awaited, bubbles the message when `message.bubble and self._parent and not message._stop_propagation`. If `message._sender is self._parent`, the message is stopped after the parent receives it (one extra hop only). Bubbling also requires `is_parent_active and is_attached`; otherwise the message is dropped silently.
+For each message dequeued:
 
-### Handler discovery order
+1. **Check noDispatch**: if `message.noDispatch` is set, return immediately — no handlers, no bubbling.
+2. **Coalesce**: peek the queue; while the next message satisfies `canReplace`, dequeue and replace current with pending.
+3. **Invoke message hook**: if a message hook is registered (for debugging/logging), call it.
+4. **Discover and invoke handlers**: walk handler discovery (see below), invoke each handler in order.
+5. **Flush callNext**: if handler execution queued anything via `callNext`, run it before returning.
+6. **Bubble**: if `message.bubble` is true, `stopped` is false, and a parent exists in the registry, post the message to the parent.
 
-`_get_dispatch_methods` walks `self.__class__.__mro__` from most-derived to base. For each class it yields (in this order):
+After all queued messages are processed:
+7. **Idle pass**: invoke idle handlers directly (without re-entering the queue).
+8. **Flush callNext callbacks**: run any remaining deferred callbacks.
 
-1. decorated `@on(...)` handlers registered on that class, iterated by walking the *message's* MRO so base-message handlers are found; each handler is yielded at most once across the whole walk (dedup set),
-2. the naming-convention fallback: `cls.__dict__.get(f"_{handler_name}") or cls.__dict__.get(handler_name)`, yielded only if it does not itself carry `_textual_on` (decorated methods are not double-dispatched).
+// [LAW:dataflow-not-control-flow] The loop performs the same steps every iteration — dequeue, coalesce, hook, dispatch, flush, bubble, idle — variability lives in message flags (noDispatch, bubble, stopped, prevented, canReplace) rather than in conditional branches around dispatch.
 
-If `message._no_default_action` becomes true at any point, the outer MRO walk breaks — meaning `prevent_default()` stops base-class handlers from running but lets already-yielded derived handlers finish.
+// [LAW:single-enforcer] Handler resolution, noDispatch/preventDefault/stop semantics, coalescing, and bubbling all live in the dispatch pipeline. Widgets extend via handler methods; they do not reimplement dispatch.
 
-Selector-matched `@on` handlers require `message._sender` to be truthy; for each `(attribute, selector)` pair the handler is skipped when the attribute is `None`, raises `OnNoWidget` when the attribute is not a `Widget`, and is yielded only if all selectors match. The `control` attribute is special-cased: `@on` validates at decoration time that the message class overrides `Message.control`, and other attributes must be listed in `ALLOW_SELECTOR_MATCH`.
+### Handler discovery
 
-// [LAW:single-enforcer] Handler resolution, `no_dispatch`/`prevent_default`/`stop` semantics, coalescing, and bubbling all live in `MessagePump._dispatch_message` / `_on_message` / `_get_dispatch_methods`. Subclasses extend via `on_event` and handler methods; they do not reimplement dispatch.
+Handlers are discovered by naming convention on the widget's handler object (store, component props, or registered handlers):
 
-// [LAW:dataflow-not-control-flow] The loop performs the same steps every iteration — dequeue, coalesce-by-`can_replace`, hook, dispatch, signal, idle pass, flush — and variability lives in message flags (`no_dispatch`, `bubble`, `_stop_propagation`, `_no_default_action`, `_prevent`, `can_replace`) rather than in conditional branches around dispatch.
+1. **Registered `on()` handlers**: handlers registered via the `on()` convention for this message type, with optional selector filtering. Each handler is invoked at most once (dedup set).
+2. **Naming convention fallback**: `on<HandlerName>` method on the widget's store or handler object. Only invoked if it is not already a registered `on()` handler (no double-dispatch).
+
+If `prevented` becomes true at any point, the discovery walk stops — `preventDefault()` stops remaining handlers from running but lets already-invoked handlers finish.
+
+#### The `on()` handler convention
+
+`on()` provides selector-filtered event handling. A handler registered with `on()` only fires when the message's declared selector target matches the specified selector:
+
+```tsx
+// Handle Button.Pressed only from buttons matching '#save'
+const handlers = {
+  onButtonPressed: on(ButtonPressed, '#save', (message) => {
+    // Only fires for Button with id="save"
+  }),
+};
+
+// Handle any Button.Pressed
+const handlers = {
+  onButtonPressed: (message: ButtonPressed) => {
+    // Fires for all Button.Pressed messages
+  },
+};
+```
+
+Positional selector matching is explicit in textual-js:
+- A message class that wants to support `on(MessageType, selector)` must declare a static `selectorAttribute` string naming the widget-valued instance field used for positional matching. The common case is `selectorAttribute = "control"`.
+- If `selectorAttribute` is absent / `null`, supplying a positional selector is a registration-time error.
+- For each selector-matched attribute:
+  - If the attribute is `null`, the handler is skipped.
+  - If the attribute is not a registered widget, the handler throws.
+  - The handler is invoked only if all selectors match.
+
+### Bubbling
+
+After local dispatch, a message with `bubble: true` propagates upward through the widget registry's parent chain:
+
+1. The message is posted to the parent widget (the nearest registered ancestor in the registry).
+2. The parent dispatches the message through its own handler discovery.
+3. This continues up the tree until: the message is stopped (`stop()`), there is no parent, or the sender IS the parent (one extra hop only, then stop).
+
+Bubbling follows the widget registry parent chain, not the React component tree. These are usually the same, but the registry's parent is the nearest *registered* ancestor, which may skip intermediate React components that are not framework widgets.
+
+### Message signal broadcasting
+
+**Known divergence — signal scope**: upstream Textual gives each MessagePump its own `message_signal` (per-pump), published in the finally block of that pump's dispatch loop. textual-js consolidates this into a single framework-wide `messageSignal` for the running app. This is a deliberate simplification: in the React/Ink model there is one dispatch pipeline, not per-widget pumps, so a single signal is the natural observation point.
+
+**Known divergence — messageHook timing**: upstream invokes `message_hook` from a context variable *before* dispatch begins (it is a pre-dispatch observation point). In textual-js, `messageHook` is built on top of `messageSignal` and therefore fires *after* dispatch completes. Tooling or tests that depend on observing messages before handler execution will see different timing.
+
+The dispatch loop publishes to `messageSignal` in a `finally` block, so publication happens after each dispatch completes regardless of whether any handlers ran, whether the message was coalesced, or whether the message bubbled.
+
+```ts
+messageSignal.subscribe((message: Message) => {
+  // Fires once per dispatched message, after dispatch completes.
+});
+```
+
+// [LAW:one-source-of-truth] There is exactly one `messageSignal` for the running app. Devtools, logging, and test hooks (`messageHook`) all subscribe to this single signal rather than installing parallel observation hooks in the dispatch pipeline.
+
+// [LAW:single-enforcer] Publication occurs at exactly one site — the `finally` block of the dispatch loop — so every processed message fires the signal on the same code path.
+
+// [LAW:dataflow-not-control-flow] The signal fires unconditionally after dispatch; subscribers decide what (if anything) to do with each message. There is no "enable logging" branch in the dispatch loop.
+
+Subscribers must be lightweight: every message in the system fires this signal, so expensive per-message work in a subscriber will dominate dispatch cost.
+
+## Deferred Execution
+
+### callNext / callLater / callAfterRefresh
+
+| Method | Scheduling | Use case |
+|--------|-----------|----------|
+| `callNext(callback)` | Runs immediately after the current message finishes dispatching (not via the queue) | Side effects that must happen before the next message |
+| `callLater(callback)` | Posts a `Callback` message through the normal queue | Deferred work that should respect message ordering |
+| `callAfterRefresh(callback)` | Defers until the next React render cycle completes (via `useEffect` timing or `requestAnimationFrame`) | Work that depends on the rendered output |
+
+- `callNext` callbacks are flushed in FIFO order after each message dispatch.
+- `callLater` wraps the callback in a `Callback` message, so it is subject to queue ordering and can be suppressed.
+- `callAfterRefresh` defers to after React has committed the current render — useful for measuring rendered elements or scrolling to newly mounted widgets.
 
 ## Event and Message Taxonomy
 
-### Input/system events (`textual.events`)
+### Lifecycle events (non-bubbling)
 
-- lifecycle / app scope: `Load`, `Idle`, `Compose`, `Mount`, `Unmount`, `Show`, `Hide`, `Ready`, `Resize` (all non-bubbling),
-- focus: `Focus`, `Blur`, `AppFocus`, `AppBlur` (non-bubbling); `DescendantFocus`, `DescendantBlur` (bubbling, verbose),
-- mouse: `MouseEvent` and subclasses `MouseMove`, `MouseDown`, `MouseUp`, `MouseScrollUp/Down/Left/Right`, `Click` — all bubbling; plus `MouseCapture`/`MouseRelease` (non-bubbling),
-- mouse hover: `Enter`, `Leave` (bubbling, verbose),
-- keyboard / paste: `Key` (bubbling), `Paste` (bubbling),
-- screen lifecycle: `ScreenSuspend`, `ScreenResume` (non-bubbling),
-- callback/timer transport: `Callback` (non-bubbling, verbose), `Timer` (non-bubbling, verbose),
-- miscellaneous: `Action`, `Print`, `CursorPosition`, `DeliveryComplete`, `DeliveryFailed`, `TextSelected` (bubbling).
+| Message | When | canReplace |
+|---------|------|------------|
+| `Compose` | Widget should set up its child structure | No |
+| `Mount` | Widget is in the tree and styled | No |
+| `Unmount` | Widget is being removed from the tree | No |
+| `Show` | Widget becomes visible | No |
+| `Hide` | Widget becomes hidden | No |
+| `Ready` | App has completed initial startup | No |
+| `Idle` | Idle tick for deferred work | Yes |
+| `Resize` | Terminal/viewport resized (carries width, height) | Yes |
 
-`Resize.can_replace` returns `True` for other `Resize` instances, so resize storms coalesce.
+### Focus events
 
-### Internal operational messages (`textual.messages`)
+| Message | Bubbles | Description |
+|---------|---------|-------------|
+| `Focus` | No | Widget received focus |
+| `Blur` | No | Widget lost focus |
+| `DescendantFocus` | Yes (verbose) | A descendant received focus; published upward from the focused widget so ancestors can observe focus changes in their subtree |
+| `DescendantBlur` | Yes (verbose) | A descendant lost focus; counterpart to `DescendantFocus` |
+| `AppFocus` | No | The app (terminal window) received focus |
+| `AppBlur` | No | The app (terminal window) lost focus |
 
-- queue/lifecycle control: `CloseMessages`, `Prune` (bubble=False), `ExitApp`,
-- render/layout invalidation: `Update(widget)`, `Layout(widget)`, `UpdateScroll`,
-- scheduling: `InvokeLater(callback)` (bubble=False), `ScrollToRegion(region)` (bubble=False), `Prompt` (no_dispatch=True),
-- terminal capability signals: `TerminalSupportsSynchronizedOutput`, `InBandWindowResize(supported, enabled)`.
+### Mouse events (all bubble)
 
-Coalescing (`can_replace`) is implemented by: `Update` (same widget), `Layout` (any other `Layout`), `UpdateScroll` (any other `UpdateScroll`), `Prompt` (any other `Prompt`), and `Resize` above. `Prompt` additionally sets `no_dispatch=True` so it serves purely as a "wake the loop" pulse and never runs a handler or bubbles.
+| Message | Fields | canReplace |
+|---------|--------|------------|
+| `MouseMove` | `x`, `y` | Yes |
+| `MouseDown` | `x`, `y`, `button` | No |
+| `MouseUp` | `x`, `y`, `button` | No |
+| `Click` | `x`, `y`, `chain: number` | No |
+| `MouseScrollUp` | `x`, `y` | No |
+| `MouseScrollDown` | `x`, `y` | No |
+| `MouseScrollLeft` | `x`, `y` | No |
+| `MouseScrollRight` | `x`, `y` | No |
+| `Enter` | — (verbose) | No |
+| `Leave` | — (verbose) | No |
+| `TextSelected` | `text: Content`, `range: { start: { widget, offset }, end: { widget, offset } }` | No |
 
-## Brokered Style-Meta Actions
+`Click` is synthesized by the framework when `MouseDown` and `MouseUp` occur on the same widget.
 
-`textual._event_broker.extract_handler_actions(event_name, meta)` scans a Rich-style meta dict for `@<event-path>[.<modifier>...]` keys and returns a `HandlerArguments(modifiers, action)` when the event-path prefix matches, or raises `NoHandler` when none match. It is a pure extractor: it does not dispatch, does not log, and does not mutate the originating event. The decision to stop the originating event after a successful brokered action is made by the widget-level click/mouse handler that calls into this extractor.
+`TextSelected` bubbles when the user completes a text selection across one or more widgets with `ALLOW_SELECT: true` (via click+drag). The message carries the selected rich-js `Content` and a selection range describing the start/end widget and offset pair. See spec 09's text-selection contract for gesture ownership and range construction.
 
-## Timer and Callback Message Interaction
+Mouse capture: `MouseCapture` and `MouseRelease` (non-bubbling) manage mouse capture state — while captured, all mouse events route to the capturing widget regardless of position.
 
-- `set_timer(delay, callback)` and `set_interval(interval, callback, repeat=...)` construct `Timer` objects bound to the pump and track them in a `WeakSet`; `set_timer` wraps the callback in `partial(self.call_next, callback)` so the callback runs on the pump's own task after the current message,
-- the pump's base `on_timer` handler calls `prevent_default()` and `stop()` on the timer event and then invokes the embedded callback (if any) via `_callback.invoke`; timer callbacks are skipped (with a warning) when no screen is active,
-- `on_callback` invokes the attached callable on receipt of an `events.Callback`, skipping if the app is closing or no screen is available,
-- `InvokeLater` is routed through `_on_invoke_later` to `app.screen._invoke_later` so refresh-deferred callbacks always land on the active screen.
+#### Click chain detection (double/triple click)
+
+The framework tracks a "click chain" counter that accompanies every `Click` message as `message.chain`. A `chain` of `1` is a single click, `2` is a double-click, `3` is a triple-click, and so on.
+
+The chain increments when BOTH of the following hold for successive clicks:
+
+1. The time between the previous `Click` and the current `MouseDown` is within a bounded window (default ~500ms).
+2. The current click's `MouseUp` lands on the SAME widget as the preceding `MouseDown` (i.e., the chain's target widget has not changed).
+
+When either condition fails, the chain resets to `1` and counting begins again for the new target.
+
+// [LAW:single-enforcer] The time-window check and same-widget check are enforced in the screen's mouse-forwarding path — the single site that owns translation of Ink mouse events into framework `MouseDown`/`MouseUp`/`Click` messages. Widgets do not re-derive chain counts; they read `message.chain` and branch on the value.
+
+// [LAW:dataflow-not-control-flow] Single, double, and triple clicks travel the same dispatch path — the chain count is a value carried on the message, not a different message type or a different code path.
+
+### Keyboard events
+
+| Message | Fields | Bubbles |
+|---------|--------|---------|
+| `Key` | `key` (normalized name), `character` (printable char or null) | Yes |
+
+Key events are translated from Ink's input system. Key names are normalized: `"ctrl+c"`, `"shift+tab"`, `"escape"`, `"enter"`, `"f1"`–`"f12"`, `"backspace"`, `"delete"`, `"home"`, `"end"`, `"pageup"`, `"pagedown"`, `"up"`, `"down"`, `"left"`, `"right"`, `"tab"`, `"space"`, and printable characters.
+
+### Clipboard and paste events
+
+| Message | Fields | Bubbles |
+|---------|--------|---------|
+| `Paste` | `text: string` | Yes |
+
+`Paste` is emitted when Ink detects a bracketed-paste sequence from the terminal. The `text` field carries the full pasted string as a single message — widgets must not treat a paste as a stream of individual `Key` events.
+The `text` field may contain ANSI escape sequences (for example when pasting from another terminal or styled source). Consumers that want to preserve styling can parse it via rich-js `parseAnsi()` into `Content`; consumers that want plain text can strip ANSI via rich-js `stripAnsi()`.
+
+### Cursor and terminal events (non-bubbling)
+
+| Message | Fields | Description |
+|---------|--------|-------------|
+| `CursorPosition` | `x: number`, `y: number` | Reports the terminal's current cursor position (e.g., for inline-mode positioning or widgets that need to know where the cursor rendered) |
+
+### Delivery events (non-bubbling)
+
+| Message | Fields | Description |
+|---------|--------|-------------|
+| `DeliveryComplete` | `id` | A deferred delivery (e.g., clipboard write, file save) completed successfully |
+| `DeliveryFailed` | `id`, `error` | A deferred delivery failed; `error` carries the failure cause |
+
+### Screen lifecycle events (non-bubbling)
+
+| Message | When |
+|---------|------|
+| `ScreenSuspend` | Screen is no longer the active (topmost) screen |
+| `ScreenResume` | Screen becomes the active screen |
+
+### Internal operational messages
+
+| Message | Bubbles | canReplace | Description |
+|---------|---------|------------|-------------|
+| `Callback` | No (verbose) | No | Wraps a `callLater` callback |
+| `Timer` | No (verbose) | No | Wraps a timer callback |
+| `Notify` | No | No | Carries a `Notification` payload from `notify(message, options?)`; the notification's `message` and optional `title` may be `string | Content` (see specs 01 and 12) |
+| `Print` | No (verbose) | No | Carries captured process output as `{ text: string, stderr: boolean }`; `text` may include ANSI escape sequences |
+| `CloseMessages` | No | No | Signals the queue to shut down |
+| `ExitApp` | No | No | Signals app exit |
+
+## Timer and Callback Integration
+
+### Timers
+
+- `setTimer(delay, callback)` creates a one-shot timer that posts a `Timer` message after `delay` milliseconds.
+- `setInterval(interval, callback)` creates a repeating timer.
+- Timers are bound to the owning widget and automatically cancelled on unmount.
+- The timer handler invokes the callback, calls `preventDefault()` and `stop()` on the timer event (preventing bubbling and base-class handling).
+- Named timers: `setTimer(name, delay, callback)` — setting a timer with an existing name cancels the previous one.
+- `pauseTimer(name)` / `resumeTimer(name)` suspend and resume named timers.
+
+### Callbacks
+
+- `onCallback` invokes the attached callable on receipt of a `Callback` message.
+- Skipped if the app is closing (prevents stale callbacks from running during shutdown).

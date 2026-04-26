@@ -1,3 +1,4 @@
+export { clamp } from "./clamp.js";
 export { Offset } from "./offset.js";
 export { Size } from "./size.js";
 export { Spacing } from "./spacing.js";

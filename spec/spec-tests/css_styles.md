@@ -15,9 +15,9 @@ A `Styles` object holds a collection of CSS rule values. It supports the followi
 - **merge_rules(dict)**: Merges rules from a plain dictionary.
 - **parse(css, read_from)**: Parses a CSS string into the styles object.
 
-### RenderStyles
+### ResolvedStyles
 
-`RenderStyles` composes a base `Styles` and an inline `Styles` on top of a `DOMNode`. Properties resolve by checking inline first, then base. For example, setting `border_top` on the base and `border_left` on the inline yields the base value for top and the inline value for left when reading the composite `border` property.
+`ResolvedStyles` is the single derived read-only output produced by the cascade for each widget. The widget's `styles` field is the sole writable input surface; inline rules written there participate in the cascade at the highest precedence alongside `DEFAULT_CSS` and application stylesheets. For example, setting `border_top` via a class-level stylesheet and `border_left` via `widget.styles.set_rule("border_left", ...)` yields the stylesheet value for top and the inline value for left when reading the resulting `border` on `resolved_styles`.
 
 ### Style Properties and Accepted Types
 
@@ -51,7 +51,7 @@ The `css` property on `Styles` serializes set rules to a CSS string. Properties 
 
 ### Initial Values
 
-The `initial` keyword resets a property to its default value, ignoring any inherited or previously set value from parent widget DEFAULT_CSS.
+The `initial` keyword resets a property through a property-sensitive fallback chain: user-stylesheet `initial` falls back to the highest-specificity default-stylesheet value for that property; default-stylesheet `initial` falls back to the built-in default. This is not a simple "ignore everything" reset — it respects the DEFAULT_CSS chain before reaching built-in defaults (verified in original codebase).
 
 - **Background default**: `rgba(0,0,0,0)` (fully transparent black). Setting `background: initial` on a subclass that inherited `background: red` restores the transparent default.
 - **Color with `initial`**: When a widget hierarchy defines `color` at multiple levels, `initial` resets to the value from the widget's own DEFAULT_CSS chain. If `Base` sets `color: magenta` in DEFAULT_CSS, and app CSS sets `CustomWidget2 { color: initial; }`, the resolved color is `magenta` (from the DEFAULT_CSS of the base class), not some global default. A sibling `CustomWidget3` with `color: blue` gets blue.

@@ -1,123 +1,328 @@
-/**
- * Built-in event types used by the framework.
- */
+import { Message, type MessageInit } from "./message.js";
 
-import { Message } from "./message.js";
+export class Compose extends Message {}
 
-/** Dispatched when a widget should run compose(). */
-export class Compose extends Message {
-  static override readonly bubble = false;
+export class Mount extends Message {}
+
+export class Unmount extends Message {}
+
+export class Show extends Message {}
+
+export class Hide extends Message {}
+
+export class Ready extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
 }
 
-/** Dispatched after a widget is mounted in the DOM. */
-export class Mount extends Message {
-  static override readonly bubble = false;
+export class Focus extends Message {}
+
+export class Blur extends Message {}
+
+export class DescendantFocus extends Message {
+  static override readonly verbose = true;
 }
 
-/** Dispatched before a widget is removed from the DOM. */
-export class Unmount extends Message {
-  static override readonly bubble = false;
+export class DescendantBlur extends Message {
+  static override readonly verbose = true;
 }
 
-/** Dispatched when focus is received. */
-export class Focus extends Message {
-  static override readonly bubble = false;
+export class AppBlur extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
 }
 
-/** Dispatched when focus is lost. */
-export class Blur extends Message {
-  static override readonly bubble = false;
+export class AppFocus extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
 }
 
-/** Dispatched when the terminal/viewport is resized. */
+export class Idle extends Message {
+  static readonly canReplace = true;
+}
+
+export class Callback extends Message {
+  static override readonly verbose = true;
+
+  constructor(
+    private readonly callback: () => void,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+
+  invoke(): void {
+    this.callback();
+  }
+}
+
+export class Timer extends Message {
+  static override readonly verbose = true;
+
+  constructor(
+    private readonly callback: () => void,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+
+  invoke(): void {
+    this.callback();
+    this.preventDefault();
+    this.stop();
+  }
+}
+
+export class ScreenResume extends Message {
+  constructor(
+    readonly screenName: string | null,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class ScreenSuspend extends Message {
+  constructor(
+    readonly screenName: string | null,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class ModeChanged extends Message {
+  constructor(
+    readonly mode: string,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
 export class Resize extends Message {
-  static override readonly bubble = false;
-  static override readonly canReplace = true;
+  static readonly canReplace = true;
 
   constructor(
     readonly width: number,
     readonly height: number,
+    init?: MessageInit,
   ) {
-    super();
+    super(init);
   }
 }
 
-/** Dispatched on idle ticks for deferred work. */
-export class Idle extends Message {
-  static override readonly bubble = false;
-  static override readonly canReplace = true;
+export interface KeyMeta {
+  ctrl?: boolean;
+  shift?: boolean;
+  meta?: boolean;
+  paste?: boolean;
 }
 
-/** Key press event — posted by the renderer. */
 export class Key extends Message {
-  static override readonly bubble = true;
+  readonly input: string;
+  readonly character: string | null;
 
   constructor(
     readonly key: string,
-    readonly character: string | null = null,
+    character: string | null = null,
+    readonly meta: KeyMeta = {},
+    init?: MessageInit,
   ) {
-    super();
+    super(init);
+    this.character = character;
+    this.input = character ?? "";
   }
 }
 
-/** Mouse event — posted by the renderer. */
-export class MouseDown extends Message {
-  static override readonly bubble = true;
-
+export class Paste extends Message {
   constructor(
-    readonly x: number,
-    readonly y: number,
-    readonly button: number,
+    readonly text: string,
+    init?: MessageInit,
   ) {
-    super();
+    super(init);
   }
 }
 
-export class MouseUp extends Message {
-  static override readonly bubble = true;
-
+export class MouseEvent extends Message {
   constructor(
     readonly x: number,
     readonly y: number,
-    readonly button: number,
+    init?: MessageInit,
   ) {
-    super();
+    super(init);
   }
 }
 
-export class MouseMove extends Message {
-  static override readonly bubble = true;
-  static override readonly canReplace = true;
+export class MouseDown extends MouseEvent {
+  readonly button: number;
 
   constructor(
-    readonly x: number,
-    readonly y: number,
+    x: number,
+    y: number,
+    buttonOrInit: number | MessageInit = 1,
+    init?: MessageInit,
   ) {
-    super();
+    const resolvedInit = typeof buttonOrInit === "number" ? init : buttonOrInit;
+    super(x, y, resolvedInit);
+    this.button = typeof buttonOrInit === "number" ? buttonOrInit : 1;
   }
 }
 
-export class Click extends Message {
-  static override readonly bubble = true;
+export class MouseUp extends MouseEvent {
+  readonly button: number;
 
   constructor(
-    readonly x: number,
-    readonly y: number,
+    x: number,
+    y: number,
+    buttonOrInit: number | MessageInit = 1,
+    init?: MessageInit,
   ) {
-    super();
+    const resolvedInit = typeof buttonOrInit === "number" ? init : buttonOrInit;
+    super(x, y, resolvedInit);
+    this.button = typeof buttonOrInit === "number" ? buttonOrInit : 1;
   }
 }
 
-/** Scroll wheel event. */
-export class ScrollEvent extends Message {
-  static override readonly bubble = true;
+export class MouseMove extends MouseEvent {
+  static readonly canReplace = true;
+}
 
+export class Click extends MouseEvent {
   constructor(
-    readonly x: number,
-    readonly y: number,
+    x: number,
+    y: number,
+    readonly chain: number = 1,
+    init?: MessageInit,
+  ) {
+    super(x, y, init);
+  }
+}
+
+export class Enter extends Message {
+  static override readonly verbose = true;
+}
+
+export class Leave extends Message {
+  static override readonly verbose = true;
+}
+
+export class MouseScrollUp extends MouseEvent {}
+
+export class MouseScrollDown extends MouseEvent {}
+
+export class MouseScrollLeft extends MouseEvent {}
+
+export class MouseScrollRight extends MouseEvent {}
+
+export class MouseCapture extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class MouseRelease extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export interface TextSelectionEndpoint {
+  widget: unknown;
+  offset: number;
+}
+
+export interface TextSelectionRange {
+  start: TextSelectionEndpoint;
+  end: TextSelectionEndpoint;
+}
+
+export class TextSelected extends Message {
+  constructor(
+    readonly text: unknown,
+    readonly range: TextSelectionRange,
+    init?: MessageInit,
+  ) {
+    super(init);
+  }
+}
+
+export class ScrollEvent extends MouseEvent {
+  constructor(
+    x: number,
+    y: number,
     readonly deltaX: number,
     readonly deltaY: number,
+    init?: MessageInit,
   ) {
-    super();
+    super(x, y, init);
+  }
+}
+
+export class CursorPosition extends Message {
+  constructor(
+    readonly x: number,
+    readonly y: number,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class DeliveryComplete extends Message {
+  constructor(
+    readonly id: string,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class DeliveryFailed extends Message {
+  constructor(
+    readonly id: string,
+    readonly error: unknown,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class Notify extends Message {
+  constructor(
+    readonly notification: unknown,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class Print extends Message {
+  static override readonly verbose = true;
+
+  constructor(
+    readonly text: string,
+    readonly stderr = false,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class CloseMessages extends Message {
+  constructor(init?: MessageInit) {
+    super({ bubble: false, ...init });
+  }
+}
+
+export class ExitApp extends Message {
+  constructor(
+    readonly result?: unknown,
+    init?: MessageInit,
+  ) {
+    super({ bubble: false, ...init });
   }
 }
