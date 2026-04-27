@@ -1373,6 +1373,10 @@ interface PropertySpec {
   // value shape; returns undefined to fall through to the generic
   // string/number stringify in normalizeStyleAssignment.
   normalize?(value: StyleAssignmentValue): string | undefined;
+  // Shorthand topology: the longhand property names this shorthand expands
+  // into. expand() must be defined when longhands is.
+  longhands?: readonly string[];
+  expand?(declaration: ParsedDeclaration): ParsedDeclaration[];
 }
 
 function parseColorValue(rawValue: string): unknown {
@@ -1429,12 +1433,123 @@ function makeScalarListSpec(axis: ScalarAxis): PropertySpec {
 }
 
 const COLOR_SPEC: PropertySpec = { parse: parseColorValue, normalize: colorNormalize };
-const BORDER_SPEC: PropertySpec = { parse: parseBorder };
+const BORDER_LONGHAND_SPEC: PropertySpec = { parse: parseBorder };
 const TEXT_STYLE_SPEC: PropertySpec = { parse: parseTextStyle };
-const SPACING_SPEC: PropertySpec = { parse: parseSpacing };
 const SPACING_EDGE_SPECS = Object.fromEntries(
   [...SPACING_EDGE_PROPERTIES.keys()].map((name) => [name, makeIntegerSpec(name)]),
 );
+
+const EDGES = ["top", "right", "bottom", "left"] as const;
+
+function makeBorderShorthandSpec(prefix: "border" | "outline"): PropertySpec {
+  const longhands = EDGES.map((edge) => `${prefix}-${edge}`);
+  return {
+    parse: parseBorder,
+    longhands,
+    expand: (declaration) => longhands.map((property) => ({ ...declaration, property })),
+  };
+}
+
+function makeSpacingShorthandSpec(prefix: "padding" | "margin"): PropertySpec {
+  const longhands = EDGES.map((edge) => `${prefix}-${edge}`);
+  return {
+    parse: parseSpacing,
+    longhands,
+    expand: (declaration) => {
+      const spacing = declaration.value as Spacing;
+      return EDGES.map((edge) => ({
+        ...declaration,
+        property: `${prefix}-${edge}`,
+        rawValue: String(spacing[edge]),
+        value: spacing[edge],
+      }));
+    },
+  };
+}
+
+function makeAlignShorthandSpec(prefix: "align" | "content-align"): PropertySpec {
+  return {
+    parse: parseAlign,
+    longhands: [`${prefix}-horizontal`, `${prefix}-vertical`],
+    expand: (declaration) => {
+      const align = declaration.value as AlignValue;
+      return [
+        {
+          ...declaration,
+          property: `${prefix}-horizontal`,
+          rawValue: align.horizontal,
+          value: align.horizontal,
+        },
+        {
+          ...declaration,
+          property: `${prefix}-vertical`,
+          rawValue: align.vertical,
+          value: align.vertical,
+        },
+      ];
+    },
+  };
+}
+
+const OFFSET_SHORTHAND_SPEC: PropertySpec = {
+  parse: parseOffset,
+  longhands: ["offset-x", "offset-y"],
+  expand: (declaration) => {
+    const offset = declaration.value as OffsetValue;
+    return [
+      { ...declaration, property: "offset-x", rawValue: scalarToRawValue(offset.x), value: offset.x },
+      { ...declaration, property: "offset-y", rawValue: scalarToRawValue(offset.y), value: offset.y },
+    ];
+  },
+};
+
+const OVERFLOW_SHORTHAND_SPEC: PropertySpec = {
+  parse: parseOverflow,
+  longhands: ["overflow-x", "overflow-y"],
+  expand: (declaration) => {
+    const overflow = declaration.value as OverflowValue;
+    return [
+      { ...declaration, property: "overflow-x", rawValue: overflow.x, value: overflow.x },
+      { ...declaration, property: "overflow-y", rawValue: overflow.y, value: overflow.y },
+    ];
+  },
+};
+
+const SCROLLBAR_SIZE_SHORTHAND_SPEC: PropertySpec = {
+  parse: parseScrollbarSize,
+  longhands: ["scrollbar-size-horizontal", "scrollbar-size-vertical"],
+  expand: (declaration) => {
+    const [horizontal, vertical] = declaration.value as [number, number];
+    return [
+      { ...declaration, property: "scrollbar-size-horizontal", rawValue: String(horizontal), value: horizontal },
+      { ...declaration, property: "scrollbar-size-vertical", rawValue: String(vertical), value: vertical },
+    ];
+  },
+};
+
+const GRID_SIZE_SHORTHAND_SPEC: PropertySpec = {
+  parse: parseGridSize,
+  longhands: ["grid-size-columns", "grid-size-rows"],
+  expand: (declaration) => {
+    const [columns, rows] = declaration.value as [number, number];
+    return [
+      { ...declaration, property: "grid-size-columns", rawValue: String(columns), value: columns },
+      { ...declaration, property: "grid-size-rows", rawValue: String(rows), value: rows },
+    ];
+  },
+};
+
+const GRID_GUTTER_SHORTHAND_SPEC: PropertySpec = {
+  parse: parseOffset,
+  longhands: ["grid-gutter-horizontal", "grid-gutter-vertical"],
+  expand: (declaration) => {
+    const gutter = declaration.value as OffsetValue;
+    return [
+      { ...declaration, property: "grid-gutter-horizontal", rawValue: scalarToRawValue(gutter.x), value: gutter.x },
+      { ...declaration, property: "grid-gutter-vertical", rawValue: scalarToRawValue(gutter.y), value: gutter.y },
+    ];
+  },
+};
 
 const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   // Dimension scalars.
@@ -1446,21 +1561,21 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   "max-height": makeScalarSpec("height"),
 
   // Spacing.
-  padding: SPACING_SPEC,
-  margin: SPACING_SPEC,
+  padding: makeSpacingShorthandSpec("padding"),
+  margin: makeSpacingShorthandSpec("margin"),
   ...SPACING_EDGE_SPECS,
 
   // Borders / outlines.
-  border: BORDER_SPEC,
-  "border-top": BORDER_SPEC,
-  "border-right": BORDER_SPEC,
-  "border-bottom": BORDER_SPEC,
-  "border-left": BORDER_SPEC,
-  outline: BORDER_SPEC,
-  "outline-top": BORDER_SPEC,
-  "outline-right": BORDER_SPEC,
-  "outline-bottom": BORDER_SPEC,
-  "outline-left": BORDER_SPEC,
+  border: makeBorderShorthandSpec("border"),
+  "border-top": BORDER_LONGHAND_SPEC,
+  "border-right": BORDER_LONGHAND_SPEC,
+  "border-bottom": BORDER_LONGHAND_SPEC,
+  "border-left": BORDER_LONGHAND_SPEC,
+  outline: makeBorderShorthandSpec("outline"),
+  "outline-top": BORDER_LONGHAND_SPEC,
+  "outline-right": BORDER_LONGHAND_SPEC,
+  "outline-bottom": BORDER_LONGHAND_SPEC,
+  "outline-left": BORDER_LONGHAND_SPEC,
 
   // Colors.
   background: COLOR_SPEC,
@@ -1495,28 +1610,28 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   dock: makeEnumSpec("dock", ["top", "bottom", "left", "right"]),
 
   // Overflow.
-  overflow: { parse: parseOverflow },
+  overflow: OVERFLOW_SHORTHAND_SPEC,
   "overflow-x": makeEnumSpec("overflow-x", ["auto", "scroll", "hidden"]),
   "overflow-y": makeEnumSpec("overflow-y", ["auto", "scroll", "hidden"]),
 
   // Align / content-align.
-  align: { parse: parseAlign },
-  "content-align": { parse: parseAlign },
+  align: makeAlignShorthandSpec("align"),
+  "content-align": makeAlignShorthandSpec("content-align"),
   "align-horizontal": makeEnumSpec("align-horizontal", ["left", "center", "right"]),
   "content-align-horizontal": makeEnumSpec("content-align-horizontal", ["left", "center", "right"]),
   "align-vertical": makeEnumSpec("align-vertical", ["top", "middle", "bottom"]),
   "content-align-vertical": makeEnumSpec("content-align-vertical", ["top", "middle", "bottom"]),
 
   // Offset.
-  offset: { parse: parseOffset },
+  offset: OFFSET_SHORTHAND_SPEC,
   "offset-x": makeScalarSpec("width"),
   "offset-y": makeScalarSpec("height"),
 
   // Grid.
-  "grid-size": { parse: parseGridSize },
+  "grid-size": GRID_SIZE_SHORTHAND_SPEC,
   "grid-size-columns": makeIntegerSpec("grid-size-columns"),
   "grid-size-rows": makeIntegerSpec("grid-size-rows"),
-  "grid-gutter": { parse: parseOffset },
+  "grid-gutter": GRID_GUTTER_SHORTHAND_SPEC,
   "grid-gutter-horizontal": makeScalarSpec("width"),
   "grid-gutter-vertical": makeScalarSpec("height"),
   "grid-columns": makeScalarListSpec("width"),
@@ -1525,7 +1640,7 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   "column-span": makeIntegerSpec("column-span"),
 
   // Scrollbar.
-  "scrollbar-size": { parse: parseScrollbarSize },
+  "scrollbar-size": SCROLLBAR_SIZE_SHORTHAND_SPEC,
   "scrollbar-size-horizontal": makeIntegerSpec("scrollbar-size-horizontal"),
   "scrollbar-size-vertical": makeIntegerSpec("scrollbar-size-vertical"),
   // [LAW:single-enforcer] Scrollbar gutter grammar is enforced at the TCSS
@@ -1709,146 +1824,25 @@ export class Stylesheet {
 }
 
 function expandedDeclarationEntries(declaration: ParsedDeclaration): ParsedDeclaration[] {
-  const initialEntry = (property: string): ParsedDeclaration => ({
-    ...declaration,
-    property,
-    rawValue: "initial",
-    value: "initial",
-  });
+  const spec = PROPERTIES[declaration.property];
+
+  // [LAW:dataflow-not-control-flow] Non-shorthands pass through unchanged;
+  // shorthands with longhands defer to spec.expand. The "initial" case is
+  // derived from spec.longhands — no per-shorthand initial code path.
+  if (spec?.longhands === undefined || spec.expand === undefined) {
+    return [declaration];
+  }
 
   if (declaration.value === "initial") {
-    if (declaration.property === "border" || declaration.property === "outline") {
-      return ["top", "right", "bottom", "left"].map((edge) => initialEntry(`${declaration.property}-${edge}`));
-    }
-
-    if (declaration.property === "padding" || declaration.property === "margin") {
-      return ["top", "right", "bottom", "left"].map((edge) => initialEntry(`${declaration.property}-${edge}`));
-    }
-
-    if (declaration.property === "align" || declaration.property === "content-align") {
-      return [initialEntry(`${declaration.property}-horizontal`), initialEntry(`${declaration.property}-vertical`)];
-    }
-
-    if (declaration.property === "offset") {
-      return [initialEntry("offset-x"), initialEntry("offset-y")];
-    }
-
-    if (declaration.property === "overflow") {
-      return [initialEntry("overflow-x"), initialEntry("overflow-y")];
-    }
-
-    if (declaration.property === "scrollbar-size") {
-      return [initialEntry("scrollbar-size-horizontal"), initialEntry("scrollbar-size-vertical")];
-    }
-
-    if (declaration.property === "grid-size") {
-      return [initialEntry("grid-size-columns"), initialEntry("grid-size-rows")];
-    }
-
-    if (declaration.property === "grid-gutter") {
-      return [initialEntry("grid-gutter-horizontal"), initialEntry("grid-gutter-vertical")];
-    }
-  }
-
-  if (declaration.property === "border" || declaration.property === "outline") {
-    return ["top", "right", "bottom", "left"].map((edge) => ({
+    return spec.longhands.map((property) => ({
       ...declaration,
-      property: `${declaration.property}-${edge}`,
+      property,
+      rawValue: "initial",
+      value: "initial",
     }));
   }
 
-  if (declaration.property === "padding" || declaration.property === "margin") {
-    const spacing = declaration.value as Spacing;
-    const values = {
-      top: spacing.top,
-      right: spacing.right,
-      bottom: spacing.bottom,
-      left: spacing.left,
-    };
-
-    return Object.entries(values).map(([edge, value]) => ({
-      ...declaration,
-      property: `${declaration.property}-${edge}`,
-      rawValue: String(value),
-      value,
-    }));
-  }
-
-  if (declaration.property === "align" || declaration.property === "content-align") {
-    const align = declaration.value as AlignValue;
-
-    return [
-      {
-        ...declaration,
-        property: `${declaration.property}-horizontal`,
-        rawValue: align.horizontal,
-        value: align.horizontal,
-      },
-      {
-        ...declaration,
-        property: `${declaration.property}-vertical`,
-        rawValue: align.vertical,
-        value: align.vertical,
-      },
-    ];
-  }
-
-  if (declaration.property === "offset") {
-    const offset = declaration.value as OffsetValue;
-
-    return [
-      {
-        ...declaration,
-        property: "offset-x",
-        rawValue: scalarToRawValue(offset.x),
-        value: offset.x,
-      },
-      {
-        ...declaration,
-        property: "offset-y",
-        rawValue: scalarToRawValue(offset.y),
-        value: offset.y,
-      },
-    ];
-  }
-
-  if (declaration.property === "overflow") {
-    const overflow = declaration.value as OverflowValue;
-
-    return [
-      { ...declaration, property: "overflow-x", rawValue: overflow.x, value: overflow.x },
-      { ...declaration, property: "overflow-y", rawValue: overflow.y, value: overflow.y },
-    ];
-  }
-
-  if (declaration.property === "scrollbar-size") {
-    const [horizontal, vertical] = declaration.value as [number, number];
-
-    return [
-      { ...declaration, property: "scrollbar-size-horizontal", rawValue: String(horizontal), value: horizontal },
-      { ...declaration, property: "scrollbar-size-vertical", rawValue: String(vertical), value: vertical },
-    ];
-  }
-
-  if (declaration.property === "grid-size") {
-    const [columns, rows] = declaration.value as [number, number];
-
-    return [
-      { ...declaration, property: "grid-size-columns", rawValue: String(columns), value: columns },
-      { ...declaration, property: "grid-size-rows", rawValue: String(rows), value: rows },
-    ];
-  }
-
-  if (declaration.property === "grid-gutter") {
-    const gutter = declaration.value as OffsetValue;
-
-    return [
-      { ...declaration, property: "grid-gutter-horizontal", rawValue: scalarToRawValue(gutter.x), value: gutter.x },
-      { ...declaration, property: "grid-gutter-vertical", rawValue: scalarToRawValue(gutter.y), value: gutter.y },
-    ];
-  }
-
-  return [declaration];
+  return spec.expand(declaration);
 }
 
 function compareCascade(left: CascadeValue, right: CascadeValue): number {
