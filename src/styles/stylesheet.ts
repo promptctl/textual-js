@@ -1361,6 +1361,145 @@ function propertySuggestionMessage(property: string): string {
   return `Invalid CSS property "${normalized}"${suffix}`;
 }
 
+// [LAW:one-source-of-truth] PROPERTIES is the canonical per-property
+// dispatch table. parseValue reads spec.parse and runs an unconditional
+// dispatch; future fields (normalize, longhands, expand, assemble, initial)
+// will absorb the other sites that currently re-key on property name.
+interface PropertySpec {
+  parse(rawValue: string): unknown;
+}
+
+function parseColorValue(rawValue: string): unknown {
+  const trimmed = rawValue.trim();
+  return trimmed.startsWith("var(") ? trimmed : Color.parse(trimmed);
+}
+
+function makeEnumSpec<T extends string>(name: string, values: readonly T[]): PropertySpec {
+  return { parse: (raw) => parseStringEnum(name, raw, values) };
+}
+
+function makeIntegerSpec(name: string): PropertySpec {
+  return { parse: (raw) => parseInteger(raw, name) };
+}
+
+const COLOR_SPEC: PropertySpec = { parse: parseColorValue };
+const BORDER_SPEC: PropertySpec = { parse: parseBorder };
+const TEXT_STYLE_SPEC: PropertySpec = { parse: parseTextStyle };
+const SPACING_SPEC: PropertySpec = { parse: parseSpacing };
+const SPACING_EDGE_SPECS = Object.fromEntries(
+  [...SPACING_EDGE_PROPERTIES.keys()].map((name) => [name, makeIntegerSpec(name)]),
+);
+
+const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
+  // Dimension scalars.
+  width: { parse: (raw) => parseScalar(raw, "width") },
+  "min-width": { parse: (raw) => parseScalar(raw, "width") },
+  "max-width": { parse: (raw) => parseScalar(raw, "width") },
+  height: { parse: (raw) => parseScalar(raw, "height") },
+  "min-height": { parse: (raw) => parseScalar(raw, "height") },
+  "max-height": { parse: (raw) => parseScalar(raw, "height") },
+
+  // Spacing.
+  padding: SPACING_SPEC,
+  margin: SPACING_SPEC,
+  ...SPACING_EDGE_SPECS,
+
+  // Borders / outlines.
+  border: BORDER_SPEC,
+  "border-top": BORDER_SPEC,
+  "border-right": BORDER_SPEC,
+  "border-bottom": BORDER_SPEC,
+  "border-left": BORDER_SPEC,
+  outline: BORDER_SPEC,
+  "outline-top": BORDER_SPEC,
+  "outline-right": BORDER_SPEC,
+  "outline-bottom": BORDER_SPEC,
+  "outline-left": BORDER_SPEC,
+
+  // Colors.
+  background: COLOR_SPEC,
+  color: COLOR_SPEC,
+  tint: COLOR_SPEC,
+  "scrollbar-color": COLOR_SPEC,
+  "scrollbar-color-hover": COLOR_SPEC,
+  "scrollbar-color-active": COLOR_SPEC,
+  "scrollbar-background": COLOR_SPEC,
+  "scrollbar-background-hover": COLOR_SPEC,
+  "scrollbar-background-active": COLOR_SPEC,
+  "link-color": COLOR_SPEC,
+  "link-background": COLOR_SPEC,
+  "link-color-hover": COLOR_SPEC,
+  "link-background-hover": COLOR_SPEC,
+
+  // Display / visibility / opacity.
+  display: makeEnumSpec("display", ["block", "none"]),
+  visibility: makeEnumSpec("visibility", ["visible", "hidden"]),
+  opacity: { parse: parseFractional },
+
+  // Text.
+  "text-align": makeEnumSpec("text-align", ["left", "start", "center", "right", "end", "justify"]),
+  "text-style": TEXT_STYLE_SPEC,
+  "link-style": TEXT_STYLE_SPEC,
+  "link-style-hover": TEXT_STYLE_SPEC,
+  "text-wrap": makeEnumSpec("text-wrap", ["wrap", "nowrap", "ellipsis"]),
+  "text-overflow": makeEnumSpec("text-overflow", ["ellipsis", "fold"]),
+
+  // Pointer / dock.
+  pointer: { parse: (raw) => parseStringEnum("pointer", raw, POINTER_VALUES) },
+  dock: makeEnumSpec("dock", ["top", "bottom", "left", "right"]),
+
+  // Overflow.
+  overflow: { parse: parseOverflow },
+  "overflow-x": makeEnumSpec("overflow-x", ["auto", "scroll", "hidden"]),
+  "overflow-y": makeEnumSpec("overflow-y", ["auto", "scroll", "hidden"]),
+
+  // Align / content-align.
+  align: { parse: parseAlign },
+  "content-align": { parse: parseAlign },
+  "align-horizontal": makeEnumSpec("align-horizontal", ["left", "center", "right"]),
+  "content-align-horizontal": makeEnumSpec("content-align-horizontal", ["left", "center", "right"]),
+  "align-vertical": makeEnumSpec("align-vertical", ["top", "middle", "bottom"]),
+  "content-align-vertical": makeEnumSpec("content-align-vertical", ["top", "middle", "bottom"]),
+
+  // Offset.
+  offset: { parse: parseOffset },
+  "offset-x": { parse: (raw) => parseScalar(raw, "width") },
+  "offset-y": { parse: (raw) => parseScalar(raw, "height") },
+
+  // Grid.
+  "grid-size": { parse: parseGridSize },
+  "grid-size-columns": makeIntegerSpec("grid-size-columns"),
+  "grid-size-rows": makeIntegerSpec("grid-size-rows"),
+  "grid-gutter": { parse: parseOffset },
+  "grid-gutter-horizontal": { parse: (raw) => parseScalar(raw, "width") },
+  "grid-gutter-vertical": { parse: (raw) => parseScalar(raw, "height") },
+  "grid-columns": { parse: (raw) => parseScalarList(raw, "width") },
+  "grid-rows": { parse: (raw) => parseScalarList(raw, "height") },
+  "row-span": makeIntegerSpec("row-span"),
+  "column-span": makeIntegerSpec("column-span"),
+
+  // Scrollbar.
+  "scrollbar-size": { parse: parseScrollbarSize },
+  "scrollbar-size-horizontal": makeIntegerSpec("scrollbar-size-horizontal"),
+  "scrollbar-size-vertical": makeIntegerSpec("scrollbar-size-vertical"),
+  // [LAW:single-enforcer] Scrollbar gutter grammar is enforced at the TCSS
+  // value boundary so layout infrastructure consumes one canonical enum.
+  "scrollbar-gutter": makeEnumSpec("scrollbar-gutter", ["auto", "stable"]),
+
+  // Box / border title alignment.
+  "box-sizing": makeEnumSpec("box-sizing", ["border-box", "content-box"]),
+  "border-title-align": makeEnumSpec("border-title-align", ["left", "center", "right"]),
+  "border-subtitle-align": makeEnumSpec("border-subtitle-align", ["left", "center", "right"]),
+
+  // Overlay / constrain / layout.
+  overlay: makeEnumSpec("overlay", ["screen"]),
+  constrain: makeEnumSpec("constrain", ["x", "y", "both", "none"]),
+  layout: makeEnumSpec("layout", ["vertical", "horizontal", "grid", "stream"]),
+
+  // Transition.
+  transition: { parse: parseTransition },
+};
+
 function parseValue(property: string, rawValue: string): unknown {
   if (!property.startsWith("--") && !KNOWN_PROPERTIES.has(property)) {
     throw new StylesheetParseError(propertySuggestionMessage(property));
@@ -1370,169 +1509,9 @@ function parseValue(property: string, rawValue: string): unknown {
     return "initial";
   }
 
-  if (DIMENSION_PROPERTIES.has(property)) {
-    const axis = WIDTH_AXIS_PROPERTIES.has(property) ? "width" : "height";
-    return parseScalar(rawValue, axis);
-  }
-
-  if (SPACING_PROPERTIES.has(property)) {
-    return parseSpacing(rawValue);
-  }
-
-  if (SPACING_EDGE_PROPERTIES.has(property)) {
-    return parseInteger(rawValue, property);
-  }
-
-  if (BORDER_PROPERTIES.has(property)) {
-    return parseBorder(rawValue);
-  }
-
-  if (COLOR_PROPERTIES.has(property)) {
-    const trimmed = rawValue.trim();
-    return trimmed.startsWith("var(") ? trimmed : Color.parse(trimmed);
-  }
-
-  if (property === "display") {
-    return parseStringEnum(property, rawValue, ["block", "none"] as const);
-  }
-
-  if (property === "visibility") {
-    return parseStringEnum(property, rawValue, ["visible", "hidden"] as const);
-  }
-
-  if (property === "opacity") {
-    return parseFractional(rawValue);
-  }
-
-  if (property === "text-align") {
-    return parseStringEnum(property, rawValue, ["left", "start", "center", "right", "end", "justify"] as const);
-  }
-
-  if (property === "text-style" || property === "link-style" || property === "link-style-hover") {
-    return parseTextStyle(rawValue);
-  }
-
-  if (property === "text-wrap") {
-    return parseStringEnum(property, rawValue, ["wrap", "nowrap", "ellipsis"] as const);
-  }
-
-  if (property === "text-overflow") {
-    return parseStringEnum(property, rawValue, ["ellipsis", "fold"] as const);
-  }
-
-  if (property === "pointer") {
-    return parseStringEnum(property, rawValue, POINTER_VALUES);
-  }
-
-  if (property === "dock") {
-    return parseStringEnum(property, rawValue, ["top", "bottom", "left", "right"] as const);
-  }
-
-  if (property === "overflow") {
-    return parseOverflow(rawValue);
-  }
-
-  if (property === "overflow-x" || property === "overflow-y") {
-    return parseStringEnum(property, rawValue, ["auto", "scroll", "hidden"] as const);
-  }
-
-  if (property === "align" || property === "content-align") {
-    return parseAlign(rawValue);
-  }
-
-  if (property === "align-horizontal" || property === "content-align-horizontal") {
-    return parseStringEnum(property, rawValue, ["left", "center", "right"] as const);
-  }
-
-  if (property === "align-vertical" || property === "content-align-vertical") {
-    return parseStringEnum(property, rawValue, ["top", "middle", "bottom"] as const);
-  }
-
-  if (property === "offset") {
-    return parseOffset(rawValue);
-  }
-
-  if (property === "offset-x") {
-    return parseScalar(rawValue, "width");
-  }
-
-  if (property === "offset-y") {
-    return parseScalar(rawValue, "height");
-  }
-
-  if (property === "grid-size") {
-    return parseGridSize(rawValue);
-  }
-
-  if (property === "grid-size-columns" || property === "grid-size-rows") {
-    return parseInteger(rawValue, property);
-  }
-
-  if (property === "grid-gutter") {
-    return parseOffset(rawValue);
-  }
-
-  if (property === "grid-gutter-horizontal") {
-    return parseScalar(rawValue, "width");
-  }
-
-  if (property === "grid-gutter-vertical") {
-    return parseScalar(rawValue, "height");
-  }
-
-  if (property === "row-span" || property === "column-span") {
-    return parseInteger(rawValue, property);
-  }
-
-  const scalarListAxis = SCALAR_LIST_PROPERTIES.get(property);
-
-  if (scalarListAxis !== undefined) {
-    return parseScalarList(rawValue, scalarListAxis);
-  }
-
-  if (property === "scrollbar-size") {
-    return parseScrollbarSize(rawValue);
-  }
-
-  if (property === "scrollbar-size-horizontal" || property === "scrollbar-size-vertical") {
-    return parseInteger(rawValue, property);
-  }
-
-  if (property === "scrollbar-gutter") {
-    // [LAW:single-enforcer] Scrollbar gutter grammar is enforced at the TCSS
-    // value boundary so layout infrastructure consumes one canonical enum.
-    return parseStringEnum(property, rawValue, ["auto", "stable"] as const);
-  }
-
-  if (property === "box-sizing") {
-    return parseStringEnum(property, rawValue, ["border-box", "content-box"] as const);
-  }
-
-  if (property === "border-title-align" || property === "border-subtitle-align") {
-    return parseStringEnum(property, rawValue, ["left", "center", "right"] as const);
-  }
-
-  if (property === "overlay") {
-    return parseStringEnum(property, rawValue, ["screen"] as const);
-  }
-
-  if (property === "constrain") {
-    return parseStringEnum(property, rawValue, ["x", "y", "both", "none"] as const);
-  }
-
-  if (property === "layout") {
-    return parseStringEnum(property, rawValue, ["vertical", "horizontal", "grid", "stream"] as const);
-  }
-
-  if (property === "transition") {
-    return parseTransition(rawValue);
-  }
-
-  if (property.startsWith("--")) {
-    return rawValue.trim();
-  }
-
-  return rawValue.trim();
+  // [LAW:dataflow-not-control-flow] Property dispatch is one table lookup;
+  // unknown properties (incl. custom --*) fall through to a trim() default.
+  return PROPERTIES[property]?.parse(rawValue) ?? rawValue.trim();
 }
 
 export type StyleAssignmentValue = string | number | Scalar | Color | readonly Scalar[];
