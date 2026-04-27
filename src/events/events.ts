@@ -1,8 +1,15 @@
-import { Message, type MessageInit } from "./message.js";
+import {
+  Message,
+  type MessageDispatchKind,
+  type MessageInit,
+  type MessageSuppressionCategory,
+} from "./message.js";
 
 export class Compose extends Message {}
 
-export class Mount extends Message {}
+export class Mount extends Message {
+  static override readonly markLifecycleReadyAfterDispatch = true;
+}
 
 export class Unmount extends Message {}
 
@@ -46,6 +53,8 @@ export class Idle extends Message {
 
 export class Callback extends Message {
   static override readonly verbose = true;
+  static override readonly dispatchKind = "self-invoke";
+  static override readonly discardOnShutdown = true;
 
   constructor(
     private readonly callback: () => void,
@@ -61,6 +70,7 @@ export class Callback extends Message {
 
 export class Timer extends Message {
   static override readonly verbose = true;
+  static override readonly dispatchKind = "self-invoke";
 
   constructor(
     private readonly callback: () => void,
@@ -123,6 +133,9 @@ export interface KeyMeta {
 }
 
 export class Key extends Message {
+  static override readonly suppressionCategory = "user-input";
+  static override readonly handlesKeyBindings = true;
+
   readonly input: string;
   readonly character: string | null;
 
@@ -148,6 +161,8 @@ export class Paste extends Message {
 }
 
 export class MouseEvent extends Message {
+  static override readonly suppressionCategory: MessageSuppressionCategory = "user-input";
+
   constructor(
     readonly x: number,
     readonly y: number,
@@ -210,13 +225,21 @@ export class Leave extends Message {
   static override readonly verbose = true;
 }
 
-export class MouseScrollUp extends MouseEvent {}
+export class MouseScrollUp extends MouseEvent {
+  static override readonly suppressionCategory = "scroll";
+}
 
-export class MouseScrollDown extends MouseEvent {}
+export class MouseScrollDown extends MouseEvent {
+  static override readonly suppressionCategory = "scroll";
+}
 
-export class MouseScrollLeft extends MouseEvent {}
+export class MouseScrollLeft extends MouseEvent {
+  static override readonly suppressionCategory = "scroll";
+}
 
-export class MouseScrollRight extends MouseEvent {}
+export class MouseScrollRight extends MouseEvent {
+  static override readonly suppressionCategory = "scroll";
+}
 
 export class MouseCapture extends Message {
   constructor(init?: MessageInit) {
@@ -251,6 +274,8 @@ export class TextSelected extends Message {
 }
 
 export class ScrollEvent extends MouseEvent {
+  static override readonly suppressionCategory = "scroll";
+
   constructor(
     x: number,
     y: number,

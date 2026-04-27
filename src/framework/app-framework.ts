@@ -2935,8 +2935,12 @@ export class TextualFramework {
   }
 
   private discardQueuedCallbacks(): void {
+    // [LAW:dataflow-not-control-flow] Shutdown discard policy is read from a
+    // static tag on each Message constructor; the queue scan does not branch
+    // on message kind.
     for (let index = this.queue.length - 1; index >= 0; index -= 1) {
-      if (this.queue[index]?.message instanceof Callback) {
+      const entry = this.queue[index];
+      if (entry !== undefined && (entry.message.constructor as MessageConstructor).discardOnShutdown) {
         this.queue.splice(index, 1);
       }
     }
@@ -3282,28 +3286,23 @@ export class TextualFramework {
   }
 
   private async dispatchQueuedMessage({ targetId, targetNode, message }: QueuedMessage): Promise<void> {
+    const messageClass = message.constructor as MessageConstructor;
+
     try {
       if (message.noDispatch) {
         return;
       }
 
-      if (message instanceof Callback) {
+      if (messageClass.dispatchKind === "self-invoke") {
         if (this.isClosing) {
           return;
         }
 
-        // [LAW:single-enforcer] Callback execution is attached to queued
-        // message dispatch so deferred work follows the same lifecycle boundary.
-        message.invoke();
-        return;
-      }
-
-      if (message instanceof Timer) {
-        if (this.isClosing) {
-          return;
-        }
-
-        message.invoke();
+        // [LAW:single-enforcer] Callback / Timer execution is attached to
+        // queued message dispatch so deferred work follows the same lifecycle
+        // boundary. Both classes carry an invoke() method by convention; the
+        // dispatchKind tag is the contract.
+        (message as Callback | Timer).invoke();
         return;
       }
 
@@ -3333,20 +3332,19 @@ export class TextualFramework {
           }
         }
 
-        if (message instanceof Key && !message.isPropagationStopped) {
-          const keyConsumer = message.sender instanceof Widget ? message.sender : undefined;
+        if (messageClass.handlesKeyBindings && !message.isPropagationStopped) {
+          const keyMessage = message as Key;
+          const keyConsumer = keyMessage.sender instanceof Widget ? keyMessage.sender : undefined;
           const consumedByDescendant =
             keyConsumer !== undefined &&
             keyConsumer.nodeId !== currentNode.nodeId &&
-            keyConsumer.checkConsumeKey(message.key, message.character);
+            keyConsumer.checkConsumeKey(keyMessage.key, keyMessage.character);
 
-          if (!consumedByDescendant && this.dispatchNodeKeyBindings(currentNode, message.key)) {
+          if (!consumedByDescendant && this.dispatchNodeKeyBindings(currentNode, keyMessage.key)) {
             message.stop();
           }
-        }
 
-        if (message instanceof Key && !message.isPropagationStopped) {
-          if (await this.dispatchKeyHandler(handlers, message)) {
+          if (!message.isPropagationStopped && (await this.dispatchKeyHandler(handlers, keyMessage))) {
             message.stop();
           }
         }
@@ -3364,13 +3362,13 @@ export class TextualFramework {
         currentNode = parentNode;
       }
 
-      if (message instanceof Key && !message.isPropagationStopped) {
-        if (this.dispatchScreenKeyBindings(message.key)) {
+      if (messageClass.handlesKeyBindings && !message.isPropagationStopped) {
+        if (this.dispatchScreenKeyBindings((message as Key).key)) {
           message.stop();
         }
       }
     } finally {
-      if (message instanceof Mount && targetNode !== undefined) {
+      if (messageClass.markLifecycleReadyAfterDispatch && targetNode !== undefined) {
         targetNode.markLifecycleReady();
       }
 
@@ -4031,38 +4029,26 @@ function clonePreventionSnapshot(snapshot: PreventionSnapshot): Map<string | nul
   );
 }
 
+// [LAW:dataflow-not-control-flow] Suppression policy reads one tag from the
+// Message constructor (suppressionCategory). Loading suppresses both
+// "user-input" and "scroll"; disabled suppresses only "user-input" (scroll
+// passes through). The asymmetry lives in this rule, not in the message
+// classification.
 function shouldSuppressAtNode(node: Widget, message: Message): boolean {
+  const category = (message.constructor as MessageConstructor).suppressionCategory;
+
+  if (category === null || category === undefined) {
+    return false;
+  }
+
   if (node.isLoadingEffective) {
-    return isUserInputMessage(message);
+    return true;
   }
 
   if (node.isDisabledEffective) {
-    return isUserInputMessage(message) && !isScrollInputMessage(message);
+    return category === "user-input";
   }
 
-  return false;
-}
-
-function isUserInputMessage(message: Message): boolean {
-  if (message instanceof Key) return true;
-  if (message instanceof Click) return true;
-  if (message instanceof MouseDown) return true;
-  if (message instanceof MouseUp) return true;
-  if (message instanceof MouseMove) return true;
-  if (message instanceof ScrollEvent) return true;
-  if (message instanceof MouseScrollUp) return true;
-  if (message instanceof MouseScrollDown) return true;
-  if (message instanceof MouseScrollLeft) return true;
-  if (message instanceof MouseScrollRight) return true;
-  return false;
-}
-
-function isScrollInputMessage(message: Message): boolean {
-  if (message instanceof ScrollEvent) return true;
-  if (message instanceof MouseScrollUp) return true;
-  if (message instanceof MouseScrollDown) return true;
-  if (message instanceof MouseScrollLeft) return true;
-  if (message instanceof MouseScrollRight) return true;
   return false;
 }
 
