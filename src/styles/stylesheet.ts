@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { Spacing } from "../geometry/index.js";
 import { Color } from "./color.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
-import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, scalarToInkValue, scalarToRawValue, StyleValueError, Unit } from "./scalar.js";
+import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, type ScalarAxis, scalarToInkValue, scalarToRawValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
 import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
 import type { TextualFramework } from "../framework/app-framework.js";
@@ -1362,16 +1362,48 @@ function propertySuggestionMessage(property: string): string {
 }
 
 // [LAW:one-source-of-truth] PROPERTIES is the canonical per-property
-// dispatch table. parseValue reads spec.parse and runs an unconditional
-// dispatch; future fields (normalize, longhands, expand, assemble, initial)
-// will absorb the other sites that currently re-key on property name.
+// dispatch table. parseValue and normalizeStyleAssignment read from one
+// spec; future fields (longhands, expand, assemble, initial) will absorb
+// the remaining sites that currently re-key on property name.
+export type StyleAssignmentValue = string | number | Scalar | Color | readonly Scalar[];
+
 interface PropertySpec {
   parse(rawValue: string): unknown;
+  // Returns a normalized raw-value string when the spec handles the given
+  // value shape; returns undefined to fall through to the generic
+  // string/number stringify in normalizeStyleAssignment.
+  normalize?(value: StyleAssignmentValue): string | undefined;
 }
 
 function parseColorValue(rawValue: string): unknown {
   const trimmed = rawValue.trim();
   return trimmed.startsWith("var(") ? trimmed : Color.parse(trimmed);
+}
+
+function colorNormalize(value: StyleAssignmentValue): string | undefined {
+  return value instanceof Color ? value.css : undefined;
+}
+
+function makeScalarNormalize(axis: ScalarAxis): PropertySpec["normalize"] {
+  return (value) => scalarToRawValue(normalizeScalar(value as string | number | Scalar, axis));
+}
+
+function makeScalarListNormalize(axis: ScalarAxis): PropertySpec["normalize"] {
+  return (value) => {
+    const values = Array.isArray(value)
+      ? value
+      : String(value).trim().split(/\s+/).map((part) => parseScalar(part, axis));
+    return values
+      .map((part) => {
+        const scalar = normalizeScalar(part, axis);
+        return scalarToRawValue(
+          scalar.unit === Unit.FRACTION
+            ? scalar.copyWith({ percentUnit: axisToPercentUnit(axis) })
+            : scalar,
+        );
+      })
+      .join(" ");
+  };
 }
 
 function makeEnumSpec<T extends string>(name: string, values: readonly T[]): PropertySpec {
@@ -1382,7 +1414,21 @@ function makeIntegerSpec(name: string): PropertySpec {
   return { parse: (raw) => parseInteger(raw, name) };
 }
 
-const COLOR_SPEC: PropertySpec = { parse: parseColorValue };
+function makeScalarSpec(axis: ScalarAxis): PropertySpec {
+  return {
+    parse: (raw) => parseScalar(raw, axis),
+    normalize: makeScalarNormalize(axis),
+  };
+}
+
+function makeScalarListSpec(axis: ScalarAxis): PropertySpec {
+  return {
+    parse: (raw) => parseScalarList(raw, axis),
+    normalize: makeScalarListNormalize(axis),
+  };
+}
+
+const COLOR_SPEC: PropertySpec = { parse: parseColorValue, normalize: colorNormalize };
 const BORDER_SPEC: PropertySpec = { parse: parseBorder };
 const TEXT_STYLE_SPEC: PropertySpec = { parse: parseTextStyle };
 const SPACING_SPEC: PropertySpec = { parse: parseSpacing };
@@ -1392,12 +1438,12 @@ const SPACING_EDGE_SPECS = Object.fromEntries(
 
 const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   // Dimension scalars.
-  width: { parse: (raw) => parseScalar(raw, "width") },
-  "min-width": { parse: (raw) => parseScalar(raw, "width") },
-  "max-width": { parse: (raw) => parseScalar(raw, "width") },
-  height: { parse: (raw) => parseScalar(raw, "height") },
-  "min-height": { parse: (raw) => parseScalar(raw, "height") },
-  "max-height": { parse: (raw) => parseScalar(raw, "height") },
+  width: makeScalarSpec("width"),
+  "min-width": makeScalarSpec("width"),
+  "max-width": makeScalarSpec("width"),
+  height: makeScalarSpec("height"),
+  "min-height": makeScalarSpec("height"),
+  "max-height": makeScalarSpec("height"),
 
   // Spacing.
   padding: SPACING_SPEC,
@@ -1463,18 +1509,18 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
 
   // Offset.
   offset: { parse: parseOffset },
-  "offset-x": { parse: (raw) => parseScalar(raw, "width") },
-  "offset-y": { parse: (raw) => parseScalar(raw, "height") },
+  "offset-x": makeScalarSpec("width"),
+  "offset-y": makeScalarSpec("height"),
 
   // Grid.
   "grid-size": { parse: parseGridSize },
   "grid-size-columns": makeIntegerSpec("grid-size-columns"),
   "grid-size-rows": makeIntegerSpec("grid-size-rows"),
   "grid-gutter": { parse: parseOffset },
-  "grid-gutter-horizontal": { parse: (raw) => parseScalar(raw, "width") },
-  "grid-gutter-vertical": { parse: (raw) => parseScalar(raw, "height") },
-  "grid-columns": { parse: (raw) => parseScalarList(raw, "width") },
-  "grid-rows": { parse: (raw) => parseScalarList(raw, "height") },
+  "grid-gutter-horizontal": makeScalarSpec("width"),
+  "grid-gutter-vertical": makeScalarSpec("height"),
+  "grid-columns": makeScalarListSpec("width"),
+  "grid-rows": makeScalarListSpec("height"),
   "row-span": makeIntegerSpec("row-span"),
   "column-span": makeIntegerSpec("column-span"),
 
@@ -1514,40 +1560,15 @@ function parseValue(property: string, rawValue: string): unknown {
   return PROPERTIES[property]?.parse(rawValue) ?? rawValue.trim();
 }
 
-export type StyleAssignmentValue = string | number | Scalar | Color | readonly Scalar[];
-
 export function normalizeStyleAssignment(property: string, value: StyleAssignmentValue): string {
-  if (DIMENSION_PROPERTIES.has(property)) {
-    const axis = WIDTH_AXIS_PROPERTIES.has(property) ? "width" : "height";
-    return scalarToRawValue(normalizeScalar(value as string | number | Scalar, axis));
-  }
+  // [LAW:dataflow-not-control-flow] Per-property normalization is one table
+  // lookup; the spec.normalize hook decides whether the value shape is
+  // handled, falling through to the generic stringify when it returns
+  // undefined.
+  const normalized = PROPERTIES[property]?.normalize?.(value);
 
-  if (property === "offset-x" || property === "grid-gutter-horizontal") {
-    return scalarToRawValue(normalizeScalar(value as string | number | Scalar, "width"));
-  }
-
-  if (property === "offset-y" || property === "grid-gutter-vertical") {
-    return scalarToRawValue(normalizeScalar(value as string | number | Scalar, "height"));
-  }
-
-  const scalarListAxis = SCALAR_LIST_PROPERTIES.get(property);
-
-  if (scalarListAxis !== undefined) {
-    const values = Array.isArray(value) ? value : String(value).trim().split(/\s+/).map((part) => parseScalar(part, scalarListAxis));
-    return values
-      .map((part) => {
-        const scalar = normalizeScalar(part, scalarListAxis);
-        return scalarToRawValue(
-          scalar.unit === Unit.FRACTION
-            ? scalar.copyWith({ percentUnit: axisToPercentUnit(scalarListAxis) })
-            : scalar,
-        );
-      })
-      .join(" ");
-  }
-
-  if (COLOR_PROPERTIES.has(property) && value instanceof Color) {
-    return value.css;
+  if (normalized !== undefined) {
+    return normalized;
   }
 
   if (typeof value === "string" || typeof value === "number") {
