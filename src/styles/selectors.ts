@@ -10,14 +10,21 @@ export interface SelectorSpecificity {
   types: number;
 }
 
+// [LAW:dataflow-not-control-flow] Each SegmentSelector carries its own match
+// closure (built at parse time). The matcher iterates and calls — it does not
+// branch on .type. The .type tag remains for introspection by consumers like
+// the DEFAULT_CSS scoper that need to identify selector kind without matching.
+type SegmentSelectorData =
+  | { type: "type"; name: string }
+  | { type: "class"; name: string }
+  | { type: "id"; name: string }
+  | { type: "pseudo"; name: string }
+  | { type: "universal" };
+
+export type SegmentSelector = SegmentSelectorData & { match(widget: Widget): boolean };
+
 export interface ParsedSelectorSegment {
-  selectors: Array<
-    | { type: "type"; name: string }
-    | { type: "class"; name: string }
-    | { type: "id"; name: string }
-    | { type: "pseudo"; name: string }
-    | { type: "universal" }
-  >;
+  selectors: SegmentSelector[];
 }
 
 export interface ParsedSelector {
@@ -125,39 +132,43 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
 
         if (child.type === "TypeSelector") {
           if (child.name === "*") {
-            currentSegment.selectors.push({ type: "universal" });
+            currentSegment.selectors.push(makeUniversal());
             continue;
           }
 
-          validateTypeName(child.name ?? "", selectorText);
+          const name = child.name ?? "";
+          validateTypeName(name, selectorText);
           specificity.types += 1;
-          currentSegment.selectors.push({ type: "type", name: child.name ?? "" });
+          currentSegment.selectors.push(makeType(name));
           continue;
         }
 
         if (child.type === "ClassSelector") {
-          validateIdentifier(child.name ?? "", selectorText);
+          const name = child.name ?? "";
+          validateIdentifier(name, selectorText);
           specificity.classes += 1;
-          currentSegment.selectors.push({ type: "class", name: child.name ?? "" });
+          currentSegment.selectors.push(makeClass(name));
           continue;
         }
 
         if (child.type === "IdSelector") {
-          validateIdentifier(child.name ?? "", selectorText);
+          const name = child.name ?? "";
+          validateIdentifier(name, selectorText);
           specificity.ids += 1;
-          currentSegment.selectors.push({ type: "id", name: child.name ?? "" });
+          currentSegment.selectors.push(makeId(name));
           continue;
         }
 
         if (child.type === "PseudoClassSelector") {
-          validatePseudoClass(child.name ?? "");
+          const name = child.name ?? "";
+          validatePseudoClass(name);
           specificity.classes += 1;
-          currentSegment.selectors.push({ type: "pseudo", name: child.name ?? "" });
+          currentSegment.selectors.push(makePseudo(name));
           continue;
         }
 
         if (child.type === "UniversalSelector") {
-          currentSegment.selectors.push({ type: "universal" });
+          currentSegment.selectors.push(makeUniversal());
         }
       }
 
@@ -181,27 +192,49 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
   }
 }
 
-function matchesSegment(segment: ParsedSelectorSegment, widget: Widget): boolean {
-  return segment.selectors.every((selector) => {
-    if (selector.type === "universal") {
-      return true;
-    }
-
-    if (selector.type === "type") {
-      return widget.matchesType(selector.name);
-    }
-
-    if (selector.type === "class") {
-      return widget.hasClass(selector.name);
-    }
-
-    if (selector.type === "id") {
-      return widget.id === selector.name;
-    }
-
-    return widget.hasPseudoClass(selector.name);
-  });
+function makeUniversal(): SegmentSelector {
+  return { type: "universal", match: () => true };
 }
+
+function makeType(name: string): SegmentSelector {
+  return { type: "type", name, match: (widget) => widget.matchesType(name) };
+}
+
+function makeClass(name: string): SegmentSelector {
+  return { type: "class", name, match: (widget) => widget.hasClass(name) };
+}
+
+function makeId(name: string): SegmentSelector {
+  return { type: "id", name, match: (widget) => widget.id === name };
+}
+
+function makePseudo(name: string): SegmentSelector {
+  return { type: "pseudo", name, match: (widget) => widget.hasPseudoClass(name) };
+}
+
+// [LAW:one-source-of-truth] COMBINATOR_CANDIDATES is the canonical mapping
+// from combinator symbol to the set of widgets that the previous selector
+// segment may bind to. The matcher iterates this set unconditionally; it does
+// not branch on combinator symbol.
+type CombinatorCandidates = (framework: TextualFramework, widget: Widget) => Iterable<Widget>;
+
+function* walkAncestors(widget: Widget): Iterable<Widget> {
+  let current = widget.parent;
+  while (current !== undefined) {
+    yield current;
+    current = current.parent;
+  }
+}
+
+const COMBINATOR_CANDIDATES: Readonly<Record<string, CombinatorCandidates>> = {
+  ">": (_framework, widget) => (widget.parent === undefined ? [] : [widget.parent]),
+  "+": (framework, widget) => {
+    const sibling = framework.registry.getPreviousSibling(widget.nodeId);
+    return sibling === undefined ? [] : [sibling];
+  },
+  "~": (framework, widget) => framework.registry.getPreviousSiblings(widget.nodeId),
+  " ": (_framework, widget) => walkAncestors(widget),
+};
 
 function matchSelectorFrom(
   framework: TextualFramework,
@@ -209,7 +242,7 @@ function matchSelectorFrom(
   selector: ParsedSelector,
   segmentIndex: number,
 ): boolean {
-  if (!matchesSegment(selector.segments[segmentIndex], widget)) {
+  if (!selector.segments[segmentIndex].selectors.every((part) => part.match(widget))) {
     return false;
   }
 
@@ -219,30 +252,10 @@ function matchSelectorFrom(
 
   const combinator = selector.combinators[segmentIndex - 1];
 
-  if (combinator === ">") {
-    const parent = widget.parent;
-    return parent === undefined ? false : matchSelectorFrom(framework, parent, selector, segmentIndex - 1);
-  }
-
-  if (combinator === "+") {
-    const sibling = framework.registry.getPreviousSibling(widget.nodeId);
-    return sibling === undefined ? false : matchSelectorFrom(framework, sibling, selector, segmentIndex - 1);
-  }
-
-  if (combinator === "~") {
-    return framework.registry
-      .getPreviousSiblings(widget.nodeId)
-      .some((sibling) => matchSelectorFrom(framework, sibling, selector, segmentIndex - 1));
-  }
-
-  let currentParent = widget.parent;
-
-  while (currentParent !== undefined) {
-    if (matchSelectorFrom(framework, currentParent, selector, segmentIndex - 1)) {
+  for (const candidate of COMBINATOR_CANDIDATES[combinator](framework, widget)) {
+    if (matchSelectorFrom(framework, candidate, selector, segmentIndex - 1)) {
       return true;
     }
-
-    currentParent = currentParent.parent;
   }
 
   return false;
