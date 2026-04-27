@@ -2954,36 +2954,36 @@ export class TextualFramework {
     namespace: string,
     defaultTarget?: ActionTargetDescriptor,
   ): { actions: WidgetActions | undefined } | null {
-    if (namespace === "app") {
-      return { actions: this.appActions };
-    }
-
-    if (namespace === "screen") {
-      const screen = this.activeScreen;
-      return screen === null ? null : { actions: screen.actions };
-    }
-
-    if (namespace === "focused") {
-      const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-      return focused === undefined ? null : { actions: focused.actions };
-    }
+    // [LAW:dataflow-not-control-flow] Named action namespaces dispatch via a
+    // table keyed on namespace string. Adding a namespace registers a
+    // resolver here; resolveActionTarget does not branch on namespace name.
+    const namedNamespaces: Record<string, () => { actions: WidgetActions | undefined } | null> = {
+      app: () => ({ actions: this.appActions }),
+      screen: () => {
+        const screen = this.activeScreen;
+        return screen === null ? null : { actions: screen.actions };
+      },
+      focused: () => {
+        const focused = this.focusedWidget();
+        return focused === undefined ? null : { actions: focused.actions };
+      },
+    };
 
     if (namespace !== "") {
-      return null;
+      return namedNamespaces[namespace]?.() ?? null;
     }
 
-    // Unnamespaced action: use the default target, else the focused widget, else app.
-    if (defaultTarget !== undefined) {
-      return { actions: defaultTarget.actions };
-    }
+    // Unnamespaced action: defaultTarget → focused widget → app, in order.
+    const focused = this.focusedWidget();
+    return (
+      (defaultTarget === undefined ? undefined : { actions: defaultTarget.actions }) ??
+      (focused === undefined ? undefined : { actions: focused.actions }) ??
+      { actions: this.appActions }
+    );
+  }
 
-    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-
-    if (focused !== undefined) {
-      return { actions: focused.actions };
-    }
-
-    return { actions: this.appActions };
+  private focusedWidget(): Widget | undefined {
+    return this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
   }
 
   private dispatchBindingAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
