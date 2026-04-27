@@ -124,45 +124,10 @@ export interface TextStyleValue {
 
 export type ScrollbarGutterValue = "auto" | "stable";
 
-const DIMENSION_PROPERTIES = new Set([
-  "width",
-  "height",
-  "min-width",
-  "max-width",
-  "min-height",
-  "max-height",
-]);
-
-const WIDTH_AXIS_PROPERTIES = new Set(["width", "min-width", "max-width"]);
-const HEIGHT_AXIS_PROPERTIES = new Set(["height", "min-height", "max-height"]);
-const COLOR_PROPERTIES = new Set([
-  "background",
-  "color",
-  "tint",
-  "scrollbar-color",
-  "scrollbar-color-hover",
-  "scrollbar-color-active",
-  "scrollbar-background",
-  "scrollbar-background-hover",
-  "scrollbar-background-active",
-  "link-color",
-  "link-background",
-  "link-color-hover",
-  "link-background-hover",
-]);
-const BORDER_PROPERTIES = new Set([
-  "border",
-  "border-top",
-  "border-right",
-  "border-bottom",
-  "border-left",
-  "outline",
-  "outline-top",
-  "outline-right",
-  "outline-bottom",
-  "outline-left",
-]);
-const SPACING_PROPERTIES = new Set(["padding", "margin"]);
+// SPACING_EDGE_PROPERTIES is the only set kept at the top of the file: it
+// pairs each edge longhand with its directional component, used by both the
+// PROPERTIES table builder (for SPACING_EDGE_SPECS) and the box-edge value
+// applier downstream.
 const SPACING_EDGE_PROPERTIES = new Map<string, "top" | "right" | "bottom" | "left">([
   ["padding-top", "top"],
   ["padding-right", "right"],
@@ -172,63 +137,6 @@ const SPACING_EDGE_PROPERTIES = new Map<string, "top" | "right" | "bottom" | "le
   ["margin-right", "right"],
   ["margin-bottom", "bottom"],
   ["margin-left", "left"],
-]);
-const SCALAR_LIST_PROPERTIES = new Map<string, "width" | "height">([
-  ["grid-columns", "width"],
-  ["grid-rows", "height"],
-]);
-const KNOWN_PROPERTIES = new Set([
-  ...DIMENSION_PROPERTIES,
-  ...COLOR_PROPERTIES,
-  ...BORDER_PROPERTIES,
-  ...SPACING_PROPERTIES,
-  ...SPACING_EDGE_PROPERTIES.keys(),
-  ...SCALAR_LIST_PROPERTIES.keys(),
-  "display",
-  "visibility",
-  "opacity",
-  "box-sizing",
-  "border-title-align",
-  "border-subtitle-align",
-  "text-style",
-  "text-align",
-  "text-wrap",
-  "text-overflow",
-  "dock",
-  "overflow",
-  "overflow-x",
-  "overflow-y",
-  "align",
-  "align-horizontal",
-  "align-vertical",
-  "content-align",
-  "content-align-horizontal",
-  "content-align-vertical",
-  "offset",
-  "offset-x",
-  "offset-y",
-  "layers",
-  "layer",
-  "grid-size",
-  "grid-size-columns",
-  "grid-size-rows",
-  "grid-gutter",
-  "grid-gutter-horizontal",
-  "grid-gutter-vertical",
-  "row-span",
-  "column-span",
-  "scrollbar-size",
-  "scrollbar-size-horizontal",
-  "scrollbar-size-vertical",
-  "link-style",
-  "link-style-hover",
-  "pointer",
-  "transition",
-  "hatch",
-  "overlay",
-  "constrain",
-  "layout",
-  "scrollbar-gutter",
 ]);
 
 const POINTER_VALUES = [
@@ -1374,9 +1282,15 @@ interface PropertySpec {
   // string/number stringify in normalizeStyleAssignment.
   normalize?(value: StyleAssignmentValue): string | undefined;
   // Shorthand topology: the longhand property names this shorthand expands
-  // into. expand() must be defined when longhands is.
+  // into. expand() and assemble() apply only to shorthands.
   longhands?: readonly string[];
   expand?(declaration: ParsedDeclaration): ParsedDeclaration[];
+  // Inverse of expand: assemble the shorthand value from resolved longhand
+  // values in the cascade map. Returns undefined when the longhands aren't
+  // all present / well-typed.
+  assemble?(rules: ResolvedRuleMap): unknown;
+  // Built-in initial raw value, surfaced through builtInInitialRawValue.
+  initialRawValue?: string;
 }
 
 function parseColorValue(rawValue: string): unknown {
@@ -1433,10 +1347,19 @@ function makeScalarListSpec(axis: ScalarAxis): PropertySpec {
 }
 
 const COLOR_SPEC: PropertySpec = { parse: parseColorValue, normalize: colorNormalize };
-const BORDER_LONGHAND_SPEC: PropertySpec = { parse: parseBorder };
-const TEXT_STYLE_SPEC: PropertySpec = { parse: parseTextStyle };
+
+function colorSpecWithInitial(initialRawValue: string): PropertySpec {
+  return { ...COLOR_SPEC, initialRawValue };
+}
+
+function withInitial(spec: PropertySpec, initialRawValue: string): PropertySpec {
+  return { ...spec, initialRawValue };
+}
+
+const BORDER_LONGHAND_SPEC: PropertySpec = { parse: parseBorder, initialRawValue: "none" };
+const TEXT_STYLE_SPEC: PropertySpec = { parse: parseTextStyle, initialRawValue: "none" };
 const SPACING_EDGE_SPECS = Object.fromEntries(
-  [...SPACING_EDGE_PROPERTIES.keys()].map((name) => [name, makeIntegerSpec(name)]),
+  [...SPACING_EDGE_PROPERTIES.keys()].map((name) => [name, { ...makeIntegerSpec(name), initialRawValue: "0" }]),
 );
 
 const EDGES = ["top", "right", "bottom", "left"] as const;
@@ -1447,6 +1370,7 @@ function makeBorderShorthandSpec(prefix: "border" | "outline"): PropertySpec {
     parse: parseBorder,
     longhands,
     expand: (declaration) => longhands.map((property) => ({ ...declaration, property })),
+    assemble: (rules) => borderFromEdges(rules, prefix),
   };
 }
 
@@ -1464,13 +1388,15 @@ function makeSpacingShorthandSpec(prefix: "padding" | "margin"): PropertySpec {
         value: spacing[edge],
       }));
     },
+    assemble: (rules) => spacingFromEdges(rules, prefix),
   };
 }
 
 function makeAlignShorthandSpec(prefix: "align" | "content-align"): PropertySpec {
+  const longhands = [`${prefix}-horizontal`, `${prefix}-vertical`];
   return {
     parse: parseAlign,
-    longhands: [`${prefix}-horizontal`, `${prefix}-vertical`],
+    longhands,
     expand: (declaration) => {
       const align = declaration.value as AlignValue;
       return [
@@ -1488,6 +1414,7 @@ function makeAlignShorthandSpec(prefix: "align" | "content-align"): PropertySpec
         },
       ];
     },
+    assemble: (rules) => alignFromLonghands(rules, prefix),
   };
 }
 
@@ -1501,6 +1428,7 @@ const OFFSET_SHORTHAND_SPEC: PropertySpec = {
       { ...declaration, property: "offset-y", rawValue: scalarToRawValue(offset.y), value: offset.y },
     ];
   },
+  assemble: offsetFromLonghands,
 };
 
 const OVERFLOW_SHORTHAND_SPEC: PropertySpec = {
@@ -1513,6 +1441,7 @@ const OVERFLOW_SHORTHAND_SPEC: PropertySpec = {
       { ...declaration, property: "overflow-y", rawValue: overflow.y, value: overflow.y },
     ];
   },
+  assemble: overflowFromLonghands,
 };
 
 const SCROLLBAR_SIZE_SHORTHAND_SPEC: PropertySpec = {
@@ -1525,6 +1454,7 @@ const SCROLLBAR_SIZE_SHORTHAND_SPEC: PropertySpec = {
       { ...declaration, property: "scrollbar-size-vertical", rawValue: String(vertical), value: vertical },
     ];
   },
+  assemble: (rules) => pairFromLonghands(rules, "scrollbar-size-horizontal", "scrollbar-size-vertical"),
 };
 
 const GRID_SIZE_SHORTHAND_SPEC: PropertySpec = {
@@ -1537,6 +1467,7 @@ const GRID_SIZE_SHORTHAND_SPEC: PropertySpec = {
       { ...declaration, property: "grid-size-rows", rawValue: String(rows), value: rows },
     ];
   },
+  assemble: (rules) => pairFromLonghands(rules, "grid-size-columns", "grid-size-rows"),
 };
 
 const GRID_GUTTER_SHORTHAND_SPEC: PropertySpec = {
@@ -1549,6 +1480,7 @@ const GRID_GUTTER_SHORTHAND_SPEC: PropertySpec = {
       { ...declaration, property: "grid-gutter-vertical", rawValue: scalarToRawValue(gutter.y), value: gutter.y },
     ];
   },
+  assemble: gridGutterFromLonghands,
 };
 
 const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
@@ -1578,8 +1510,8 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   "outline-left": BORDER_LONGHAND_SPEC,
 
   // Colors.
-  background: COLOR_SPEC,
-  color: COLOR_SPEC,
+  background: colorSpecWithInitial("rgba(0,0,0,0)"),
+  color: colorSpecWithInitial("white"),
   tint: COLOR_SPEC,
   "scrollbar-color": COLOR_SPEC,
   "scrollbar-color-hover": COLOR_SPEC,
@@ -1593,47 +1525,56 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
   "link-background-hover": COLOR_SPEC,
 
   // Display / visibility / opacity.
-  display: makeEnumSpec("display", ["block", "none"]),
-  visibility: makeEnumSpec("visibility", ["visible", "hidden"]),
-  opacity: { parse: parseFractional },
+  display: withInitial(makeEnumSpec("display", ["block", "none"]), "block"),
+  visibility: withInitial(makeEnumSpec("visibility", ["visible", "hidden"]), "visible"),
+  opacity: { parse: parseFractional, initialRawValue: "1" },
 
   // Text.
-  "text-align": makeEnumSpec("text-align", ["left", "start", "center", "right", "end", "justify"]),
+  "text-align": withInitial(
+    makeEnumSpec("text-align", ["left", "start", "center", "right", "end", "justify"]),
+    "left",
+  ),
   "text-style": TEXT_STYLE_SPEC,
   "link-style": TEXT_STYLE_SPEC,
   "link-style-hover": TEXT_STYLE_SPEC,
-  "text-wrap": makeEnumSpec("text-wrap", ["wrap", "nowrap", "ellipsis"]),
+  "text-wrap": withInitial(makeEnumSpec("text-wrap", ["wrap", "nowrap", "ellipsis"]), "wrap"),
   "text-overflow": makeEnumSpec("text-overflow", ["ellipsis", "fold"]),
 
   // Pointer / dock.
-  pointer: { parse: (raw) => parseStringEnum("pointer", raw, POINTER_VALUES) },
+  pointer: { parse: (raw) => parseStringEnum("pointer", raw, POINTER_VALUES), initialRawValue: "default" },
   dock: makeEnumSpec("dock", ["top", "bottom", "left", "right"]),
 
   // Overflow.
   overflow: OVERFLOW_SHORTHAND_SPEC,
-  "overflow-x": makeEnumSpec("overflow-x", ["auto", "scroll", "hidden"]),
-  "overflow-y": makeEnumSpec("overflow-y", ["auto", "scroll", "hidden"]),
+  "overflow-x": withInitial(makeEnumSpec("overflow-x", ["auto", "scroll", "hidden"]), "auto"),
+  "overflow-y": withInitial(makeEnumSpec("overflow-y", ["auto", "scroll", "hidden"]), "auto"),
 
   // Align / content-align.
   align: makeAlignShorthandSpec("align"),
   "content-align": makeAlignShorthandSpec("content-align"),
-  "align-horizontal": makeEnumSpec("align-horizontal", ["left", "center", "right"]),
-  "content-align-horizontal": makeEnumSpec("content-align-horizontal", ["left", "center", "right"]),
-  "align-vertical": makeEnumSpec("align-vertical", ["top", "middle", "bottom"]),
-  "content-align-vertical": makeEnumSpec("content-align-vertical", ["top", "middle", "bottom"]),
+  "align-horizontal": withInitial(makeEnumSpec("align-horizontal", ["left", "center", "right"]), "left"),
+  "content-align-horizontal": withInitial(
+    makeEnumSpec("content-align-horizontal", ["left", "center", "right"]),
+    "left",
+  ),
+  "align-vertical": withInitial(makeEnumSpec("align-vertical", ["top", "middle", "bottom"]), "top"),
+  "content-align-vertical": withInitial(
+    makeEnumSpec("content-align-vertical", ["top", "middle", "bottom"]),
+    "top",
+  ),
 
   // Offset.
   offset: OFFSET_SHORTHAND_SPEC,
-  "offset-x": makeScalarSpec("width"),
-  "offset-y": makeScalarSpec("height"),
+  "offset-x": withInitial(makeScalarSpec("width"), "0"),
+  "offset-y": withInitial(makeScalarSpec("height"), "0"),
 
   // Grid.
   "grid-size": GRID_SIZE_SHORTHAND_SPEC,
-  "grid-size-columns": makeIntegerSpec("grid-size-columns"),
-  "grid-size-rows": makeIntegerSpec("grid-size-rows"),
+  "grid-size-columns": withInitial(makeIntegerSpec("grid-size-columns"), "1"),
+  "grid-size-rows": withInitial(makeIntegerSpec("grid-size-rows"), "1"),
   "grid-gutter": GRID_GUTTER_SHORTHAND_SPEC,
-  "grid-gutter-horizontal": makeScalarSpec("width"),
-  "grid-gutter-vertical": makeScalarSpec("height"),
+  "grid-gutter-horizontal": withInitial(makeScalarSpec("width"), "0"),
+  "grid-gutter-vertical": withInitial(makeScalarSpec("height"), "0"),
   "grid-columns": makeScalarListSpec("width"),
   "grid-rows": makeScalarListSpec("height"),
   "row-span": makeIntegerSpec("row-span"),
@@ -1641,11 +1582,11 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
 
   // Scrollbar.
   "scrollbar-size": SCROLLBAR_SIZE_SHORTHAND_SPEC,
-  "scrollbar-size-horizontal": makeIntegerSpec("scrollbar-size-horizontal"),
-  "scrollbar-size-vertical": makeIntegerSpec("scrollbar-size-vertical"),
+  "scrollbar-size-horizontal": withInitial(makeIntegerSpec("scrollbar-size-horizontal"), "1"),
+  "scrollbar-size-vertical": withInitial(makeIntegerSpec("scrollbar-size-vertical"), "1"),
   // [LAW:single-enforcer] Scrollbar gutter grammar is enforced at the TCSS
   // value boundary so layout infrastructure consumes one canonical enum.
-  "scrollbar-gutter": makeEnumSpec("scrollbar-gutter", ["auto", "stable"]),
+  "scrollbar-gutter": withInitial(makeEnumSpec("scrollbar-gutter", ["auto", "stable"]), "auto"),
 
   // Box / border title alignment.
   "box-sizing": makeEnumSpec("box-sizing", ["border-box", "content-box"]),
@@ -1659,7 +1600,17 @@ const PROPERTIES: Readonly<Record<string, PropertySpec>> = {
 
   // Transition.
   transition: { parse: parseTransition },
+
+  // Generic-string properties: known but parsed as raw trimmed text.
+  layers: { parse: (raw) => raw.trim() },
+  layer: { parse: (raw) => raw.trim() },
+  hatch: { parse: (raw) => raw.trim() },
 };
+
+// [LAW:one-source-of-truth] KNOWN_PROPERTIES is derived from the canonical
+// PROPERTIES table. Adding a property to PROPERTIES makes it valid; there is
+// no parallel hand-maintained list to keep in sync.
+const KNOWN_PROPERTIES: ReadonlySet<string> = new Set(Object.keys(PROPERTIES));
 
 function parseValue(property: string, rawValue: string): unknown {
   if (!property.startsWith("--") && !KNOWN_PROPERTIES.has(property)) {
@@ -1858,57 +1809,14 @@ function resolveValueReferences(rawValue: string, customProperties: Record<strin
   return rawValue.replace(/var\((--[A-Za-z0-9_-]+)\)/g, (_match, variableName: string) => customProperties[variableName] ?? "");
 }
 
-const BUILT_IN_INITIAL_VALUES: Record<string, string> = {
-  background: "rgba(0,0,0,0)",
-  color: "white",
-  display: "block",
-  visibility: "visible",
-  opacity: "1",
-  "text-style": "none",
-  "link-style": "none",
-  "link-style-hover": "none",
-  "text-wrap": "wrap",
-  "text-align": "left",
-  pointer: "default",
-  "overflow-x": "auto",
-  "overflow-y": "auto",
-  "align-horizontal": "left",
-  "align-vertical": "top",
-  "content-align-horizontal": "left",
-  "content-align-vertical": "top",
-  "offset-x": "0",
-  "offset-y": "0",
-  "scrollbar-size-horizontal": "1",
-  "scrollbar-size-vertical": "1",
-  "scrollbar-gutter": "auto",
-  "grid-size-columns": "1",
-  "grid-size-rows": "1",
-  "grid-gutter-horizontal": "0",
-  "grid-gutter-vertical": "0",
-  "border-top": "none",
-  "border-right": "none",
-  "border-bottom": "none",
-  "border-left": "none",
-  "outline-top": "none",
-  "outline-right": "none",
-  "outline-bottom": "none",
-  "outline-left": "none",
-  "padding-top": "0",
-  "padding-right": "0",
-  "padding-bottom": "0",
-  "padding-left": "0",
-  "margin-top": "0",
-  "margin-right": "0",
-  "margin-bottom": "0",
-  "margin-left": "0",
-};
-
 function builtInInitialRawValue(property: string): string | undefined {
   if (property.startsWith("--")) {
     return undefined;
   }
 
-  return BUILT_IN_INITIAL_VALUES[property];
+  // [LAW:one-source-of-truth] Initial values live on each PropertySpec; the
+  // map of "what's the default raw value for X" is derived, not maintained.
+  return PROPERTIES[property]?.initialRawValue;
 }
 
 function applyBoxSpacing(box: Record<string, unknown>, prefix: "padding" | "margin", spacing: Spacing): void {
@@ -2238,33 +2146,21 @@ function resolveAutomaticColorRules(rules: ResolvedRuleMap): void {
 }
 
 function deriveCompoundRules(rules: ResolvedRuleMap): void {
-  const padding = spacingFromEdges(rules, "padding");
-  const margin = spacingFromEdges(rules, "margin");
-  const align = alignFromLonghands(rules, "align");
-  const contentAlign = alignFromLonghands(rules, "content-align");
-  const offset = offsetFromLonghands(rules);
-  const overflow = overflowFromLonghands(rules);
-  const scrollbarSize = pairFromLonghands(rules, "scrollbar-size-horizontal", "scrollbar-size-vertical");
-  const gridSize = pairFromLonghands(rules, "grid-size-columns", "grid-size-rows");
-  const gridGutter = gridGutterFromLonghands(rules);
-  const border = borderFromEdges(rules, "border");
-  const outline = borderFromEdges(rules, "outline");
-
   // [LAW:one-source-of-truth] Compound rules exposed to consumers are derived
-  // from the canonical longhand cascade result, never resolved independently.
-  Object.assign(rules, {
-    ...(padding === undefined ? {} : { padding }),
-    ...(margin === undefined ? {} : { margin }),
-    ...(align === undefined ? {} : { align }),
-    ...(contentAlign === undefined ? {} : { "content-align": contentAlign }),
-    ...(offset === undefined ? {} : { offset }),
-    ...(overflow === undefined ? {} : { overflow }),
-    ...(scrollbarSize === undefined ? {} : { "scrollbar-size": scrollbarSize }),
-    ...(gridSize === undefined ? {} : { "grid-size": gridSize }),
-    ...(gridGutter === undefined ? {} : { "grid-gutter": gridGutter }),
-    ...(border === undefined ? {} : { border }),
-    ...(outline === undefined ? {} : { outline }),
-  });
+  // from the canonical longhand cascade result via spec.assemble; the
+  // dispatcher iterates the PROPERTIES table and never names individual
+  // shorthands.
+  for (const [property, spec] of Object.entries(PROPERTIES)) {
+    if (spec.assemble === undefined) {
+      continue;
+    }
+
+    const value = spec.assemble(rules);
+
+    if (value !== undefined) {
+      rules[property] = value;
+    }
+  }
 }
 
 function spacingFromEdges(rules: ResolvedRuleMap, prefix: "padding" | "margin"): Spacing | undefined {
