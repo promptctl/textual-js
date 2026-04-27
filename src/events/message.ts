@@ -2,6 +2,14 @@ import { getActiveMessagePump } from "../services/concurrency.js";
 
 let nextMessageId = 1;
 
+// [LAW:one-source-of-truth] Dispatch policy lives as static metadata on the
+// Message class. Adding a new message type does not require editing the
+// framework dispatcher; declare the policy fields and the dispatcher reads
+// them uniformly. See app-framework.ts dispatchQueuedMessage / shouldSuppress
+// for the reading sites.
+export type MessageDispatchKind = "self-invoke" | "bubble";
+export type MessageSuppressionCategory = "user-input" | "scroll" | null;
+
 export interface MessageConstructor<TMessage extends Message = Message> {
   new (...args: never[]): TMessage;
   readonly name: string;
@@ -11,6 +19,11 @@ export interface MessageConstructor<TMessage extends Message = Message> {
   readonly namespace?: string;
   readonly ALLOW_SELECTOR_MATCH?: Iterable<string>;
   readonly selectorAttribute?: string | null;
+  readonly dispatchKind?: MessageDispatchKind;
+  readonly suppressionCategory?: MessageSuppressionCategory;
+  readonly discardOnShutdown?: boolean;
+  readonly handlesKeyBindings?: boolean;
+  readonly markLifecycleReadyAfterDispatch?: boolean;
 }
 
 export interface MessageInit {
@@ -26,6 +39,12 @@ export class Message {
   static readonly ALLOW_SELECTOR_MATCH = new Set<string>();
   static readonly selectorAttribute: string | null = null;
   static readonly verbose: boolean = false;
+  // Dispatch-policy defaults; subclasses override.
+  static readonly dispatchKind: MessageDispatchKind = "bubble";
+  static readonly suppressionCategory: MessageSuppressionCategory = null;
+  static readonly discardOnShutdown: boolean = false;
+  static readonly handlesKeyBindings: boolean = false;
+  static readonly markLifecycleReadyAfterDispatch: boolean = false;
 
   readonly messageId = nextMessageId++;
   readonly bubble: boolean;
