@@ -1,3 +1,9 @@
+// [LAW:one-source-of-truth] This barrel is the *internal* framework surface.
+// `App` (src/app/app.tsx) is the only runtime authority; `TextualFramework`
+// is a private collaborator and must not be re-exported from src/index.ts.
+// Mechanical enforcement lives in scripts/check-framework-imports.ts.
+// See design-docs/true-north-arch-refactor.md (Phase 1, Principle 1).
+
 export {
   type ActiveBinding,
   type ActiveTooltip,
