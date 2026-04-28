@@ -20,10 +20,10 @@ import {
   useWidget,
 } from "../src/index.js";
 
-async function settleBindings(framework: TextualFramework): Promise<void> {
-  await framework.whenIdle();
+async function settleBindings(app: App): Promise<void> {
+  await app.whenIdle();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  await framework.whenIdle();
+  await app.whenIdle();
 }
 
 function BindingSignalProbe({ onUpdate }: { onUpdate: () => void }): React.JSX.Element {
@@ -115,7 +115,8 @@ describe("binding normalization", () => {
 
 describe("binding dispatch", () => {
   it("runs widget bindings before ancestor bindings before screen before app", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -155,10 +156,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("s", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("s", { ctrl: true });
+    await app.whenIdle();
 
     expect(order).toEqual(["leaf"]);
 
@@ -166,8 +167,8 @@ describe("binding dispatch", () => {
     const leafNode = framework.registry.getByCssId("leaf")!;
     leafNode.bindingsRef.current = [];
 
-    framework.postKey("s", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("s", { ctrl: true });
+    await app.whenIdle();
 
     expect(order).toEqual(["leaf", "ancestor"]);
 
@@ -176,7 +177,8 @@ describe("binding dispatch", () => {
   });
 
   it("fires the hard-coded ctrl+q priority binding before the key reaches widget handlers", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -203,10 +205,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("q", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("q", { ctrl: true });
+    await app.whenIdle();
 
     expect(order).toEqual(["app"]);
 
@@ -215,7 +217,8 @@ describe("binding dispatch", () => {
   });
 
   it("respects checkAction gates: true enables, null disables, false hides", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let callCount = 0;
 
     const instance = render(
@@ -235,13 +238,13 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("f2");
-    await framework.whenIdle();
+    app.postKey("f2");
+    await app.whenIdle();
 
     expect(callCount).toBe(0);
-    expect(framework.checkAction("app.gated")).toBe(false);
+    expect(app.checkAction("app.gated")).toBe(false);
 
     instance.unmount();
     instance.cleanup();
@@ -257,7 +260,8 @@ describe("binding dispatch", () => {
     };
 
     try {
-      const framework = new App().framework;
+      const app = new App();
+    const framework = app.framework;
       const instance = render(
         <TextualApp framework={framework}>
           <WidgetHost
@@ -274,10 +278,10 @@ describe("binding dispatch", () => {
         </TextualApp>,
       );
 
-      await framework.whenIdle();
+      await app.whenIdle();
 
-      framework.postKey("f4");
-      await framework.whenIdle();
+      app.postKey("f4");
+      await app.whenIdle();
 
       expect(seenActions).toContain("save");
 
@@ -289,7 +293,8 @@ describe("binding dispatch", () => {
   });
 
   it("consumes disabled bindings instead of bubbling past them", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -319,10 +324,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("f2");
-    await framework.whenIdle();
+    app.postKey("f2");
+    await app.whenIdle();
 
     expect(order).toEqual([]);
 
@@ -331,7 +336,8 @@ describe("binding dispatch", () => {
   });
 
   it("lets SkipAction fall through to the next binding in the chain", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -361,10 +367,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("f3");
-    await framework.whenIdle();
+    app.postKey("f3");
+    await app.whenIdle();
 
     expect(order).toEqual(["primary", "fallback"]);
 
@@ -373,10 +379,11 @@ describe("binding dispatch", () => {
   });
 
   it("lets SkipAction fall through after a keymap remap", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
-    framework.setKeymap({ primary: "f6" });
+    app.setKeymap({ primary: "f6" });
 
     const instance = render(
       <TextualApp
@@ -405,10 +412,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("f6");
-    await framework.whenIdle();
+    app.postKey("f6");
+    await app.whenIdle();
 
     expect(order).toEqual(["primary", "fallback"]);
 
@@ -417,7 +424,8 @@ describe("binding dispatch", () => {
   });
 
   it("replaces the full keymap, merges updates, and publishes bindings_updated_signal", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const onUpdate = vi.fn();
     const order: string[] = [];
 
@@ -446,19 +454,19 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await settleBindings(framework);
+    await settleBindings(app);
     onUpdate.mockClear();
 
-    framework.setKeymap({ alpha: "f5" });
-    await settleBindings(framework);
-    framework.updateKeymap({ beta: "f6" });
-    await settleBindings(framework);
+    app.setKeymap({ alpha: "f5" });
+    await settleBindings(app);
+    app.updateKeymap({ beta: "f6" });
+    await settleBindings(app);
 
-    framework.postKey("f1");
-    framework.postKey("f2");
-    framework.postKey("f5");
-    framework.postKey("f6");
-    await framework.whenIdle();
+    app.postKey("f1");
+    app.postKey("f2");
+    app.postKey("f5");
+    app.postKey("f6");
+    await app.whenIdle();
 
     expect(order).toEqual(["alpha", "beta"]);
     expect(onUpdate).toHaveBeenCalledTimes(2);
@@ -468,10 +476,11 @@ describe("binding dispatch", () => {
   });
 
   it("applies pre-mount keymaps once the app starts", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
-    framework.updateKeymap({ save: "f7" });
+    app.updateKeymap({ save: "f7" });
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -491,11 +500,11 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("s", { ctrl: true });
-    framework.postKey("f7");
-    await framework.whenIdle();
+    app.postKey("s", { ctrl: true });
+    app.postKey("f7");
+    await app.whenIdle();
 
     expect(order).toEqual(["save"]);
 
@@ -504,7 +513,8 @@ describe("binding dispatch", () => {
   });
 
   it("ignores unknown keymap ids and deactivates the original binding key after remap", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -525,15 +535,15 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.setKeymap({ save: "f8", unknown: "f9" });
-    await framework.whenIdle();
+    app.setKeymap({ save: "f8", unknown: "f9" });
+    await app.whenIdle();
 
-    framework.postKey("s", { ctrl: true });
-    framework.postKey("f8");
-    framework.postKey("f9");
-    await framework.whenIdle();
+    app.postKey("s", { ctrl: true });
+    app.postKey("f8");
+    app.postKey("f9");
+    await app.whenIdle();
 
     expect(order).toEqual(["save"]);
 
@@ -542,10 +552,11 @@ describe("binding dispatch", () => {
   });
 
   it("remaps shared binding ids on both parent and child bindings", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
-    framework.setKeymap({ save: "f8" });
+    app.setKeymap({ save: "f8" });
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -576,16 +587,16 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("f8");
-    await framework.whenIdle();
+    app.postKey("f8");
+    await app.whenIdle();
 
     const leafNode = framework.registry.getByCssId("leaf")!;
     leafNode.bindingsRef.current = [];
 
-    framework.postKey("f8");
-    await framework.whenIdle();
+    app.postKey("f8");
+    await app.whenIdle();
 
     expect(order).toEqual(["leaf", "ancestor"]);
 
@@ -594,10 +605,11 @@ describe("binding dispatch", () => {
   });
 
   it("remaps only the binding ids present in the keymap", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
-    framework.setKeymap({ ancestor_save: "f9" });
+    app.setKeymap({ ancestor_save: "f9" });
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -628,17 +640,17 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("s", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("s", { ctrl: true });
+    await app.whenIdle();
 
     const leafNode = framework.registry.getByCssId("leaf")!;
     leafNode.bindingsRef.current = [];
 
-    framework.postKey("s", { ctrl: true });
-    framework.postKey("f9");
-    await framework.whenIdle();
+    app.postKey("s", { ctrl: true });
+    app.postKey("f9");
+    await app.whenIdle();
 
     expect(order).toEqual(["leaf", "ancestor"]);
 
@@ -647,7 +659,8 @@ describe("binding dispatch", () => {
   });
 
   it("reports per-namespace key clashes only once for the active chain", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const clashes: Array<{ clashes: BindingClash[]; namespace: BindingNamespace }> = [];
     const clashSpy = vi
       .spyOn(framework, "handleBindingsClash")
@@ -673,12 +686,12 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await settleBindings(framework);
+    await settleBindings(app);
 
-    framework.setKeymap({ alpha: "f10", beta: "f10" });
-    await settleBindings(framework);
-    framework.postKey("f10");
-    await framework.whenIdle();
+    app.setKeymap({ alpha: "f10", beta: "f10" });
+    await settleBindings(app);
+    app.postKey("f10");
+    await app.whenIdle();
 
     expect(clashes).toHaveLength(1);
     expect(clashes[0]?.namespace.kind).toBe("app");
@@ -690,7 +703,8 @@ describe("binding dispatch", () => {
   });
 
   it("fires the hard-coded ctrl+c quit binding when nothing lower handles it", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -708,10 +722,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("c", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("c", { ctrl: true });
+    await app.whenIdle();
 
     expect(order).toEqual(["quit"]);
 
@@ -720,7 +734,8 @@ describe("binding dispatch", () => {
   });
 
   it("routes the hard-coded ctrl+p binding to action_command_palette", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -738,10 +753,10 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("p", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("p", { ctrl: true });
+    await app.whenIdle();
 
     expect(order).toEqual(["palette"]);
 
@@ -750,7 +765,8 @@ describe("binding dispatch", () => {
   });
 
   it("keeps the hard-coded ctrl+p binding as a safe no-op by default", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -760,19 +776,20 @@ describe("binding dispatch", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.postKey("p", { ctrl: true });
-    await framework.whenIdle();
+    app.postKey("p", { ctrl: true });
+    await app.whenIdle();
 
-    expect(framework.isRunning).toBe(true);
+    expect(app.isRunning).toBe(true);
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("resolves namespace.action targets independent of the caller", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const log: string[] = [];
 
     framework.setAppBindings([]);
@@ -782,7 +799,7 @@ describe("binding dispatch", () => {
       },
     });
 
-    framework.pushScreen(
+    app.pushScreen(
       <Text>screen</Text>,
       {
         actions: {
@@ -794,8 +811,8 @@ describe("binding dispatch", () => {
       },
     );
 
-    expect(framework.runAction("app.alpha")).toBe(true);
-    expect(framework.runAction("screen.beta")).toBe(true);
+    expect(app.runAction("app.alpha")).toBe(true);
+    expect(app.runAction("screen.beta")).toBe(true);
     expect(log).toEqual(["app.alpha", "screen.beta"]);
   });
 });

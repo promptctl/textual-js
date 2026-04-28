@@ -110,7 +110,8 @@ const DerivedStyledLabel = observer(function DerivedStyledLabel(props: {
 
 describe("styles and useStyles", () => {
   it("resolves DEFAULT_CSS and user CSS into Ink-compatible props with cascade ordering", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -143,7 +144,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
     await Promise.resolve();
 
     const styled = framework.registry.getByCssId("styled") as Widget;
@@ -163,7 +164,8 @@ describe("styles and useStyles", () => {
   });
 
   it("recalculates styles on class mutation, resolves inherited custom properties, and rerenders useStyles consumers", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const renders: string[] = [];
 
     const instance = render(
@@ -193,7 +195,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const dynamic = framework.registry.getByCssId("dynamic") as Widget;
 
@@ -201,7 +203,7 @@ describe("styles and useStyles", () => {
     expect(instance.lastFrame()).toContain("dynamic:");
 
     dynamic.addClass("active");
-    await framework.whenIdle();
+    await app.whenIdle();
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -213,7 +215,8 @@ describe("styles and useStyles", () => {
   });
 
   it("applies DEFAULT_CSS class selectors to the widget itself", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -230,7 +233,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("self-scoped") as Widget;
 
@@ -241,7 +244,8 @@ describe("styles and useStyles", () => {
   });
 
   it("treats widget.styles as a first-class Styles surface and supports class assignment properties", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -249,14 +253,14 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("styles-surface") as Widget;
     const inlineStyles = widget.styles as Styles;
 
     inlineStyles.set_rule("background", "red");
     (widget as Widget & { classes: string }).classes = "alpha beta";
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(inlineStyles.has_rule("background")).toBe(true);
     expect(inlineStyles.get_rules()).toMatchObject({ background: "red" });
@@ -265,7 +269,7 @@ describe("styles and useStyles", () => {
 
     inlineStyles.clear_rule("background");
     inlineStyles.merge_rules({ color: "white" });
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(inlineStyles.has_rule("background")).toBe(false);
     expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
@@ -275,7 +279,8 @@ describe("styles and useStyles", () => {
   });
 
   it("lets user CSS beat DEFAULT_CSS important declarations and walks inherited initial defaults", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -303,7 +308,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const derived = framework.registry.getByCssId("derived-default") as Widget;
 
@@ -315,7 +320,8 @@ describe("styles and useStyles", () => {
   });
 
   it("scopes DEFAULT_CSS by first selector token instead of raw prefix text", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -338,7 +344,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("button-scope") as Widget;
 
@@ -350,7 +356,8 @@ describe("styles and useStyles", () => {
   });
 
   it("applies nested selectors and lets inline styles override the cascade", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -373,14 +380,14 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("inline") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
 
     widget.setInlineStyle("background", "green");
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("green"));
 
@@ -389,7 +396,8 @@ describe("styles and useStyles", () => {
   });
 
   it("resolves important shorthand declarations against more specific longhands", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -416,7 +424,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("cascade") as Widget;
 
@@ -434,7 +442,8 @@ describe("styles and useStyles", () => {
   });
 
   it("resolves initial through DEFAULT_CSS and carries custom properties through inline overrides", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -463,7 +472,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const root = framework.registry.getByCssId("styled-root") as Widget;
     const child = framework.registry.getByCssId("initial") as Widget;
@@ -472,7 +481,7 @@ describe("styles and useStyles", () => {
     expect(child.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
 
     root.setInlineStyle("--accent", "rebeccapurple");
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(child.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
 
@@ -481,7 +490,8 @@ describe("styles and useStyles", () => {
   });
 
   it("recomputes pseudo-class selectors from canonical registry state", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -507,7 +517,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const first = framework.registry.getByCssId("first-pseudo") as Widget;
     const last = framework.registry.getByCssId("last-pseudo") as Widget;
@@ -521,7 +531,8 @@ describe("styles and useStyles", () => {
   });
 
   it("hides visibility-hidden output while routing input to visible widgets", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
@@ -553,7 +564,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -561,7 +572,7 @@ describe("styles and useStyles", () => {
     expect(instance.lastFrame()).not.toContain("hidden");
 
     framework.postKey("x");
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(received).toEqual(["visible"]);
 
@@ -570,7 +581,8 @@ describe("styles and useStyles", () => {
   });
 
   it("resolves viewport units against terminal size instead of parent percentages", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -587,7 +599,7 @@ describe("styles and useStyles", () => {
     );
 
     framework.setTerminalSize(new Size(200, 80));
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const viewport = framework.registry.getByCssId("viewport") as Widget;
 
@@ -599,7 +611,8 @@ describe("styles and useStyles", () => {
   });
 
   it("translates the Stage 2 resolved value model to Ink props", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -621,7 +634,7 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("bridge") as Widget;
 
@@ -645,7 +658,8 @@ describe("styles and useStyles", () => {
   });
 
   it("normalizes programmatic style assignments through the public styles surface", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -653,12 +667,12 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const widget = framework.registry.getByCssId("programmatic") as Widget;
     widget.styles.width = "25%";
     widget.styles.grid_columns = [new Scalar(1, Unit.FRACTION, Unit.PERCENT), new Scalar(50, Unit.PERCENT, Unit.PERCENT)];
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(widget.resolvedStyles.getRule("width")).toEqual(new Scalar(25, Unit.WIDTH, Unit.WIDTH));
     expect(widget.resolvedStyles.getRule("grid-columns")).toEqual([
@@ -672,7 +686,8 @@ describe("styles and useStyles", () => {
   });
 
   it("rejects conflicting DEFAULT_CSS declarations for the same widget type", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     framework.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: red; }");
 

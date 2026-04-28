@@ -81,10 +81,10 @@ function BlurHarness(props: { onToggleReady?: (setVisible: (visible: boolean) =>
   );
 }
 
-async function settleApp(framework: TextualFramework): Promise<void> {
-  await framework.whenIdle();
+async function settleApp(app: App): Promise<void> {
+  await app.whenIdle();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  await framework.whenIdle();
+  await app.whenIdle();
 }
 
 function createDetachedWidget(framework: TextualFramework, options: Partial<ConstructorParameters<typeof Widget>[0]> = {}): Widget {
@@ -108,7 +108,8 @@ function createDetachedWidget(framework: TextualFramework, options: Partial<Cons
 
 describe("TextualApp and widget registry", () => {
   it("renders inside ink-testing-library and exposes framework services", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -118,19 +119,20 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(instance.lastFrame()).toContain("Hello");
-    expect(framework.isRunning).toBe(true);
+    expect(app.isRunning).toBe(true);
     expect(framework.registry.version).toBe(1);
-    expect(framework.registry.getByCssId("greeting")?.typeName).toBe("Label");
+    expect(app.getByCssId("greeting")?.typeName).toBe("Label");
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("registers on mount and deregisters on unmount", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -140,7 +142,7 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(framework.registry.list()).toHaveLength(1);
     expect(framework.registry.version).toBe(1);
@@ -150,11 +152,12 @@ describe("TextualApp and widget registry", () => {
 
     expect(framework.registry.list()).toHaveLength(0);
     expect(framework.registry.version).toBe(2);
-    expect(framework.isRunning).toBe(false);
+    expect(app.isRunning).toBe(false);
   });
 
   it("accepts app-level css through the stage-0 startup surface", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp
@@ -171,16 +174,17 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    expect(framework.registry.getByCssId("styled-label")?.resolvedStyles.getRule("color")).toEqual(Color.parse("red"));
+    expect(app.getByCssId("styled-label")?.resolvedStyles.getRule("color")).toEqual(Color.parse("red"));
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("exposes an app-level dispatch surface through TextualApp context", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let appContext!: TextualFramework;
     const senders: unknown[] = [];
 
@@ -207,10 +211,10 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     appContext.dispatchMessage(new Ping());
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(senders).toEqual([null]);
 
@@ -219,10 +223,11 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("clears focus on app blur and restores it on app focus", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const events: string[] = [];
 
-    const unsubscribe = framework.subscribeToMessages((message) => {
+    const unsubscribe = app.subscribeToMessages((message) => {
       if (message instanceof AppBlur) {
         events.push("blur");
       } else if (message instanceof AppFocus) {
@@ -236,16 +241,16 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await settleApp(framework);
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("focus-a")!.nodeId);
+    await settleApp(app);
+    expect(app.focusedNodeId).toBe(app.getByCssId("focus-a")!.nodeId);
 
     framework.handleAppBlur();
-    await settleApp(framework);
-    expect(framework.focusedNodeId).toBeNull();
+    await settleApp(app);
+    expect(app.focusedNodeId).toBeNull();
 
     framework.handleAppFocus();
-    await settleApp(framework);
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("focus-a")!.nodeId);
+    await settleApp(app);
+    expect(app.focusedNodeId).toBe(app.getByCssId("focus-a")!.nodeId);
     expect(events).toEqual(["blur", "focus"]);
 
     unsubscribe();
@@ -254,7 +259,8 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("leaves focus cleared when the blurred widget is removed before app focus returns", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let setVisible!: (visible: boolean) => void;
 
     const instance = render(
@@ -267,25 +273,26 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await settleApp(framework);
+    await settleApp(app);
 
     framework.handleAppBlur();
-    await settleApp(framework);
+    await settleApp(app);
 
     setVisible(false);
-    await settleApp(framework);
+    await settleApp(app);
 
     framework.handleAppFocus();
-    await settleApp(framework);
+    await settleApp(app);
 
-    expect(framework.focusedNodeId).toBeNull();
+    expect(app.focusedNodeId).toBeNull();
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("allows loading before mount and exposes the loading cover after registration", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const widget = createDetachedWidget(framework, { id: "loading-before-mount" });
 
     expect(() => {
@@ -300,7 +307,8 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("disables scrollbar availability when loading is true", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const widget = createDetachedWidget(framework, { id: "scroll-shell" });
     framework.registerWidget(widget);
 
@@ -321,7 +329,8 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("does not render widget children until the mount lifecycle has completed", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const events: string[] = [];
     let resolveMount!: () => void;
     const mountGate = new Promise<void>((resolve) => {
@@ -362,7 +371,7 @@ describe("TextualApp and widget registry", () => {
     expect(instance.lastFrame()).not.toContain("ready");
 
     resolveMount();
-    await settleApp(framework);
+    await settleApp(app);
 
     expect(events).toEqual(["mount:start", "mount:end", "child:render"]);
     expect(instance.lastFrame()).toContain("ready");
@@ -372,7 +381,8 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("shuts down without deadlocking during teardown with live workers, timers, and nested widgets", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     function TeardownHarness(): React.JSX.Element {
       return (
@@ -408,14 +418,14 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await settleApp(framework);
+    await settleApp(app);
 
-    framework.shutdown();
+    app.shutdown();
     instance.unmount();
     instance.cleanup();
 
     await Promise.race([
-      framework.whenIdle(),
+      app.whenIdle(),
       new Promise<never>((_resolve, reject) => {
         setTimeout(() => {
           reject(new Error("shutdown deadlocked"));
@@ -423,11 +433,12 @@ describe("TextualApp and widget registry", () => {
       }),
     ]);
 
-    expect(framework.isRunning).toBe(false);
+    expect(app.isRunning).toBe(false);
   });
 
   it("preserves explicit focus changes made while the app is blurred", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework} autoFocus="#focus-a">
@@ -435,18 +446,18 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await settleApp(framework);
+    await settleApp(app);
 
     framework.handleAppBlur();
-    await settleApp(framework);
+    await settleApp(app);
 
-    framework.focusWidget(framework.registry.getByCssId("focus-b")!.nodeId);
-    await settleApp(framework);
+    app.focusWidget(app.getByCssId("focus-b")!.nodeId);
+    await settleApp(app);
 
     framework.handleAppFocus();
-    await settleApp(framework);
+    await settleApp(app);
 
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("focus-b")!.nodeId);
+    expect(app.focusedNodeId).toBe(app.getByCssId("focus-b")!.nodeId);
 
     instance.unmount();
     instance.cleanup();
@@ -484,25 +495,25 @@ describe("TextualApp and widget registry", () => {
         </>,
       );
 
-      const first = session.framework.registry.getByCssId("first")!;
-      const second = session.framework.registry.getByCssId("second")!;
+      const first = session.app.getByCssId("first")!;
+      const second = session.app.getByCssId("second")!;
 
       session.framework.dispatchPointerDown(first.screenRegion.x, first.screenRegion.y);
       session.framework.dispatchPointerUp(first.screenRegion.x, first.screenRegion.y);
-      await session.framework.whenIdle();
+      await session.app.whenIdle();
 
       session.framework.dispatchPointerDown(first.screenRegion.x, first.screenRegion.y);
       session.framework.dispatchPointerUp(first.screenRegion.x, first.screenRegion.y);
-      await session.framework.whenIdle();
+      await session.app.whenIdle();
 
       session.framework.dispatchPointerDown(second.screenRegion.x, second.screenRegion.y);
       session.framework.dispatchPointerUp(second.screenRegion.x, second.screenRegion.y);
-      await session.framework.whenIdle();
+      await session.app.whenIdle();
 
       vi.advanceTimersByTime(Math.ceil(TextualFramework.CLICK_CHAIN_TIME_THRESHOLD * 1000) + 1);
       session.framework.dispatchPointerDown(second.screenRegion.x, second.screenRegion.y);
       session.framework.dispatchPointerUp(second.screenRegion.x, second.screenRegion.y);
-      await session.framework.whenIdle();
+      await session.app.whenIdle();
 
       expect(received).toEqual(["first:1", "first:2", "second:1", "second:1"]);
 
@@ -533,13 +544,13 @@ describe("TextualApp and widget registry", () => {
       </>,
     );
 
-    const first = session.framework.registry.getByCssId("first")!;
-    const second = session.framework.registry.getByCssId("second")!;
+    const first = session.app.getByCssId("first")!;
+    const second = session.app.getByCssId("second")!;
 
     session.framework.dispatchPointerDown(first.screenRegion.x, first.screenRegion.y);
     session.framework.dispatchPointerMove(second.screenRegion.x, second.screenRegion.y);
     session.framework.dispatchPointerUp(first.screenRegion.x, first.screenRegion.y);
-    await session.framework.whenIdle();
+    await session.app.whenIdle();
 
     expect(received).toEqual([]);
 
@@ -547,7 +558,8 @@ describe("TextualApp and widget registry", () => {
   });
 
   it("selects ANSI themes from dark/light mode and publishes app theme changes", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let widget!: Widget;
     const observedThemes: string[] = [];
     const customDark: AnsiTheme = { name: "custom-dark", colors: Array.from({ length: 16 }, () => "#111111") };
@@ -563,9 +575,9 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const unsubscribe = framework.signals.theme_changed_signal.subscribe(widget, (theme) => {
+    const unsubscribe = app.signals.theme_changed_signal.subscribe(widget, (theme) => {
       observedThemes.push(theme.name);
     });
 
@@ -575,14 +587,14 @@ describe("TextualApp and widget registry", () => {
     expect(framework.ansi_theme).toBe(customLight);
 
     framework.setTheme("textual-dark");
-    await framework.whenIdle();
+    await app.whenIdle();
     expect(framework.ansi_theme).toBe(customDark);
 
     framework.ansi_theme_light = customLight;
     expect(framework.ansi_theme).toBe(customDark);
 
     framework.dark = false;
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(framework.theme).toBe("textual-light");
     expect(framework.ansi_theme).toBe(customLight);
@@ -605,7 +617,8 @@ describe("TextualApp and widget registry", () => {
         calls.push("driver:resume");
       },
     };
-    const framework = new App({ driver }).framework;
+    const app = new App({ driver });
+    const framework = app.framework;
     let widget!: Widget;
 
     const instance = render(
@@ -618,16 +631,16 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const unsubscribeSuspend = framework.signals.app_suspend_signal.subscribe(widget, () => {
+    const unsubscribeSuspend = app.signals.app_suspend_signal.subscribe(widget, () => {
       calls.push("signal:suspend");
     }, true);
-    const unsubscribeResume = framework.signals.app_resume_signal.subscribe(widget, () => {
+    const unsubscribeResume = app.signals.app_resume_signal.subscribe(widget, () => {
       calls.push("signal:resume");
     }, true);
 
-    await framework.suspend(async () => {
+    await app.suspend(async () => {
       calls.push("body");
     });
 
@@ -661,7 +674,7 @@ describe("TextualApp and widget registry", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const palette = await framework.searchCommands([
       ["Open File", () => {
