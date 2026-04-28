@@ -32,6 +32,16 @@ Groundwork in place. Implementation has not started.
 
 The framework depends on: **React** (component model + reconciliation), **Ink** (terminal rendering + Yoga flexbox layout + stdin handling), **MobX** (reactive state + dependency tracking + `intercept`/`observe`/`computed`), **css-tree** (TCSS parsing + selector matching + specificity), **rich-js** (rich text markup, renderables like Bar/Gradient/StyledText, wide-character text measurement), **uFuzzy** (command palette fuzzy search), **marked** (markdown parsing), **Shiki** (syntax highlighting in TextArea). Everything else — the widget catalog, screen stack, focus manager, binding/action system, command palette, workers, signals, notifications, themes, text editing — is built on top of those.
 
+### Runtime authority
+
+`App` is the runtime root. It owns the widget tree, screen stack, message loop, styles, focus, pointer routing, async resources (timers, workers), notifications, themes, and signals. Public consumers reach every runtime concept through `App`'s methods.
+
+`TextualFramework` is a private collaborator that holds the implementation. It is constructed and owned by `App`, not exported from the public API surface, and is scheduled for decomposition into per-concern services in Phase 7. Application code, tests, and host integrations should drive `App`; reaching `app.framework.*` is reserved for internal mechanics.
+
+`TextualApp` is a thin host-bridge React component that wires Ink (keyboard, stdout dimensions, mount/unmount, paint tick) to the framework `App` owns and synchronizes `App`'s configuration props into framework state. It does not gate lifecycle, decide active screen, create widget identity, or branch on app state.
+
+See `design-docs/true-north-arch-refactor.md` for the full target architecture and `design-docs/textual-framework-public-surface-audit.md` for the per-member audit that drove the Phase 1 reorientation.
+
 ## Phases
 
 | Phase | Title | File |
