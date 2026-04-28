@@ -1528,6 +1528,17 @@ export class TextualFramework {
     return selectorMatchesWidget(this, widget, selector);
   }
 
+  // [LAW:locality-or-seam] Thin delegators so TextualFramework structurally
+  // satisfies SelectorMatchHost (defined in src/styles/selectors.ts). The
+  // styles modules depend on a narrow capability shape — never on this class.
+  getPreviousSibling(nodeId: string): Widget | undefined {
+    return this.registry.getPreviousSibling(nodeId);
+  }
+
+  getPreviousSiblings(nodeId: string): Widget[] {
+    return this.registry.getPreviousSiblings(nodeId);
+  }
+
   refreshStyles(changed: boolean): void {
     this.registry.touch();
     this.styleEngine.refreshStyles(changed);

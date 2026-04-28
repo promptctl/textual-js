@@ -15,8 +15,6 @@
 // Allowlist (paths where the symbol may be imported):
 //   - `src/framework/**`         — the framework module itself
 //   - `src/app/**`               — App and TextualApp own and bridge it
-//   - `src/styles/selectors.ts`  — Phase 7 deferred (audit §4.3)
-//   - `src/styles/stylesheet.ts` — Phase 7 deferred (audit §4.3)
 
 import { readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
@@ -28,16 +26,10 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FORBIDDEN_SYMBOLS = ["TextualFramework", "TextualFrameworkOptions"];
 const SCAN_ROOTS = ["src", "tests"];
 
-const ALLOWLIST_PATHS = new Set<string>([
-  "src/styles/selectors.ts",
-  "src/styles/stylesheet.ts",
-]);
-
 const ALLOWLIST_PREFIXES = ["src/framework/", "src/app/"];
 
 function isAllowlisted(rel: string): boolean {
   const normalized = rel.split(sep).join("/");
-  if (ALLOWLIST_PATHS.has(normalized)) return true;
   return ALLOWLIST_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
