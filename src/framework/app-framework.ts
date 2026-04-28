@@ -1,7 +1,6 @@
 import "./mobx-config.js";
 
 import React from "react";
-import { threadId } from "node:worker_threads";
 import { makeAutoObservable, runInAction } from "mobx";
 
 import {
@@ -33,7 +32,6 @@ import {
   ScreenResume,
   ScreenSuspend,
   ScrollEvent,
-  Timer,
   Unmount,
 } from "../events/events.js";
 import { Message, messageHandlerNames, type MessageConstructor } from "../events/message.js";
@@ -55,18 +53,15 @@ import {
 } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
-import { ManagedTimer, type TimerCallback, type TimerOptions } from "../services/timer.js";
+import { type TimerCallback, type TimerOptions } from "../services/timer.js";
 import {
   Worker,
-  WorkerCancelled,
-  WorkerFailed,
   WorkerManager,
   getCurrentWorker,
   type WorkerCallable,
-  type WorkerOwner,
   type WorkerOptions,
 } from "../services/worker.js";
-import { RuntimeError, getActiveMessagePump, runWithActiveMessagePump } from "../services/concurrency.js";
+import { runWithActiveMessagePump } from "../services/concurrency.js";
 import {
   parseTextualFeatures,
   type EnvironmentMap,
@@ -134,6 +129,10 @@ import {
   type PointerEngineDeps,
   type PointerLocation as PointerEnginePointerLocation,
 } from "./pointer-engine.js";
+import {
+  AsyncResourceManager,
+  type AsyncResourceManagerDeps,
+} from "./async-resource-manager.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -512,7 +511,10 @@ export class TextualFramework {
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
   private readonly widgetTypeMetadata = new Map<string, WidgetTypeMetadata>();
   private readonly widgetTypeTokens = new Map<Function, string>();
-  private readonly timers = new Map<string, ManagedTimer>();
+  // [LAW:single-enforcer] All timer registry, app worker-owner, and
+  // foreign-thread marshaling state lives in AsyncResourceManager. Framework
+  // methods below are thin delegators.
+  readonly asyncResources: AsyncResourceManager;
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
   private readonly layoutReaders = new Map<string, LayoutReader>();
   private afterRefreshRequester: (() => void) | null = null;
@@ -533,11 +535,6 @@ export class TextualFramework {
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingError: unknown = null;
   private readonly signalRegistry = new Set<Signal<unknown>>();
-  private readonly appThreadId = threadId;
-  private readonly appWorkerOwner: WorkerOwner = {
-    nodeId: "__app__",
-    typeName: "App",
-  };
   private isClosing = false;
   private readyMessagePosted = false;
   batchUpdateCount = 0;
@@ -680,6 +677,24 @@ export class TextualFramework {
     };
     this.pointerEngine = new PointerEngine(pointerEngineDeps);
 
+    // [LAW:single-enforcer] AsyncResourceManager receives only the cross-cutting
+    // hooks it needs (worker manager handle, mounted check, timer dispatch,
+    // post/callLater/error reporting, run-state, own-pump check). It does NOT
+    // receive a back-reference to the framework.
+    const asyncResourceDeps: AsyncResourceManagerDeps = {
+      workers: this.workers,
+      isNodeMounted: (node) => this.isNodeMounted(node),
+      dispatchTimer: (node, message) => {
+        void this.pump.dispatchToWidgetImmediate(node, message);
+      },
+      postMessage: (id, message) => this.postMessage(id, message),
+      reportUnhandledError: (error) => this.reportUnhandledError(error),
+      callLater: (callback) => this.callLater(callback),
+      isRunning: () => this.isRunning,
+      isOwnPump: (pump) => pump === this || (pump instanceof Widget && pump.framework === this),
+    };
+    this.asyncResources = new AsyncResourceManager(asyncResourceDeps);
+
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
     this.appActions = {
       action_focus_next: () => {
@@ -702,13 +717,12 @@ export class TextualFramework {
         widgetTypes: false,
         widgetTypeMetadata: false,
         widgetTypeTokens: false,
-        timers: false,
         afterRefreshCallbacks: false,
         layoutReaders: false,
         afterRefreshRequester: false,
         signals: false,
         signalRegistry: false,
-        appWorkerOwner: false,
+        asyncResources: false,
         driver: false,
         features: false,
         devtools: false,
@@ -929,7 +943,7 @@ export class TextualFramework {
     this.focusedNodeId = null;
     this.pointerEngine.reset();
     this.workers.cancelAll();
-    this.clearAllTimers();
+    this.asyncResources.clearAllTimers();
     this.clearTooltipTimer();
     this.activeTooltip = null;
     this.styleEngine.closeAllWatchers();
@@ -1187,7 +1201,7 @@ export class TextualFramework {
   notifyWillUnmount(widget: Widget): void {
     this.pump.markWidgetUnmounting(widget.nodeId);
     this.workers.cancelNode(widget.nodeId);
-    this.clearNodeTimers(widget.nodeId);
+    this.asyncResources.clearNodeTimers(widget.nodeId);
     this.handleWidgetWillUnmount(widget);
     this.pump.closeMessageQueue(widget.nodeId);
 
@@ -1348,14 +1362,14 @@ export class TextualFramework {
     // [LAW:single-enforcer] App suspend owns signal publishing, timer pausing,
     // and driver mode changes; drivers only enter/exit terminal application mode.
     this.signals.app_suspend_signal.publish(undefined);
-    this.pauseAllTimers();
+    this.asyncResources.pauseAllTimers();
     await this.driver.suspendApplicationMode();
 
     try {
       return await callback();
     } finally {
       await this.driver.resumeApplicationMode();
-      this.resumeAllTimers();
+      this.asyncResources.resumeAllTimers();
       this.signals.app_resume_signal.publish(undefined);
       this.recalculateStyles();
     }
@@ -1616,88 +1630,35 @@ export class TextualFramework {
     work: WorkerCallable<TResult>,
     options: WorkerOptions = {},
   ): Worker<TResult> {
-    const workerName = options.name ?? `${node.typeName.toLowerCase()}-worker`;
-    const worker = new Worker(
-      node,
-      work,
-      workerName,
-      options.group ?? (options.exclusive === true ? workerName : undefined),
-      options.description ?? options.name ?? `${node.typeName} worker`,
-      options.exitOnError ?? true,
-      options.thread ?? false,
-      (targetId, message) => this.postMessage(targetId, message),
-      () => undefined,
-    );
-    const registeredWorker = this.workers.addWorker(worker, false, options.exclusive ?? false);
-    const shouldStart = options.start ?? true;
-
-    this.startWorker(registeredWorker, shouldStart);
-
-    return registeredWorker;
+    return this.asyncResources.runWorker(node, work, options);
   }
 
   runAppWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    const workerName = options.name ?? "app-worker";
-    const worker = new Worker(
-      this.appWorkerOwner,
-      work,
-      workerName,
-      options.group ?? (options.exclusive === true ? workerName : undefined),
-      options.description ?? options.name ?? "App worker",
-      options.exitOnError ?? true,
-      options.thread ?? false,
-      (targetId, message) => this.postMessage(targetId, message),
-      () => undefined,
-    );
-    const registeredWorker = this.workers.addWorker(worker, false, options.exclusive ?? false);
-    const shouldStart = options.start ?? true;
-
-    this.startWorker(registeredWorker, shouldStart);
-
-    return registeredWorker;
-  }
-
-
-  private startWorker<TResult>(worker: Worker<TResult>, shouldStart: boolean): void {
-    if (!shouldStart) {
-      return;
-    }
-
-    void worker.start().catch((error) => {
-      if (!(error instanceof WorkerCancelled) && worker.exitOnError) {
-        // [LAW:single-enforcer] exitOnError is enforced only at the framework
-        // worker-start boundary; worker.wait() remains result/error retrieval.
-        this.reportUnhandledError(new WorkerFailed((error as Error).message, { cause: error as Error }));
-      }
-    });
+    return this.asyncResources.runAppWorker(work, options);
   }
 
   setTimer(node: Widget, name: string, delayMs: number, callback: TimerCallback): void {
-    this.installTimer(node, name, delayMs, callback, false, {});
+    this.asyncResources.setTimer(node, name, delayMs, callback);
   }
 
   setInterval(node: Widget, name: string, intervalMs: number, callback: TimerCallback, options: TimerOptions = {}): void {
-    this.installTimer(node, name, intervalMs, callback, true, options);
+    this.asyncResources.setInterval(node, name, intervalMs, callback, options);
   }
 
   clearTimer(node: Widget, name: string): void {
-    const key = this.timerKey(node.nodeId, name);
-    const timer = this.timers.get(key);
-
-    timer?.cancel();
-    this.timers.delete(key);
+    this.asyncResources.clearTimer(node, name);
   }
 
   pauseTimer(node: Widget, name: string): void {
-    this.timers.get(this.timerKey(node.nodeId, name))?.pause();
+    this.asyncResources.pauseTimer(node, name);
   }
 
   resumeTimer(node: Widget, name: string): void {
-    this.timers.get(this.timerKey(node.nodeId, name))?.resume();
+    this.asyncResources.resumeTimer(node, name);
   }
 
   resetTimer(node: Widget, name: string): void {
-    this.timers.get(this.timerKey(node.nodeId, name))?.reset();
+    this.asyncResources.resetTimer(node, name);
   }
 
   notify(
@@ -1761,43 +1722,11 @@ export class TextualFramework {
   }
 
   callFromThread<TResult, TArgs extends unknown[]>(callback: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
-    if (!this.isRunning) {
-      throw new RuntimeError("callFromThread requires a running app");
-    }
-
-    if (threadId === this.appThreadId) {
-      // [LAW:single-enforcer] The app-thread identity check lives at the
-      // callFromThread boundary, independent of message-pump context.
-      throw new RuntimeError("callFromThread must be called from a foreign thread");
-    }
-
-    try {
-      const activePump = getActiveMessagePump();
-
-      if (activePump === this || (activePump instanceof Widget && activePump.framework === this)) {
-        throw new RuntimeError("callFromThread must be called from a foreign thread");
-      }
-    } catch (error) {
-      if (error instanceof RuntimeError && error.message !== "No active message pump") {
-        throw error;
-      }
-    }
-
-    return new Promise<TResult>((resolve, reject) => {
-      // [LAW:single-enforcer] Foreign-thread callbacks are marshaled through
-      // callLater so app mutation still enters via the message queue boundary.
-      this.callLater(() => {
-        try {
-          resolve(callback(...args));
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
+    return this.asyncResources.callFromThread(callback, ...args);
   }
 
   call_from_thread<TResult, TArgs extends unknown[]>(callback: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
-    return this.callFromThread(callback, ...args);
+    return this.asyncResources.call_from_thread(callback, ...args);
   }
 
   handleAppBlur(): void {
@@ -2727,77 +2656,11 @@ export class TextualFramework {
     return signal;
   }
 
-  private installTimer(
-    node: Widget,
-    name: string,
-    delayMs: number,
-    callback: TimerCallback,
-    repeating: boolean,
-    options: TimerOptions,
-  ): void {
-    const key = this.timerKey(node.nodeId, name);
-    const existing = this.timers.get(key);
-    existing?.cancel();
-
-    // [LAW:single-enforcer] Named timer replacement happens only here so timer
-    // ownership and lifecycle stay canonical at the framework boundary.
-    const timer = new ManagedTimer(
-      name,
-      delayMs,
-      () => {
-        if (this.isNodeMounted(node)) {
-          void this.pump.dispatchToWidgetImmediate(node, new Timer(callback));
-        }
-      },
-      repeating,
-      {
-        skip: options.skip ?? true,
-        repeat: options.repeat ?? 0,
-      },
-    );
-
-    this.timers.set(key, timer);
-    timer.start();
-  }
-
-  private timerKey(nodeId: string, name: string): string {
-    return `${nodeId}:${name}`;
-  }
-
-  private clearNodeTimers(nodeId: string): void {
-    for (const [key, timer] of this.timers.entries()) {
-      if (key.startsWith(`${nodeId}:`)) {
-        timer.cancel();
-        this.timers.delete(key);
-      }
-    }
-  }
-
-  private clearAllTimers(): void {
-    for (const timer of this.timers.values()) {
-      timer.cancel();
-    }
-
-    this.timers.clear();
-  }
-
   private syncWidgetLayoutReaders(): void {
     // [LAW:one-source-of-truth] Ink layout measurement is centralized here so
     // stale sibling or ancestor geometry cannot become a second spatial truth.
     for (const reader of this.layoutReaders.values()) {
       reader();
-    }
-  }
-
-  private pauseAllTimers(): void {
-    for (const timer of this.timers.values()) {
-      timer.pause();
-    }
-  }
-
-  private resumeAllTimers(): void {
-    for (const timer of this.timers.values()) {
-      timer.resume();
     }
   }
 
