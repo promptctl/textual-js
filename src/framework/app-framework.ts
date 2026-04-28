@@ -129,6 +129,11 @@ import {
   type FocusAddress,
   type FocusEngineDeps,
 } from "./focus-engine.js";
+import {
+  PointerEngine,
+  type PointerEngineDeps,
+  type PointerLocation as PointerEnginePointerLocation,
+} from "./pointer-engine.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -185,18 +190,6 @@ export interface WidgetTypeMetadata {
   componentClasses: string[];
   borderTitle: string | null;
   borderSubtitle: string | null;
-}
-
-interface PendingPointerClick {
-  targetId: string | null;
-  canceled: boolean;
-  downTime: number;
-}
-
-interface ClickChainState {
-  targetId: string | null;
-  chain: number;
-  time: number;
 }
 
 export type KeymapInput = ReadonlyMap<string, string> | Record<string, string>;
@@ -529,17 +522,14 @@ export class TextualFramework {
   private systemCommandResolver: SystemCommandResolver = () => [];
   private keymap = new Map<string, string[]>();
   private appAutoFocus: string | null = null;
-  hoveredNodeId: string | null = null;
   showNotifications = true;
   showTooltips = true;
   tooltipDelay = 500;
   activeTooltip: ActiveTooltip | null = null;
   private lastActionDispatchResult: ActionDispatchResult = "unhandled";
   private readonly bindingClashSignatures = new Map<string, string>();
-  private lastPointerLocation: PointerLocation | null = null;
   pointerShape: PointerShape = "default";
-  private pendingPointerClick: PendingPointerClick | null = null;
-  private lastClickChain: ClickChainState | null = null;
+  pointerEngine!: PointerEngine;
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingError: unknown = null;
   private readonly signalRegistry = new Set<Signal<unknown>>();
@@ -655,6 +645,41 @@ export class TextualFramework {
     };
     this.focusEngine = new FocusEngine(focusEngineDeps);
 
+    // [LAW:single-enforcer] PointerEngine receives only the cross-cutting hooks
+    // it needs (registry reads, dispatch fallbacks, ancestor focus check, post,
+    // focus, recalc, pointer-shape setter, hover side-effect callbacks). It
+    // does NOT receive a back-reference to the framework.
+    const pointerEngineDeps: PointerEngineDeps = {
+      listWidgets: () => this.registry.list(),
+      getWidget: (id) => this.registry.get(id),
+      getRootChildren: () => this.registry.getChildren(null),
+      resolveDefaultDispatchTarget: () => this.resolveDefaultDispatchTarget(),
+      ancestorsAllowFocus: (widget) => this.focusEngine.ancestorsAllowFocus(widget),
+      postMessage: (id, message) => this.postMessage(id, message),
+      focusWidget: (id) => this.focusWidget(id),
+      recalculateStyles: () => this.recalculateStyles(),
+      setPointerShape: (shape) => {
+        this.pointerShape = shape as PointerShape;
+      },
+      onHoverChanged: () => {
+        this.hideTooltip();
+        this.refreshTooltipFromHover();
+      },
+      onPointerMovedSameHover: (pointer) => {
+        if (this.activeTooltip?.sourceNodeId === this.hoveredNodeId && this.hoveredNodeId !== null) {
+          this.activeTooltip = {
+            ...this.activeTooltip,
+            x: pointer.x,
+            y: pointer.y,
+          };
+          return;
+        }
+        this.refreshTooltipFromHover();
+      },
+      clickChainTimeThreshold: TextualFramework.CLICK_CHAIN_TIME_THRESHOLD,
+    };
+    this.pointerEngine = new PointerEngine(pointerEngineDeps);
+
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
     this.appActions = {
       action_focus_next: () => {
@@ -704,6 +729,7 @@ export class TextualFramework {
         bindingClashSignatures: false,
         handleBindingsClash: false,
         focusEngine: false,
+        pointerEngine: false,
         publicApp: false,
       } as never,
       { autoBind: true },
@@ -901,14 +927,11 @@ export class TextualFramework {
     this.pump.resetBatchPending();
     this.pump.discardQueuedCallbacks();
     this.focusedNodeId = null;
-    this.hoveredNodeId = null;
+    this.pointerEngine.reset();
     this.workers.cancelAll();
     this.clearAllTimers();
     this.clearTooltipTimer();
     this.activeTooltip = null;
-    this.lastPointerLocation = null;
-    this.pendingPointerClick = null;
-    this.lastClickChain = null;
     this.styleEngine.closeAllWatchers();
     this.focusEngine.resetBlurState();
     this.isRunning = false;
@@ -1174,9 +1197,7 @@ export class TextualFramework {
   unregisterWidget(nodeId: string): void {
     const hadFocus = this.focusedNodeId === nodeId;
 
-    if (this.hoveredNodeId === nodeId) {
-      this.hoveredNodeId = null;
-    }
+    this.pointerEngine.forgetWidgetHover(nodeId);
 
     this.focusEngine.releaseTrapIfNode(nodeId);
 
@@ -1510,12 +1531,7 @@ export class TextualFramework {
   }
 
   dispatchPointerClick(screenX: number, screenY: number, chain = 1): void {
-    // [LAW:single-enforcer] Pointer clicks are synthesized from the same
-    // down/up path that owns click-chain state instead of a second direct path.
-    for (let index = 0; index < Math.max(1, Math.trunc(chain)); index += 1) {
-      this.dispatchPointerDown(screenX, screenY);
-      this.dispatchPointerUp(screenX, screenY);
-    }
+    this.pointerEngine.dispatchPointerClick(screenX, screenY, chain);
   }
 
   postMouseDown(x: number, y: number): void {
@@ -1523,26 +1539,7 @@ export class TextualFramework {
   }
 
   dispatchPointerDown(screenX: number, screenY: number): void {
-    const resolved = this.resolvePointerTarget(screenX, screenY);
-    const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
-    const dispatched = this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseDown(x, y));
-    const focusTarget = this.resolvePointerFocusTarget(resolved.targetNode);
-
-    if (focusTarget !== undefined) {
-      this.focusWidget(focusTarget.nodeId);
-    }
-
-    // [LAW:one-source-of-truth] The active press target and down timestamp live
-    // in one framework-owned record so MouseUp and MouseMove derive click state
-    // from the same canonical snapshot.
-    this.pendingPointerClick =
-      dispatched === undefined
-        ? null
-        : {
-            targetId: dispatched.nodeId,
-            canceled: false,
-            downTime: Date.now(),
-          };
+    this.pointerEngine.dispatchPointerDown(screenX, screenY);
   }
 
   postMouseUp(x: number, y: number): void {
@@ -1550,22 +1547,7 @@ export class TextualFramework {
   }
 
   dispatchPointerUp(screenX: number, screenY: number): void {
-    const resolved = this.resolvePointerTarget(screenX, screenY);
-    const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
-    const pendingClick = this.pendingPointerClick;
-
-    this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseUp(x, y));
-    this.pendingPointerClick = null;
-
-    if (
-      dispatchTarget !== undefined &&
-      pendingClick !== null &&
-      !pendingClick.canceled &&
-      pendingClick.targetId === dispatchTarget.nodeId
-    ) {
-      const clickChain = this.resolveClickChain(dispatchTarget.nodeId, pendingClick.downTime);
-      this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new Click(x, y, clickChain));
-    }
+    this.pointerEngine.dispatchPointerUp(screenX, screenY);
   }
 
   postMouseMove(x: number, y: number): void {
@@ -1573,14 +1555,15 @@ export class TextualFramework {
   }
 
   dispatchPointerMove(screenX: number, screenY: number): void {
-    const pointer = { x: screenX, y: screenY };
-    const resolved = this.resolvePointerTarget(screenX, screenY);
-    const dispatchTarget = this.resolvePointerDispatchTarget(resolved.targetNode);
+    this.pointerEngine.dispatchPointerMove(screenX, screenY);
+  }
 
-    this.lastPointerLocation = pointer;
-    this.updateHoveredNode(resolved.targetNode, pointer);
-    this.markPendingPointerClick(dispatchTarget);
-    this.postResolvedPointerMessage(dispatchTarget, resolved, (x, y) => new MouseMove(x, y));
+  get hoveredNodeId(): string | null {
+    return this.pointerEngine.hoveredNodeId;
+  }
+
+  private get lastPointerLocation(): PointerEnginePointerLocation | null {
+    return this.pointerEngine.lastPointerLocation;
   }
 
   postResize(width: number, height: number): void {
@@ -1610,25 +1593,7 @@ export class TextualFramework {
   }
 
   hitTest(screenX: number, screenY: number): Widget | undefined {
-    const widgets = this.registry.list();
-    const candidates = widgets.filter(
-      (widget) =>
-        widget.isInteractive &&
-        !widget.visibleScreenRegion.isEmpty &&
-        widget.visibleScreenRegion.contains(screenX, screenY),
-    );
-
-    return candidates
-      .sort((left, right) => {
-        const depthDifference = widgetDepth(left) - widgetDepth(right);
-
-        if (depthDifference !== 0) {
-          return depthDifference;
-        }
-
-        return widgets.indexOf(left) - widgets.indexOf(right);
-      })
-      .at(-1);
+    return this.pointerEngine.hitTest(screenX, screenY);
   }
 
   isNodeMounted(widget: Widget): boolean {
@@ -1904,128 +1869,6 @@ export class TextualFramework {
     this.refreshTooltipFromHover();
   }
 
-  private resolvePointerTarget(
-    screenX: number,
-    screenY: number,
-  ): { x: number; y: number; targetNode?: Widget } {
-    const targetNode = this.hitTest(screenX, screenY);
-
-    if (targetNode === undefined) {
-      return { x: screenX, y: screenY };
-    }
-
-    return {
-      x: screenX - targetNode.effectiveScreenRegion.x,
-      y: screenY - targetNode.effectiveScreenRegion.y,
-      targetNode,
-    };
-  }
-
-  private resolvePointerDispatchTarget(targetNode: Widget | undefined): Widget | undefined {
-    return targetNode ?? this.resolveActiveScreenRootTarget() ?? this.resolveDefaultDispatchTarget();
-  }
-
-  private resolveActiveScreenRootTarget(): Widget | undefined {
-    return this.registry.getChildren(null).find((widget) => widget.isInteractive);
-  }
-
-  private resolvePointerFocusTarget(targetNode: Widget | undefined): Widget | undefined {
-    // [LAW:single-enforcer] Disabled/loading pointer focus gating shares the
-    // framework pointer boundary with event suppression instead of widget code.
-    if (targetNode?.isDisabledEffective || targetNode?.isLoadingEffective) {
-      return undefined;
-    }
-
-    let current = targetNode;
-
-    while (current !== undefined) {
-      if (this.focusEngine.ancestorsAllowFocus(current) && current.allowFocus()) {
-        return current;
-      }
-
-      current = current.parent;
-    }
-
-    return undefined;
-  }
-
-  private postResolvedPointerMessage(
-    dispatchTarget: Widget | undefined,
-    resolved: { x: number; y: number; targetNode?: Widget },
-    createMessage: (x: number, y: number) => Message,
-  ): Widget | undefined {
-    if (dispatchTarget === undefined) {
-      return undefined;
-    }
-
-    const coordinates = resolved.targetNode === undefined ? { x: resolved.x, y: resolved.y } : resolved;
-    return this.postMessage(dispatchTarget.nodeId, createMessage(coordinates.x, coordinates.y))
-      ? dispatchTarget
-      : undefined;
-  }
-
-  private markPendingPointerClick(dispatchTarget: Widget | undefined): void {
-    const pendingClick = this.pendingPointerClick;
-
-    if (
-      pendingClick !== null &&
-      !pendingClick.canceled &&
-      pendingClick.targetId !== (dispatchTarget?.nodeId ?? null)
-    ) {
-      pendingClick.canceled = true;
-    }
-  }
-
-  private resolveClickChain(targetId: string, mouseDownTime: number): number {
-    const thresholdMs = TextualFramework.CLICK_CHAIN_TIME_THRESHOLD * 1000;
-    const previousClick = this.lastClickChain;
-    const chain =
-      previousClick !== null &&
-      previousClick.targetId === targetId &&
-      mouseDownTime - previousClick.time <= thresholdMs
-        ? previousClick.chain + 1
-        : 1;
-
-    // [LAW:single-enforcer] Multi-click timing and same-target matching are
-    // derived at the pointer forwarding boundary so widgets read one canonical
-    // chain value from Click instead of re-implementing double-click logic.
-    this.lastClickChain = {
-      targetId,
-      chain,
-      time: Date.now(),
-    };
-    return chain;
-  }
-
-  private updateHoveredNode(targetNode: Widget | undefined, pointer: PointerLocation): void {
-    const nextHoveredNodeId = targetNode?.nodeId ?? null;
-    const hoveredChanged = this.hoveredNodeId !== nextHoveredNodeId;
-
-    this.lastPointerLocation = pointer;
-    // [LAW:one-source-of-truth] The hovered widget's resolved pointer rule is
-    // the canonical cursor-shape source; the app-level pointerShape derives from it.
-    this.pointerShape = targetNode?.resolvedStyles.getRule<PointerShape>("pointer") ?? "default";
-
-    if (hoveredChanged) {
-      this.hoveredNodeId = nextHoveredNodeId;
-      this.recalculateStyles();
-      this.hideTooltip();
-      this.refreshTooltipFromHover();
-      return;
-    }
-
-    if (this.activeTooltip?.sourceNodeId === nextHoveredNodeId) {
-      this.activeTooltip = {
-        ...this.activeTooltip,
-        x: pointer.x,
-        y: pointer.y,
-      };
-      return;
-    }
-
-    this.refreshTooltipFromHover();
-  }
-
   private refreshTooltipFromHover(): void {
     this.clearTooltipTimer();
 
@@ -2097,16 +1940,14 @@ export class TextualFramework {
   }
 
   private syncPointerStateAfterLayout(): void {
-    if (this.lastPointerLocation === null) {
+    const result = this.pointerEngine.recomputeHoverFromLastPointer();
+
+    if (!result.hadPointer) {
       this.hideTooltip();
       return;
     }
 
-    const hit = this.hitTest(this.lastPointerLocation.x, this.lastPointerLocation.y);
-    const nextHoveredNodeId = hit?.nodeId ?? null;
-
-    if (this.hoveredNodeId !== nextHoveredNodeId) {
-      this.hoveredNodeId = nextHoveredNodeId;
+    if (result.hoveredChanged) {
       this.hideTooltip();
       this.recalculateStyles();
       return;
@@ -2115,15 +1956,14 @@ export class TextualFramework {
     if (this.activeTooltip !== null) {
       const source = this.registry.get(this.activeTooltip.sourceNodeId);
 
-      if (source === undefined || !source.isInteractive || hit?.nodeId !== source.nodeId) {
+      if (source === undefined || !source.isInteractive || result.hit?.nodeId !== source.nodeId) {
         this.hideTooltip();
       }
     }
   }
 
   private handleWidgetWillUnmount(widget: Widget): void {
-    if (this.hoveredNodeId === widget.nodeId) {
-      this.hoveredNodeId = null;
+    if (this.pointerEngine.forgetWidgetHover(widget.nodeId)) {
       this.hideTooltip();
     }
 
@@ -2133,15 +1973,8 @@ export class TextualFramework {
   }
 
   private clearPointerState(): void {
-    const hoveredChanged = this.hoveredNodeId !== null;
-
-    this.hoveredNodeId = null;
-    this.lastPointerLocation = null;
+    this.pointerEngine.clearPointerState();
     this.hideTooltip();
-
-    if (hoveredChanged) {
-      this.recalculateStyles();
-    }
   }
 
   // ---- Screen stack and modes -------------------------------------------
@@ -3076,18 +2909,6 @@ function composeKeyWithModifiers(
   }
 
   return modifiers.length === 0 ? baseKey : `${modifiers.join("+")}+${baseKey}`;
-}
-
-function widgetDepth(widget: Widget): number {
-  let depth = 0;
-  let current = widget.parent;
-
-  while (current !== undefined) {
-    depth += 1;
-    current = current.parent;
-  }
-
-  return depth;
 }
 
 // Re-export select types imported solely for type context.
