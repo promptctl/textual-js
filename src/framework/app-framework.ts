@@ -42,7 +42,7 @@ import {
   type Binding,
   type BindingDeclaration,
 } from "../bindings/index.js";
-import { measureVisual, visualize, type Visual, type VisualInput } from "../content/index.js";
+import { type Visual, type VisualInput } from "../content/index.js";
 import { Size } from "../geometry/index.js";
 import {
   Notification,
@@ -133,6 +133,14 @@ import {
   AsyncResourceManager,
   type AsyncResourceManagerDeps,
 } from "./async-resource-manager.js";
+import {
+  LayoutEngine,
+  type LayoutEngineDeps,
+} from "./layout-engine.js";
+import {
+  TooltipService,
+  type TooltipServiceDeps,
+} from "./tooltip-service.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -242,8 +250,6 @@ export interface BindingClash {
 }
 
 export type { MessageSubscriber, PreventionSnapshot, DeferredCallback, QueuedMessage };
-type AfterRefreshCallback = () => void;
-type LayoutReader = () => void;
 
 export interface AppSignals {
   theme_changed_signal: Signal<ActiveTheme>;
@@ -515,9 +521,15 @@ export class TextualFramework {
   // foreign-thread marshaling state lives in AsyncResourceManager. Framework
   // methods below are thin delegators.
   readonly asyncResources: AsyncResourceManager;
-  private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
-  private readonly layoutReaders = new Map<string, LayoutReader>();
-  private afterRefreshRequester: (() => void) | null = null;
+  // [LAW:single-enforcer] All post-render callback queue, layout-reader
+  // subscription, and after-refresh requester state lives in LayoutEngine.
+  // displayCount remains the public observable here, written via deps.
+  readonly layoutEngine: LayoutEngine;
+  // [LAW:single-enforcer] Tooltip reveal-pipeline timer and active-tooltip
+  // mutation live in TooltipService. activeTooltip / showTooltips / tooltipDelay
+  // remain public observables here, with the service writing activeTooltip via
+  // deps.
+  readonly tooltipService: TooltipService;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
   private appCommandProviders: ReadonlySet<ProviderConstructor> | null = null;
@@ -532,7 +544,6 @@ export class TextualFramework {
   private readonly bindingClashSignatures = new Map<string, string>();
   pointerShape: PointerShape = "default";
   pointerEngine!: PointerEngine;
-  private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingError: unknown = null;
   private readonly signalRegistry = new Set<Signal<unknown>>();
   private isClosing = false;
@@ -695,6 +706,37 @@ export class TextualFramework {
     };
     this.asyncResources = new AsyncResourceManager(asyncResourceDeps);
 
+    // [LAW:single-enforcer] LayoutEngine receives only the cross-cutting hooks
+    // it needs (callLater, host-pump runner, displayCount writer). It does
+    // NOT receive a back-reference to the framework.
+    const layoutEngineDeps: LayoutEngineDeps = {
+      callLater: (callback) => this.callLater(callback),
+      runWithHostPump: (callback) => {
+        runWithActiveMessagePump(this, callback);
+      },
+      incrementDisplayCount: () => {
+        this.displayCount += 1;
+      },
+    };
+    this.layoutEngine = new LayoutEngine(layoutEngineDeps);
+
+    // [LAW:single-enforcer] TooltipService receives only the cross-cutting hooks
+    // it needs (active-tooltip view-model accessor/writer, hover/pointer/widget
+    // reads, tooltip config getters). It does NOT receive a back-reference to
+    // the framework.
+    const tooltipServiceDeps: TooltipServiceDeps = {
+      setActiveTooltip: (tooltip) => {
+        this.activeTooltip = tooltip;
+      },
+      getActiveTooltip: () => this.activeTooltip,
+      getHoveredNodeId: () => this.hoveredNodeId,
+      getLastPointerLocation: () => this.lastPointerLocation,
+      getWidget: (id) => this.registry.get(id),
+      getShowTooltips: () => this.showTooltips,
+      getTooltipDelay: () => this.tooltipDelay,
+    };
+    this.tooltipService = new TooltipService(tooltipServiceDeps);
+
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
     this.appActions = {
       action_focus_next: () => {
@@ -717,9 +759,8 @@ export class TextualFramework {
         widgetTypes: false,
         widgetTypeMetadata: false,
         widgetTypeTokens: false,
-        afterRefreshCallbacks: false,
-        layoutReaders: false,
-        afterRefreshRequester: false,
+        layoutEngine: false,
+        tooltipService: false,
         signals: false,
         signalRegistry: false,
         asyncResources: false,
@@ -738,7 +779,6 @@ export class TextualFramework {
         appCommandProviders: false,
         systemCommandResolver: false,
         keymap: false,
-        tooltipTimer: false,
         lastActionDispatchResult: false,
         bindingClashSignatures: false,
         handleBindingsClash: false,
@@ -1705,20 +1745,7 @@ export class TextualFramework {
   }
 
   callAfterRefresh<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    this.afterRefreshCallbacks.push(() => {
-      runWithActiveMessagePump(this, () => {
-        callback(...args);
-      });
-    });
-
-    if (this.afterRefreshRequester === null) {
-      this.callLater(() => this.flushAfterRefreshCallbacks());
-      return;
-    }
-
-    this.callLater(() => {
-      this.afterRefreshRequester?.();
-    });
+    this.layoutEngine.callAfterRefresh(callback, ...args);
   }
 
   callFromThread<TResult, TArgs extends unknown[]>(callback: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
@@ -1758,114 +1785,35 @@ export class TextualFramework {
   }
 
   attachAfterRefreshRequester(requester: () => void): () => void {
-    this.afterRefreshRequester = requester;
-
-    return () => {
-      if (this.afterRefreshRequester === requester) {
-        this.afterRefreshRequester = null;
-      }
-    };
+    return this.layoutEngine.attachAfterRefreshRequester(requester);
   }
 
   recordDisplayPass(): void {
-    this.displayCount += 1;
-    this.syncWidgetLayoutReaders();
+    this.layoutEngine.recordDisplayPass();
   }
 
-  registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {
-    this.layoutReaders.set(nodeId, reader);
-
-    return () => {
-      if (this.layoutReaders.get(nodeId) === reader) {
-        this.layoutReaders.delete(nodeId);
-      }
-    };
+  registerLayoutReader(nodeId: string, reader: () => void): () => void {
+    return this.layoutEngine.registerLayoutReader(nodeId, reader);
   }
 
   flushAfterRefreshCallbacks(): void {
-    const callbacks = this.afterRefreshCallbacks.splice(0);
-
-    for (const callback of callbacks) {
-      callback();
-    }
+    this.layoutEngine.flushAfterRefreshCallbacks();
   }
 
   handleWidgetTooltipChange(widget: Widget): void {
-    if (this.hoveredNodeId !== widget.nodeId) {
-      return;
-    }
-
-    this.refreshTooltipFromHover();
+    this.tooltipService.handleWidgetTooltipChange(widget);
   }
 
   private refreshTooltipFromHover(): void {
-    this.clearTooltipTimer();
-
-    if (!this.showTooltips) {
-      return;
-    }
-
-    if (this.hoveredNodeId === null || this.lastPointerLocation === null) {
-      return;
-    }
-
-    const hoveredWidget = this.registry.get(this.hoveredNodeId);
-    const visual = hoveredWidget === undefined ? null : this.normalizeTooltipContent(hoveredWidget.tooltip);
-
-    if (hoveredWidget === undefined || visual === null) {
-      return;
-    }
-
-    const pointer = this.lastPointerLocation;
-    this.tooltipTimer = setTimeout(() => {
-      const currentHovered = this.hoveredNodeId === null ? undefined : this.registry.get(this.hoveredNodeId);
-
-      if (currentHovered?.nodeId !== hoveredWidget.nodeId) {
-        return;
-      }
-
-      const currentVisual = this.normalizeTooltipContent(currentHovered.tooltip);
-
-      if (currentVisual === null) {
-        return;
-      }
-
-      runInAction(() => {
-        this.activeTooltip = {
-          sourceNodeId: hoveredWidget.nodeId,
-          visual: currentVisual,
-          x: pointer.x,
-          y: pointer.y,
-          visible: true,
-        };
-        this.tooltipTimer = null;
-      });
-    }, this.tooltipDelay);
-  }
-
-  private normalizeTooltipContent(value: VisualInput | null): Visual | null {
-    if (value === null) {
-      return null;
-    }
-
-    const visual = visualize(value);
-    const measurement = measureVisual(visual);
-    return measurement.width === 0 && measurement.height === 0 ? null : visual;
+    this.tooltipService.refreshTooltipFromHover();
   }
 
   private hideTooltip(): void {
-    this.clearTooltipTimer();
-
-    if (this.activeTooltip !== null) {
-      this.activeTooltip = null;
-    }
+    this.tooltipService.hideTooltip();
   }
 
   private clearTooltipTimer(): void {
-    if (this.tooltipTimer !== null) {
-      clearTimeout(this.tooltipTimer);
-      this.tooltipTimer = null;
-    }
+    this.tooltipService.clearTooltipTimer();
   }
 
   private syncPointerStateAfterLayout(): void {
@@ -2654,14 +2602,6 @@ export class TextualFramework {
     );
     this.signalRegistry.add(signal as Signal<unknown>);
     return signal;
-  }
-
-  private syncWidgetLayoutReaders(): void {
-    // [LAW:one-source-of-truth] Ink layout measurement is centralized here so
-    // stale sibling or ancestor geometry cannot become a second spatial truth.
-    for (const reader of this.layoutReaders.values()) {
-      reader();
-    }
   }
 
   private getGlobalStyleVariables(): Record<string, string> {
