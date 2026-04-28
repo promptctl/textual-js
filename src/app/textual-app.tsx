@@ -1,3 +1,45 @@
+// [LAW:single-enforcer] TextualApp is a thin host-bridge component: it wires
+// React/Ink's runtime (mount, keyboard, stdout resize, render tick) to the
+// framework that App owns, and synchronizes App's configuration props into
+// framework state. It is **not** the runtime authority — App is.
+//
+// What TextualApp does:
+//   1. Identity capture — `useState(() => framework)` locks the framework
+//      reference for this React subtree so a parent re-render with a
+//      different prop doesn't swap runtimes mid-flight.
+//   2. Host bridges — Ink → framework: keyboard (`useInput → postKey`),
+//      stdout dimensions (`syncHostTerminalSize`), React mount/unmount
+//      (`startup` / `shutdown`), refresh requester
+//      (`attachAfterRefreshRequester`), per-render paint tick
+//      (`recordDisplayPass` + `flushAfterRefreshCallbacks`).
+//   3. Configuration sync — App's options arrive as props (passed by
+//      `App.render()` from `App.appOptions`) and are pushed into the
+//      framework via setters: stylesheet, css path, theme, bindings,
+//      keymap, actions, command providers, system command resolver,
+//      screens, modes, auto-focus, tooltip delay, show-tooltips.
+//   4. Display rendering — overlays (`TooltipOverlay`, `ToastOverlay`)
+//      and active-screen mounting (`framework.activeScreenElement ??
+//      children`). All reads from framework state; no decisions made.
+//
+// What TextualApp does **not** do:
+//   - It does not gate lifecycle. `startup`/`shutdown` are unconditional
+//     reactions to React mount/unmount; they call the framework directly
+//     because the framework is the implementation. `App.startup` /
+//     `App.shutdown` provide the same entry for non-React callers.
+//   - It does not decide active screen. The framework owns the screen
+//     stack; TextualApp reads `activeScreenElement` and renders it (with
+//     a `?? children` fallback for the standalone-component case).
+//   - It does not create widget identity. Widgets register themselves via
+//     `WidgetHost` through `framework.registry`.
+//   - It does not branch on app state to alter behavior. Display branches
+//     (tooltip visible? notifications empty?) only choose what to render
+//     from canonical framework state — they never write back.
+//
+// `[LAW:one-source-of-truth]` App owns the configuration (`appOptions`),
+// the framework owns runtime state, and TextualApp is the single
+// React-side projection point that wires the two together. There is no
+// alternate path from props to framework state and no second renderer.
+
 import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
 import { Box, useInput, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
@@ -155,10 +197,14 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
   const { stdout } = useStdout();
   const [, requestAfterRefresh] = useState(0);
 
+  // [LAW:single-enforcer] Host → framework keyboard bridge. Ink's keypress
+  // events enter the runtime at exactly this seam.
   useInput((input, key) => {
     framework.postKey(input, key);
   });
 
+  // [LAW:single-enforcer] Host → framework terminal-size bridge. Stdout's
+  // current dimensions and resize events enter the runtime at this seam.
   useLayoutEffect(() => {
     const syncTerminalSize = (): void => {
       framework.syncHostTerminalSize(new Size(stdout.columns ?? 80, stdout.rows ?? 24));
@@ -172,6 +218,10 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
     };
   }, [framework, stdout]);
 
+  // [LAW:single-enforcer] React mount/unmount triggers framework
+  // startup/shutdown. App.startup / App.shutdown are the manual-control
+  // entry for the same operation; both paths land on framework's
+  // implementation, so there is one runtime gate, not two.
   useLayoutEffect(() => {
     framework.startup();
 
@@ -180,12 +230,18 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
     };
   }, [framework]);
 
+  // [LAW:single-enforcer] React's setState is the runtime's after-refresh
+  // trigger. Registered exactly once per framework instance.
   useLayoutEffect(() => {
     return framework.attachAfterRefreshRequester(() => {
       requestAfterRefresh((value) => value + 1);
     });
   }, [framework]);
 
+  // [LAW:single-enforcer] Per-render paint tick. The framework's display
+  // pass and queued after-refresh callbacks run unconditionally on every
+  // React commit — variability lives in what the framework chooses to do
+  // with that tick, not in whether the tick fires.
   useLayoutEffect(() => {
     framework.recordDisplayPass();
     framework.flushAfterRefreshCallbacks();
@@ -226,12 +282,19 @@ export const TextualApp = observer(function TextualApp({
   tooltipDelay,
   showTooltips,
 }: TextualAppProps): React.JSX.Element {
+  // [LAW:one-source-of-truth] Framework reference is captured once for the
+  // life of this React subtree. A parent re-render with a different
+  // framework prop must not silently swap the runtime under our feet.
   const [ownedFramework] = useState(() => framework);
 
   useLayoutEffect(() => {
     onReady?.(ownedFramework);
   }, [onReady, ownedFramework]);
 
+  // [LAW:one-source-of-truth] App.appOptions is the canonical configuration
+  // source. The block of effects below pushes each option into framework
+  // state. The framework's value is *derived* from App's options; consumers
+  // should never write to framework state through any other path.
   useLayoutEffect(() => {
     ownedFramework.setUserStylesheet(css ?? stylesheet ?? "");
   }, [css, ownedFramework, stylesheet]);
