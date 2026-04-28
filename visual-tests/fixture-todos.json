@@ -534,18 +534,6 @@
     "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
   },
   {
-    "name": "static_markup",
-    "stage": "7",
-    "component": "Static",
-    "reason": "Pre-seeded Python baseline for Stage 7 Static implementation"
-  },
-  {
-    "name": "static_multiline",
-    "stage": "7",
-    "component": "Static",
-    "reason": "Pre-seeded Python baseline for Stage 7 Static implementation"
-  },
-  {
     "name": "switch_disabled",
     "stage": "7",
     "component": "Switch",
