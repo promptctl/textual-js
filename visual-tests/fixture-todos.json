@@ -1,5 +1,23 @@
 [
   {
+    "name": "command_palette_open",
+    "stage": "future",
+    "component": "CommandPalette",
+    "reason": "Pre-seeded Python baseline for CommandPalette overlay visual coverage"
+  },
+  {
+    "name": "notifications_basic",
+    "stage": "future",
+    "component": "Notifications",
+    "reason": "Pre-seeded Python baseline for single-toast notification rendering"
+  },
+  {
+    "name": "notifications_severity",
+    "stage": "future",
+    "component": "Notifications",
+    "reason": "Pre-seeded Python baseline for stacked-toast severity rendering"
+  },
+  {
     "name": "button_disabled",
     "stage": "7",
     "component": "Button",
