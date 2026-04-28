@@ -9,6 +9,7 @@ export {
   type BindingNamespace,
   InvalidModeError,
   type KeymapInput,
+  type MessageSubscriber,
   type NotifyOptions,
   type PointerLocation,
   type PointerShape,
