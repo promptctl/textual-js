@@ -43,7 +43,7 @@ This pipeline captures screenshots from both Python Textual and textual-js for t
 - A **MATCH** means textual-js renders identically to Python Textual for that fixture.
 - A **DIFF** with a high match percentage (>90%) and only border/slider character differences is expected in early stages — Ink uses different box-drawing characters than Textual's custom renderer.
 - A **DIFF** where text content diverges (wrong words, missing widgets, broken layout) is a real bug. Investigate before committing.
-- A **new widget component** must have a paired visual fixture (`visual-tests/fixtures/<name>.py` + `<name>.tsx`) before the stage is considered complete.
+- **Every widget — old or new — must have a paired visual fixture** (`visual-tests/fixtures/<name>.py` + `<name>.tsx`) for every behavior its spec-tests file describes that is observable on screen. A widget without complete `.tsx` pairs is incomplete, regardless of whether its unit tests pass.
 
 **The visual comparison must never be silently skipped.** If `uv` or `tsx` is unavailable, that is a setup problem to fix, not a gate to bypass.
 
@@ -57,12 +57,25 @@ npm run build && npm run lint && npm test && bash visual-tests/run.sh
 
 ## Visual Test Fixtures
 
-When implementing a new widget component (a `.tsx` file in `src/widgets/` that renders via React/Ink):
+Every widget component (a `.tsx` file in `src/widgets/` that renders via React/Ink) must ship with a paired `.py` and `.tsx` fixture for every observable behavior in its spec-tests file. This applies retroactively: a `.py` fixture without a matching `.tsx` is a gap, not a future task.
 
-1. Create `visual-tests/fixtures/<widget_name>.py` — a Python Textual app that renders the widget in a representative configuration.
-2. Create `visual-tests/fixtures/<widget_name>.tsx` — a textual-js component that renders the same layout.
+For each fixture pair:
+
+1. `visual-tests/fixtures/<widget_name>.py` — a Python Textual app rendering the widget in the target configuration.
+2. `visual-tests/fixtures/<widget_name>.tsx` — a textual-js component rendering the same layout.
 3. Run `bash visual-tests/run.sh <widget_name>` and inspect the comparison output.
 4. Commit both fixtures alongside the widget implementation.
+
+### Stage completion is gated on fixture parity
+
+A stage is **not complete** until every widget it covers has paired `.py` + `.tsx` fixtures for every fixture variant the stage's spec-tests file describes. This explicitly applies to:
+
+- **Stage 5** (foundational widgets: Static, Label, Link, Rule, Sparkline, ProgressBar, LoadingIndicator, Header, Footer, Digits, Placeholder, etc.) — not done until every shipped widget's `.py` fixtures have matching `.tsx` files.
+- **Stage 6** (Button, Input, MaskedInput, Switch, Checkbox, RadioButton, RadioSet, Toggle, etc.) — same rule.
+- **Stage 7** (whatever interactive/composite widgets it covers per IMPLEMENTATION_ORDER.md) — same rule.
+- **Stage 8 onward** — same rule applies to every future stage.
+
+Backfilling missing `.tsx` pairs for already-shipped widgets is in-scope work, not optional cleanup. Any agent picking up the next ticket must check fixture parity for prior stages before declaring them done and advancing.
 
 ## Key Directories
 
