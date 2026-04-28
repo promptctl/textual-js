@@ -245,7 +245,7 @@ export interface BindingClash {
   bindings: Binding[];
 }
 
-type MessageSubscriber = (message: Message) => void;
+export type MessageSubscriber = (message: Message) => void;
 type AfterRefreshCallback = () => void;
 type LayoutReader = () => void;
 type DeferredCallback = {
