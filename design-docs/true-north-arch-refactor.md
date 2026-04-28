@@ -1,5 +1,24 @@
 # True North Architecture Refactor
 
+## Status (2026-04-28)
+
+Phase 1 ("Declare the Runtime Truth") is in progress under epic `textual-true-north-thu`. The reorientation described below is partially actualized:
+
+- **Closed:**
+  - `.1` Audit `TextualFramework` public surface — produced `design-docs/textual-framework-public-surface-audit.md` (137 members, ~750 external references, classified as definitely-public / sub-API / internal-only).
+  - `.2` Add App-equivalent methods for definitely-public framework members — `App` now exposes lifecycle, focus, dispatch, async, and sub-API access for every audit-§4.1 member.
+  - `.3` Rewrite consumer tests to drive App — 26 test files migrated, ~720 callsites changed.
+  - `.4` Drop TextualFramework from public exports — the public package barrel does not name `TextualFramework`; the internal `src/framework/index.ts` barrel was also cleaned.
+  - `.5` Migrate `runTest` harness to drive App — `Pilot`, `TestErrorBoundary`, `settleApp`, `runTestRoot`, `runTest` all take/drive `App`. `TestSession.framework` typed as `App["framework"]` (indexed-access) so the harness no longer imports `TextualFramework` directly.
+  - `.6` Verify `TextualApp` makes no runtime decisions — file-header `[LAW:single-enforcer]` block documents that `TextualApp` is a thin host bridge with no competing runtime authority.
+
+- **In progress / remaining:**
+  - `.7` Update README and design docs to describe App as authority (this commit).
+  - `.8` Add LAW markers asserting App as runtime root.
+  - `.9` Architectural guard: forbid `TextualFramework` imports outside `src/framework/` and `src/app/`.
+
+Phases 2–7 remain aspirational. The system today still has `TextualFramework` as a ~4,100-line god-object internally — Phase 7 decomposes it into per-concern services. What changed in Phase 1 is *who's named the authority*: `App` is now the public runtime root in code and docs, and the internal framework is a private collaborator on the path to decomposition.
+
 ## Purpose
 
 This document defines the target architecture for `textual-js`.
