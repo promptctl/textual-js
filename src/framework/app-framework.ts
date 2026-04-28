@@ -112,6 +112,14 @@ import {
   normalizePushArgs,
   type ScreenStackDeps,
 } from "./screen-stack-service.js";
+import {
+  MessagePump,
+  type MessagePumpDeps,
+  type MessageSubscriber,
+  type PreventionSnapshot,
+  type QueuedMessage,
+  type DeferredCallback,
+} from "./message-pump.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -141,12 +149,6 @@ export interface RegisterWidgetTypeOptions {
   borderTitle?: string | null;
   borderSubtitle?: string | null;
   typeToken?: Function;
-}
-
-interface QueuedMessage {
-  targetId: string | null;
-  targetNode?: Widget;
-  message: Message;
 }
 
 interface WidgetTypeState {
@@ -246,14 +248,9 @@ export interface BindingClash {
   bindings: Binding[];
 }
 
-export type MessageSubscriber = (message: Message) => void;
+export type { MessageSubscriber, PreventionSnapshot, DeferredCallback, QueuedMessage };
 type AfterRefreshCallback = () => void;
 type LayoutReader = () => void;
-type DeferredCallback = {
-  callback: () => void;
-  prevention: PreventionSnapshot;
-};
-type PreventionSnapshot = ReadonlyMap<string | null, ReadonlySet<MessageConstructor>>;
 
 export interface AppSignals {
   theme_changed_signal: Signal<ActiveTheme>;
@@ -536,11 +533,9 @@ export class TextualFramework {
   // [LAW:single-enforcer] All screen-stack/mode/installed-screen state is owned
   // by ScreenStackService. Framework getters/setters below are thin delegators.
   readonly screenStack: ScreenStackService;
-  private readonly queue: QueuedMessage[] = [];
-  private readonly closedQueues = new Set<string | null>();
-  private readonly unmountingQueues = new Set<string>();
-  private readonly disabledMessageTypes = new Map<string | null, Set<MessageConstructor>>();
-  private drainPromise: Promise<void> | null = null;
+  // [LAW:single-enforcer] All message-queue/dispatch/prevention state is owned
+  // by MessagePump. Framework methods below are thin delegators.
+  readonly pump: MessagePump;
   private userStylesheets: ParsedStylesheet[] = [];
   private cssPath: string[] = [];
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
@@ -548,11 +543,9 @@ export class TextualFramework {
   private readonly widgetTypeTokens = new Map<Function, string>();
   private readonly cssWatchers = new Map<string, FSWatcher>();
   private readonly screenStyleCache = new Map<unknown, ScreenStylesheetState>();
-  private readonly messageSubscribers = new Set<MessageSubscriber>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
   private readonly layoutReaders = new Map<string, LayoutReader>();
-  private readonly nextCallbacks: DeferredCallback[] = [];
   private afterRefreshRequester: (() => void) | null = null;
   private appBindings: Binding[] = [];
   private appActions: WidgetActions | undefined = undefined;
@@ -583,12 +576,10 @@ export class TextualFramework {
     nodeId: "__app__",
     typeName: "App",
   };
-  private activePrevention: PreventionSnapshot = new Map();
   private isClosing = false;
   private readyMessagePosted = false;
   batchUpdateCount = 0;
   private pendingStyleRecalc = false;
-  private pendingDrainAfterBatch = false;
   activeCommandPalette: CommandPalette | null = null;
   private publicApp: unknown = null;
   readonly signals: AppSignals;
@@ -619,6 +610,41 @@ export class TextualFramework {
     };
     this.screenStack = new ScreenStackService(screenStackDeps);
 
+    // [LAW:single-enforcer] MessagePump is constructed with a narrow deps
+    // interface — the framework supplies only the cross-cutting hooks the
+    // pump needs (handler resolution, key bindings, default-target resolution).
+    // The pump does NOT receive a back-reference to the framework.
+    const pumpDeps: MessagePumpDeps = {
+      getWidget: (id) => this.registry.get(id),
+      listWidgets: () => this.registry.list(),
+      isRunning: () => this.isRunning,
+      isClosing: () => this.isClosing,
+      isInBatch: () => this.batchUpdateCount > 0,
+      reportUnhandledError: (error) => this.reportUnhandledError(error),
+      resolveHandlers: (handlers, message) => this.resolveHandlers(handlers, message),
+      dispatchKeyHandler: (handlers, message) => this.dispatchKeyHandler(handlers, message),
+      resolveBindingsForNode: (node) => this.resolveBindingsForNode(node),
+      dispatchScreenKeyBindings: (key) => this.dispatchScreenKeyBindings(key),
+      dispatchBindingActionForNode: (node, action) =>
+        this.dispatchBindingAction(action, { actions: node.actions }),
+      dispatchPriorityBindings: (key) => this.dispatchPriorityBindings(key),
+      resolveDefaultDispatchTarget: () => this.resolveDefaultDispatchTarget(),
+      clearPendingError: () => {
+        runInAction(() => {
+          this.pendingError = null;
+        });
+      },
+      throwPendingError: () => this.throwPendingError(),
+      normalizeAndComposeKey: (input, meta) => {
+        const normalized = normalizeKeyName(input);
+        return {
+          fullKey: composeKeyWithModifiers(normalized.key, meta),
+          character: normalized.character,
+        };
+      },
+    };
+    this.pump = new MessagePump(pumpDeps);
+
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
     this.cssPath = typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
     this.appActions = {
@@ -639,21 +665,14 @@ export class TextualFramework {
     makeAutoObservable(
       this,
       {
-        queue: false,
-        closedQueues: false,
-        unmountingQueues: false,
-        disabledMessageTypes: false,
-        drainPromise: false,
         widgetTypes: false,
         widgetTypeMetadata: false,
         widgetTypeTokens: false,
         cssWatchers: false,
         screenStyleCache: false,
-        messageSubscribers: false,
         timers: false,
         afterRefreshCallbacks: false,
         layoutReaders: false,
-        nextCallbacks: false,
         afterRefreshRequester: false,
         signals: false,
         signalRegistry: false,
@@ -666,6 +685,7 @@ export class TextualFramework {
         notifications: false,
         themeManager: false,
         screenStack: false,
+        pump: false,
         appBindings: false,
         appActions: false,
         appCommandProviders: false,
@@ -675,7 +695,6 @@ export class TextualFramework {
         lastActionDispatchResult: false,
         bindingClashSignatures: false,
         handleBindingsClash: false,
-        activePrevention: false,
         focusTrapNodeId: false,
         publicApp: false,
       } as never,
@@ -810,24 +829,7 @@ export class TextualFramework {
     messageTypes: MessageConstructor[],
     callback: () => T,
   ): T {
-    const previous = this.activePrevention;
-    const next = clonePreventionSnapshot(previous);
-    const prevented = new Set(next.get(targetId) ?? []);
-
-    for (const messageType of messageTypes) {
-      prevented.add(messageType);
-    }
-
-    // [LAW:single-enforcer] Scoped message suppression is captured at one
-    // framework boundary so direct posts and deferred callbacks share it.
-    next.set(targetId, prevented);
-    this.activePrevention = next;
-
-    try {
-      return callback();
-    } finally {
-      this.activePrevention = previous;
-    }
+    return this.pump.preventMessages(targetId, messageTypes, callback);
   }
 
   batchUpdate<T>(callback: () => T): T {
@@ -850,66 +852,17 @@ export class TextualFramework {
           this.recalculateStyles();
         }
 
-        if (this.pendingDrainAfterBatch) {
-          this.pendingDrainAfterBatch = false;
-          this.scheduleDrain();
-        }
+        this.pump.onBatchExit();
       }
     }
   }
 
-  private capturePreventionSnapshot(): PreventionSnapshot {
-    return clonePreventionSnapshot(this.activePrevention);
-  }
-
-  private withPrevention<T>(prevention: PreventionSnapshot, callback: () => T): T {
-    const previous = this.activePrevention;
-    this.activePrevention = prevention;
-
-    try {
-      return callback();
-    } finally {
-      this.activePrevention = previous;
-    }
-  }
-
-  private isMessagePrevented(targetId: string | null, message: Message): boolean {
-    const preventedTypes = this.activePrevention.get(targetId) ?? new Set<MessageConstructor>();
-    return preventedTypes.has(message.constructor as MessageConstructor);
-  }
-
   disableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
-    const disabled = this.disabledMessageTypes.get(targetId) ?? new Set<MessageConstructor>();
-
-    for (const messageType of messageTypes) {
-      disabled.add(messageType);
-    }
-
-    // [LAW:single-enforcer] Long-lived message suppression is stored in the
-    // framework queue gate so every posting path shares exact-type matching.
-    this.disabledMessageTypes.set(targetId, disabled);
+    this.pump.disableMessages(targetId, messageTypes);
   }
 
   enableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
-    const disabled = this.disabledMessageTypes.get(targetId);
-
-    if (disabled === undefined) {
-      return;
-    }
-
-    for (const messageType of messageTypes) {
-      disabled.delete(messageType);
-    }
-
-    if (disabled.size === 0) {
-      this.disabledMessageTypes.delete(targetId);
-    }
-  }
-
-  private isMessageTypeDisabled(targetId: string | null, message: Message): boolean {
-    return (this.disabledMessageTypes.get(targetId) ?? new Set<MessageConstructor>()).has(
-      message.constructor as MessageConstructor,
-    );
+    this.pump.enableMessages(targetId, messageTypes);
   }
 
   startup(): void {
@@ -918,12 +871,12 @@ export class TextualFramework {
     }
 
     this.isClosing = false;
-    this.closedQueues.delete(null);
+    this.pump.reopenAppQueue();
     this.isRunning = true;
     this.signals.app_resume_signal.publish(undefined);
 
     for (const widget of this.registry.list()) {
-      this.enqueueLifecycleMessages(widget);
+      this.pump.enqueueLifecycleMessages(widget);
     }
 
     if (this.focusedNodeId === null) {
@@ -932,17 +885,17 @@ export class TextualFramework {
 
     if (!this.readyMessagePosted) {
       this.readyMessagePosted = true;
-      this.emitBroadcast(new Ready());
+      this.pump.emitBroadcast(new Ready());
     }
   }
 
   shutdown(): void {
     this.isClosing = true;
-    this.closeAllMessageQueues(false);
+    this.pump.closeAllMessageQueues(false);
     this.batchUpdateCount = 0;
     this.pendingStyleRecalc = false;
-    this.pendingDrainAfterBatch = false;
-    this.discardQueuedCallbacks();
+    this.pump.resetBatchPending();
+    this.pump.discardQueuedCallbacks();
     this.focusedNodeId = null;
     this.hoveredNodeId = null;
     this.workers.cancelAll();
@@ -956,12 +909,11 @@ export class TextualFramework {
       watcher.close();
     }
     this.cssWatchers.clear();
-    this.nextCallbacks.length = 0;
     this.isAppBlurred = false;
     this.blurredFocusAddress = null;
     this.focusChangedWhileBlurred = false;
     this.isRunning = false;
-    this.emitBroadcast(new CloseMessages());
+    this.pump.emitCloseMessages();
     this.signals.app_suspend_signal.publish(undefined);
   }
 
@@ -1188,8 +1140,7 @@ export class TextualFramework {
   }
 
   registerWidget(widget: Widget): void {
-    this.closedQueues.delete(widget.nodeId);
-    this.unmountingQueues.delete(widget.nodeId);
+    this.pump.reopenWidgetQueue(widget.nodeId);
     this.registry.register(widget);
 
     if (widget.autoFocus) {
@@ -1203,7 +1154,7 @@ export class TextualFramework {
       // is the single point that marks the widget ready — after onMount
       // handlers complete. Marking ready synchronously here would let
       // children render before mount lifecycle finishes.
-      this.enqueueLifecycleMessages(widget);
+      this.pump.enqueueLifecycleMessages(widget);
     } else {
       // Not yet running: startup() will enqueue Mount for every
       // already-registered widget, and Mount dispatch will mark them
@@ -1212,17 +1163,13 @@ export class TextualFramework {
   }
 
   notifyWillUnmount(widget: Widget): void {
-    this.unmountingQueues.add(widget.nodeId);
+    this.pump.markWidgetUnmounting(widget.nodeId);
     this.workers.cancelNode(widget.nodeId);
     this.clearNodeTimers(widget.nodeId);
     this.handleWidgetWillUnmount(widget);
-    this.closeMessageQueue(widget.nodeId);
+    this.pump.closeMessageQueue(widget.nodeId);
 
-    void this.dispatchQueuedMessage({
-      targetId: null,
-      targetNode: widget,
-      message: this.withSender(new Unmount({ bubble: false }), widget),
-    });
+    void this.pump.dispatchUnmountImmediate(widget, new Unmount({ bubble: false }));
   }
 
   unregisterWidget(nodeId: string): void {
@@ -1242,9 +1189,7 @@ export class TextualFramework {
     for (const signal of this.signalRegistry) {
       signal.pruneNode(nodeId);
     }
-    this.disabledMessageTypes.delete(nodeId);
-    this.unmountingQueues.delete(nodeId);
-    this.closedQueues.add(nodeId);
+    this.pump.markWidgetClosed(nodeId);
     this.recalculateStyles();
 
     if (hadFocus) {
@@ -1684,8 +1629,7 @@ export class TextualFramework {
   }
 
   postAppMessage(message: Message): void {
-    this.queue.push({ targetId: null, message });
-    this.scheduleDrain();
+    this.pump.postAppMessage(message);
   }
 
   getActiveStylesheetsFor(typeName: string): ParsedStylesheet[] {
@@ -1742,81 +1686,27 @@ export class TextualFramework {
   }
 
   get messageQueueSize(): number {
-    return this.queue.length;
+    return this.pump.messageQueueSize;
   }
 
   getMessageQueueSize(targetId: string | null): number {
-    return this.queue.filter((queued) => queued.targetId === targetId || queued.targetNode?.nodeId === targetId).length;
+    return this.pump.getMessageQueueSize(targetId);
   }
 
   postMessage(targetId: string, message: Message): boolean {
-    const target = this.registry.get(targetId);
-
-    if (
-      target === undefined ||
-      this.closedQueues.has(targetId) ||
-      this.unmountingQueues.has(targetId) ||
-      this.isMessagePrevented(targetId, message) ||
-      this.isMessageTypeDisabled(targetId, message)
-    ) {
-      return false;
-    }
-
-    const replacementIndex = this.queue.findIndex(
-      (queued) =>
-        queued.targetId === targetId &&
-        queued.targetNode === undefined &&
-        queued.message.constructor === message.constructor &&
-        message.canReplace(queued.message),
-    );
-
-    if (replacementIndex >= 0) {
-      this.queue.splice(replacementIndex, 1, {
-        targetId,
-        message: this.withSender(message, target),
-      });
-    } else {
-      this.queue.push({ targetId, message: this.withSender(message, target) });
-    }
-
-    this.scheduleDrain();
-    return true;
+    return this.pump.postMessage(targetId, message);
   }
 
   dispatchMessage(message: Message): void {
-    const target = this.resolveDefaultDispatchTarget();
-
-    if (target === undefined) {
-      return;
-    }
-
-    // [LAW:single-enforcer] App-level dispatch chooses its target here so root
-    // callers and test harnesses share one targeting rule without forging sender state.
-    this.queue.push({ targetId: target.nodeId, message });
-    this.scheduleDrain();
+    this.pump.dispatchMessage(message);
   }
 
   postToFocused(message: Message): void {
-    const target = this.resolveDefaultDispatchTarget();
-
-    if (target !== undefined) {
-      this.postMessage(target.nodeId, message);
-    }
+    this.pump.postToFocused(message);
   }
 
   postKey(input: string, meta: { ctrl?: boolean; shift?: boolean; meta?: boolean; paste?: boolean } = {}): void {
-    const normalized = normalizeKeyName(input);
-    const fullKey = composeKeyWithModifiers(normalized.key, meta);
-
-    // [LAW:dataflow-not-control-flow] Every key event flows through the same
-    // two-phase pipeline: priority scan from app downwards, then bubble with
-    // non-priority bindings interleaved. The data (priority flag, node chain)
-    // selects which handlers run, not an if-ladder.
-    if (this.dispatchPriorityBindings(fullKey)) {
-      return;
-    }
-
-    this.postToFocused(new Key(fullKey, normalized.character, meta));
+    this.pump.postKey(input, meta);
   }
 
   postClick(x: number, y: number, chain = 1): void {
@@ -1903,37 +1793,11 @@ export class TextualFramework {
   }
 
   async whenIdle(): Promise<void> {
-    do {
-      const pendingDrain = this.drainPromise;
-
-      if (pendingDrain !== null) {
-        try {
-          await pendingDrain;
-        } catch (error) {
-          runInAction(() => {
-            this.pendingError = null;
-          });
-          throw error;
-        }
-      }
-
-      await Promise.resolve();
-
-      // [LAW:single-enforcer] Queue idleness is observed from this boundary so
-      // tests and framework callers share one definition of "fully drained."
-      if (this.queue.length === 0 && this.nextCallbacks.length === 0 && this.drainPromise === null) {
-        this.throwPendingError();
-        return;
-      }
-    } while (true);
+    return this.pump.whenIdle();
   }
 
   subscribeToMessages(subscriber: MessageSubscriber): () => void {
-    this.messageSubscribers.add(subscriber);
-
-    return () => {
-      this.messageSubscribers.delete(subscriber);
-    };
+    return this.pump.subscribeToMessages(subscriber);
   }
 
   findWidgets(selectorText: string): Widget[] {
@@ -2111,29 +1975,11 @@ export class TextualFramework {
   }
 
   callLater<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    const prevention = this.capturePreventionSnapshot();
-
-    // [LAW:one-source-of-truth] Deferred later-callbacks enter through the
-    // message queue so shutdown, observability, and ordering all share one path.
-    this.emitBroadcast(new Callback(() => {
-      this.withPrevention(prevention, () => {
-        callback(...args);
-      });
-    }));
+    this.pump.callLater(callback, ...args);
   }
 
   callNext<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    const prevention = this.capturePreventionSnapshot();
-
-    // [LAW:single-enforcer] callNext ordering is enforced by the dispatcher so
-    // every caller observes the same after-message boundary instead of ambient microtasks.
-    this.nextCallbacks.push({
-      prevention,
-      callback: () => {
-        callback(...args);
-      },
-    });
-    this.scheduleDrain();
+    this.pump.callNext(callback, ...args);
   }
 
   callAfterRefresh<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
@@ -2203,12 +2049,12 @@ export class TextualFramework {
     this.isAppBlurred = true;
     this.focusChangedWhileBlurred = false;
     this.hideTooltip();
-    this.emitBroadcast(new AppBlur());
+    this.pump.emitBroadcast(new AppBlur());
     this.applyFocusChange(null, { markBlurOverride: false });
   }
 
   handleAppFocus(): void {
-    this.emitBroadcast(new AppFocus());
+    this.pump.emitBroadcast(new AppFocus());
 
     if (!this.isAppBlurred) {
       return;
@@ -2583,7 +2429,7 @@ export class TextualFramework {
     this.screenStack.setActiveMode(name);
     this.refreshCssWatchers();
     this.signals.mode_change_signal.publish(name);
-    this.emitBroadcast(new ModeChanged(name));
+    this.pump.emitBroadcast(new ModeChanged(name));
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(this.activeScreen);
@@ -2775,7 +2621,7 @@ export class TextualFramework {
     }
 
     this.saveScreenFocusSnapshot(screen);
-    this.emitBroadcast(new ScreenSuspend(screen.name));
+    this.pump.emitBroadcast(new ScreenSuspend(screen.name));
   }
 
   private resumeActiveScreen(): void {
@@ -2785,61 +2631,8 @@ export class TextualFramework {
       return;
     }
 
-    this.emitBroadcast(new ScreenResume(screen.name));
+    this.pump.emitBroadcast(new ScreenResume(screen.name));
     this.scheduleActiveScreenFocusResolution(true);
-  }
-
-  private emitBroadcast(message: Message): void {
-    this.queue.push({ targetId: null, message });
-    this.scheduleDrain();
-  }
-
-  private closeMessageQueue(targetId: string | null): void {
-    this.closedQueues.add(targetId);
-    // [LAW:one-source-of-truth] Queue closure owns pending-message pruning so
-    // unmount and shutdown do not each invent their own stale-message cleanup.
-    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
-      const queued = this.queue[index];
-
-      const targetsClosedQueue =
-        targetId === null
-          ? queued?.targetId === null && queued.targetNode === undefined
-          : queued?.targetId === targetId || queued?.targetNode?.nodeId === targetId;
-
-      if (targetsClosedQueue) {
-        this.queue.splice(index, 1);
-      }
-    }
-  }
-
-  private closeAllMessageQueues(prune = true): void {
-    if (prune) {
-      this.closeMessageQueue(null);
-    } else {
-      this.closedQueues.add(null);
-    }
-
-    for (const widget of this.registry.list()) {
-      if (prune) {
-        this.closeMessageQueue(widget.nodeId);
-      } else {
-        this.closedQueues.add(widget.nodeId);
-      }
-    }
-  }
-
-  private discardQueuedCallbacks(): void {
-    // [LAW:dataflow-not-control-flow] Shutdown discard policy is read from a
-    // static tag on each Message constructor; the queue scan does not branch
-    // on message kind.
-    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
-      const entry = this.queue[index];
-      if (entry !== undefined && (entry.message.constructor as MessageConstructor).discardOnShutdown) {
-        this.queue.splice(index, 1);
-      }
-    }
-
-    this.nextCallbacks.length = 0;
   }
 
   // ---- Action dispatch --------------------------------------------------
@@ -2995,15 +2788,7 @@ export class TextualFramework {
   }
 
   dispatchNodeKeyBindings(node: Widget, key: string): boolean {
-    for (const binding of this.resolveBindingsForNode(node)) {
-      if (binding.priority !== true && binding.key === key) {
-        if (this.dispatchBindingAction(binding.action, { actions: node.actions })) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return this.pump.dispatchNodeKeyBindings(node, key);
   }
 
   private dispatchScreenKeyBindings(key: string): boolean {
@@ -3127,151 +2912,6 @@ export class TextualFramework {
       interactiveWidgets.find((entry) => entry.focusable) ??
       interactiveWidgets[0]
     );
-  }
-
-  private scheduleDrain(): void {
-    if (this.batchUpdateCount > 0) {
-      this.pendingDrainAfterBatch = true;
-      return;
-    }
-
-    if (this.drainPromise !== null) {
-      return;
-    }
-
-    this.drainPromise = Promise.resolve()
-      .then(async () => this.drainQueue())
-      .catch((error) => {
-        this.reportUnhandledError(error);
-        throw error;
-      })
-      .finally(() => {
-        this.drainPromise = null;
-
-        if (this.queue.length > 0 || this.nextCallbacks.length > 0) {
-          this.scheduleDrain();
-        }
-      });
-  }
-
-  private async drainQueue(): Promise<void> {
-    // [LAW:dataflow-not-control-flow] Every queued message and deferred next
-    // callback flows through one dispatcher-owned pipeline; variability lives in
-    // queued values, not in branching to alternate schedulers.
-    do {
-      await this.flushCallNextCallbacks();
-      let dispatchedQueuedMessage = false;
-
-      while (this.queue.length > 0) {
-        const nextMessage = this.queue.shift();
-
-        if (nextMessage !== undefined) {
-          dispatchedQueuedMessage = true;
-          await this.dispatchQueuedMessage(nextMessage);
-          await this.flushCallNextCallbacks();
-        }
-      }
-
-      if (dispatchedQueuedMessage) {
-        await this.dispatchIdlePass();
-        await this.flushCallNextCallbacks();
-      }
-    } while (this.queue.length > 0 || this.nextCallbacks.length > 0);
-  }
-
-  private async dispatchQueuedMessage({ targetId, targetNode, message }: QueuedMessage): Promise<void> {
-    const messageClass = message.constructor as MessageConstructor;
-
-    try {
-      if (message.noDispatch) {
-        return;
-      }
-
-      if (messageClass.dispatchKind === "self-invoke") {
-        if (this.isClosing) {
-          return;
-        }
-
-        // [LAW:single-enforcer] Callback / Timer execution is attached to
-        // queued message dispatch so deferred work follows the same lifecycle
-        // boundary. Both classes carry an invoke() method by convention; the
-        // dispatchKind tag is the contract.
-        (message as Callback | Timer).invoke();
-        return;
-      }
-
-      let currentNode = targetId === null ? targetNode : this.registry.get(targetId);
-
-      if (currentNode === undefined) {
-        currentNode = targetNode;
-      }
-
-      while (currentNode !== undefined) {
-        // [LAW:single-enforcer] Disabled/loading gating runs here and only here
-        // so event suppression stays consistent across every dispatch path.
-        if (shouldSuppressAtNode(currentNode, message)) {
-          return;
-        }
-
-        const handlers = currentNode.handlersRef.current;
-        const matchingHandlers = this.resolveHandlers(handlers, message);
-
-        for (const handler of matchingHandlers) {
-          await runWithActiveMessagePump(currentNode, () => handler(message));
-
-          // [LAW:single-enforcer] preventDefault semantics are enforced in the
-          // dispatcher so every handler path shares the same local short-circuit.
-          if (message.isDefaultPrevented) {
-            break;
-          }
-        }
-
-        if (messageClass.handlesKeyBindings && !message.isPropagationStopped) {
-          const keyMessage = message as Key;
-          const keyConsumer = keyMessage.sender instanceof Widget ? keyMessage.sender : undefined;
-          const consumedByDescendant =
-            keyConsumer !== undefined &&
-            keyConsumer.nodeId !== currentNode.nodeId &&
-            keyConsumer.checkConsumeKey(keyMessage.key, keyMessage.character);
-
-          if (!consumedByDescendant && this.dispatchNodeKeyBindings(currentNode, keyMessage.key)) {
-            message.stop();
-          }
-
-          if (!message.isPropagationStopped && (await this.dispatchKeyHandler(handlers, keyMessage))) {
-            message.stop();
-          }
-        }
-
-        if (!message.bubble || message.isPropagationStopped) {
-          return;
-        }
-
-        const parentNode = currentNode.parentId === null ? undefined : this.registry.get(currentNode.parentId);
-
-        if (parentNode !== undefined && parentNode === message.sender) {
-          return;
-        }
-
-        currentNode = parentNode;
-      }
-
-      if (messageClass.handlesKeyBindings && !message.isPropagationStopped) {
-        if (this.dispatchScreenKeyBindings((message as Key).key)) {
-          message.stop();
-        }
-      }
-    } finally {
-      if (messageClass.markLifecycleReadyAfterDispatch && targetNode !== undefined) {
-        targetNode.markLifecycleReady();
-      }
-
-      // [LAW:one-source-of-truth] Message observation is published from one
-      // boundary so tests and tooling share the same dispatch transcript.
-      for (const subscriber of this.messageSubscribers) {
-        subscriber(message);
-      }
-    }
   }
 
   private resolveHandlers(
@@ -3455,52 +3095,6 @@ export class TextualFramework {
     return `${selectorSignature}::${attributeSignature}`;
   }
 
-  private enqueueLifecycleMessages(widget: Widget): void {
-    this.enqueueDirectMessage(widget, new Compose({ bubble: false }));
-    this.enqueueDirectMessage(widget, new Mount({ bubble: false }));
-  }
-
-  private async dispatchIdlePass(): Promise<void> {
-    if (!this.isRunning) {
-      return;
-    }
-
-    // [LAW:single-enforcer] Idle delivery runs from the dispatcher boundary so
-    // startup, user input, and deferred work all observe the same idle cadence.
-    for (const widget of this.registry.list()) {
-      await this.dispatchQueuedMessage({
-        targetId: null,
-        targetNode: widget,
-        message: this.withSender(new Idle({ bubble: false }), widget),
-      });
-    }
-  }
-
-  private async flushCallNextCallbacks(): Promise<void> {
-    while (this.nextCallbacks.length > 0) {
-      const deferred = this.nextCallbacks.shift();
-
-      if (deferred !== undefined) {
-        this.withPrevention(deferred.prevention, () => {
-          deferred.callback();
-        });
-      }
-    }
-  }
-
-  private enqueueDirectMessage(targetNode: Widget, message: Message): void {
-    this.queue.push({
-      targetId: null,
-      targetNode,
-      message: this.withSender(message, targetNode),
-    });
-    this.scheduleDrain();
-  }
-
-  private withSender(message: Message, sender: Widget | undefined): Message {
-    return message.setSender(message.sender ?? sender ?? null);
-  }
-
   private createFrameworkSignal<TValue>(): Signal<TValue> {
     const signal = new Signal<TValue>(
       () => this.isRunning,
@@ -3530,17 +3124,8 @@ export class TextualFramework {
     // restore, user focus changes, and blur-driven clears share one path.
     const previousNode = previousId === null ? undefined : this.registry.get(previousId);
 
-    if (previousNode !== undefined) {
-      this.enqueueDirectMessage(previousNode, new Blur({ bubble: false }));
-      this.enqueueDirectMessage(previousNode, new DescendantBlur());
-    }
-
     const nextNode = nodeId === null ? undefined : this.registry.get(nodeId);
-
-    if (nextNode !== undefined) {
-      this.enqueueDirectMessage(nextNode, new Focus({ bubble: false }));
-      this.enqueueDirectMessage(nextNode, new DescendantFocus());
-    }
+    this.pump.enqueueFocusBlur(previousNode, nextNode);
 
     this.notifyBindingsUpdated();
   }
@@ -3724,11 +3309,7 @@ export class TextualFramework {
       delayMs,
       () => {
         if (this.isNodeMounted(node)) {
-          void this.dispatchQueuedMessage({
-            targetId: null,
-            targetNode: node,
-            message: this.withSender(new Timer(callback), node),
-          });
+          void this.pump.dispatchToWidgetImmediate(node, new Timer(callback));
         }
       },
       repeating,
@@ -3863,35 +3444,6 @@ function normalizeKeyList(source: string): string[] {
     .split(",")
     .map((key) => normalizeKeyName(key).key)
     .filter((key) => key.length > 0);
-}
-
-function clonePreventionSnapshot(snapshot: PreventionSnapshot): Map<string | null, ReadonlySet<MessageConstructor>> {
-  return new Map(
-    Array.from(snapshot.entries()).map(([targetId, messageTypes]) => [targetId, new Set(messageTypes)]),
-  );
-}
-
-// [LAW:dataflow-not-control-flow] Suppression policy reads one tag from the
-// Message constructor (suppressionCategory). Loading suppresses both
-// "user-input" and "scroll"; disabled suppresses only "user-input" (scroll
-// passes through). The asymmetry lives in this rule, not in the message
-// classification.
-function shouldSuppressAtNode(node: Widget, message: Message): boolean {
-  const category = (message.constructor as MessageConstructor).suppressionCategory;
-
-  if (category === null || category === undefined) {
-    return false;
-  }
-
-  if (node.isLoadingEffective) {
-    return true;
-  }
-
-  if (node.isDisabledEffective) {
-    return category === "user-input";
-  }
-
-  return false;
 }
 
 // [LAW:single-enforcer] Modifier composition happens in one place so binding keys
