@@ -49,7 +49,6 @@ import {
   Notifications,
   type NotificationContent,
   type NotificationSeverity,
-  type NotificationInit,
 } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
@@ -152,6 +151,11 @@ import {
   BindingDispatcher,
   type BindingDispatcherDeps,
 } from "./binding-dispatcher.js";
+import {
+  NotificationService,
+  type NotificationServiceDeps,
+  type NotifyOptions,
+} from "./notification-service.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -298,7 +302,10 @@ export type SimpleCommand =
       helpText?: string;
     };
 
-export interface NotifyOptions extends Pick<NotificationInit, "severity" | "timeout" | "title" | "markup"> {}
+// NotifyOptions is owned by NotificationService (extracted in 7w9.5) and
+// re-exported here so existing type-only consumers keep working until the
+// framework barrel is removed in 7w9.10.
+export type { NotifyOptions };
 
 export interface SystemCommand {
   name: VisualInput;
@@ -335,24 +342,6 @@ class HeadlessDriver implements AppDriver {
   resumeApplicationMode(): void {
     return undefined;
   }
-}
-
-function normalizeNotifyOptions(
-  severityOrOptions: NotificationSeverity | NotifyOptions,
-  timeout: number,
-  title: NotificationContent,
-  markup: boolean,
-): NotificationInit {
-  if (typeof severityOrOptions === "object") {
-    return {
-      severity: severityOrOptions.severity,
-      timeout: severityOrOptions.timeout,
-      title: severityOrOptions.title,
-      markup: severityOrOptions.markup,
-    };
-  }
-
-  return { severity: severityOrOptions, timeout, title, markup };
 }
 
 function getMessageTypeDistance(message: Message, messageType: MessageConstructor): number | null {
@@ -474,7 +463,14 @@ export class TextualFramework {
 
   readonly registry = new WidgetRegistry();
   readonly workers = new WorkerManager();
-  readonly notifications = new Notifications();
+  // [LAW:single-enforcer] Notifications collection + showNotifications gate
+  // live in `notificationService` (extracted in 7w9.5). The framework holds
+  // only the service handle; the `notifications` getter exists so existing
+  // framework.notifications consumers (TextualApp host, tests) work unchanged.
+  readonly notificationService: NotificationService;
+  get notifications(): Notifications {
+    return this.notificationService.notifications;
+  }
   readonly themeManager = new ThemeManager();
   readonly driver: AppDriver;
   readonly features: TextualFeatureState["features"];
@@ -527,7 +523,12 @@ export class TextualFramework {
   private appCommandProviders: ReadonlySet<ProviderConstructor> | null = null;
   private systemCommandResolver: SystemCommandResolver = () => [];
   private appAutoFocus: string | null = null;
-  showNotifications = true;
+  // [LAW:single-enforcer] showNotifications is owned by notificationService.
+  // Surface a getter here so existing framework.showNotifications consumers
+  // (TextualApp host) keep working unchanged.
+  get showNotifications(): boolean {
+    return this.notificationService.showNotifications;
+  }
   showTooltips = true;
   tooltipDelay = 500;
   activeTooltip: ActiveTooltip | null = null;
@@ -774,11 +775,20 @@ export class TextualFramework {
     };
     this.bindingDispatcher = new BindingDispatcher(bindingDispatcherDeps, APP_NAVIGATION_BINDINGS);
 
+    // [LAW:single-enforcer] NotificationService receives only the cross-cutting
+    // hook it needs (postAppMessage for the Notify event). It does NOT receive
+    // a back-reference to the framework.
+    const notificationServiceDeps: NotificationServiceDeps = {
+      postAppMessage: (message) => this.postAppMessage(message),
+    };
+    this.notificationService = new NotificationService(notificationServiceDeps);
+
     makeAutoObservable(
       this,
       {
         widgetTypeRegistry: false,
         bindingDispatcher: false,
+        notificationService: false,
         layoutEngine: false,
         tooltipService: false,
         signalRegistry: false,
@@ -788,7 +798,6 @@ export class TextualFramework {
         devtools: false,
         activeCommandPalette: false,
         workers: false,
-        notifications: false,
         themeManager: false,
         screenStack: false,
         pump: false,
@@ -854,7 +863,7 @@ export class TextualFramework {
   }
 
   setShowNotifications(enabled: boolean | null | undefined): void {
-    this.showNotifications = enabled ?? true;
+    this.notificationService.setShowNotifications(enabled);
   }
 
   setPointerShape(shape: PointerShape): void {
@@ -1503,6 +1512,10 @@ export class TextualFramework {
     this.asyncResources.resetTimer(node, name);
   }
 
+  // [LAW:single-enforcer] Notification entry points delegate to
+  // NotificationService (extracted in 7w9.5). Framework retains the public
+  // method surface as thin delegators until 7w9.10 deletes the framework
+  // class.
   notify(
     message: NotificationContent,
     severityOrOptions: NotificationSeverity | NotifyOptions = "information",
@@ -1510,32 +1523,19 @@ export class TextualFramework {
     title: NotificationContent = "",
     markup = true,
   ): Notification {
-    const options = normalizeNotifyOptions(severityOrOptions, timeout, title, markup);
-    const notification = new Notification(message, options);
-
-    // [LAW:single-enforcer] Notification recording is gated at this boundary so
-    // mount effects, widget helpers, and app calls all share the same transient policy.
-    const storedNotification = this.showNotifications ? this.notifications.add(notification) : notification;
-    this.postAppMessage(new Notify(notification));
-    return storedNotification;
+    return this.notificationService.notify(message, severityOrOptions, timeout, title, markup);
   }
 
   dismissNotification(identity: string): void {
-    const notification = this.notifications.list().find((entry) => entry.identity === identity);
-
-    if (notification !== undefined) {
-      this.notifications.delete(notification);
-    }
+    this.notificationService.dismissNotification(identity);
   }
 
   clearNotifications(): void {
-    this.notifications.clear();
+    this.notificationService.clearNotifications();
   }
 
   _unnotify(notification: Notification): void {
-    // [LAW:one-source-of-truth] Object-based notification removal delegates to
-    // the collection identity rule used by dismissNotification and expiry.
-    this.notifications.delete(notification);
+    this.notificationService.unnotify(notification);
   }
 
   callLater<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
