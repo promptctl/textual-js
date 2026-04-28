@@ -1,8 +1,15 @@
 import * as csstree from "css-tree";
 
-import type { TextualFramework } from "../framework/app-framework.js";
 import type { Widget } from "../framework/widget.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
+
+// [LAW:one-way-deps] Narrow capability interface the matcher requires from its
+// host (typically TextualFramework). The matcher never imports the host class.
+// Host implements this structurally; selectors.ts depends only on this shape.
+export interface SelectorMatchHost {
+  getPreviousSibling(nodeId: string): Widget | undefined;
+  getPreviousSiblings(nodeId: string): Widget[];
+}
 
 export interface SelectorSpecificity {
   ids: number;
@@ -216,7 +223,7 @@ function makePseudo(name: string): SegmentSelector {
 // from combinator symbol to the set of widgets that the previous selector
 // segment may bind to. The matcher iterates this set unconditionally; it does
 // not branch on combinator symbol.
-type CombinatorCandidates = (framework: TextualFramework, widget: Widget) => Iterable<Widget>;
+type CombinatorCandidates = (host: SelectorMatchHost, widget: Widget) => Iterable<Widget>;
 
 function* walkAncestors(widget: Widget): Iterable<Widget> {
   let current = widget.parent;
@@ -227,17 +234,17 @@ function* walkAncestors(widget: Widget): Iterable<Widget> {
 }
 
 const COMBINATOR_CANDIDATES: Readonly<Record<string, CombinatorCandidates>> = {
-  ">": (_framework, widget) => (widget.parent === undefined ? [] : [widget.parent]),
-  "+": (framework, widget) => {
-    const sibling = framework.registry.getPreviousSibling(widget.nodeId);
+  ">": (_host, widget) => (widget.parent === undefined ? [] : [widget.parent]),
+  "+": (host, widget) => {
+    const sibling = host.getPreviousSibling(widget.nodeId);
     return sibling === undefined ? [] : [sibling];
   },
-  "~": (framework, widget) => framework.registry.getPreviousSiblings(widget.nodeId),
-  " ": (_framework, widget) => walkAncestors(widget),
+  "~": (host, widget) => host.getPreviousSiblings(widget.nodeId),
+  " ": (_host, widget) => walkAncestors(widget),
 };
 
 function matchSelectorFrom(
-  framework: TextualFramework,
+  host: SelectorMatchHost,
   widget: Widget,
   selector: ParsedSelector,
   segmentIndex: number,
@@ -252,8 +259,8 @@ function matchSelectorFrom(
 
   const combinator = selector.combinators[segmentIndex - 1];
 
-  for (const candidate of COMBINATOR_CANDIDATES[combinator](framework, widget)) {
-    if (matchSelectorFrom(framework, candidate, selector, segmentIndex - 1)) {
+  for (const candidate of COMBINATOR_CANDIDATES[combinator](host, widget)) {
+    if (matchSelectorFrom(host, candidate, selector, segmentIndex - 1)) {
       return true;
     }
   }
@@ -261,6 +268,6 @@ function matchSelectorFrom(
   return false;
 }
 
-export function matchesSelector(framework: TextualFramework, widget: Widget, selector: ParsedSelector): boolean {
-  return matchSelectorFrom(framework, widget, selector, selector.segments.length - 1);
+export function matchesSelector(host: SelectorMatchHost, widget: Widget, selector: ParsedSelector): boolean {
+  return matchSelectorFrom(host, widget, selector, selector.segments.length - 1);
 }

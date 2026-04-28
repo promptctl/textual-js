@@ -6,9 +6,26 @@ import { Color } from "./color.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
 import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, type ScalarAxis, scalarToInkValue, scalarToRawValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
-import { compareSelectorSpecificity, matchesSelector, parseSelectorList, type ParsedSelector } from "./selectors.js";
-import type { TextualFramework } from "../framework/app-framework.js";
+import {
+  compareSelectorSpecificity,
+  matchesSelector,
+  parseSelectorList,
+  type ParsedSelector,
+  type SelectorMatchHost,
+} from "./selectors.js";
+import type { WidgetTypeMetadata } from "../framework/app-framework.js";
 import type { Widget } from "../framework/widget.js";
+import type { Size } from "../geometry/size.js";
+
+// [LAW:one-way-deps] Narrow capability interface the cascade resolver requires
+// from its host (typically TextualFramework). The resolver never imports the
+// host class. Extends SelectorMatchHost because resolveStylesForWidget forwards
+// through matchesSelector(host, …) and must therefore satisfy its needs.
+export interface StyleResolutionHost extends SelectorMatchHost {
+  getActiveStylesheetsFor(typeName: string): ParsedStylesheet[];
+  getWidgetTypeMetadata(typeName: string): WidgetTypeMetadata;
+  readonly terminalSize: Size;
+}
 
 export type StylesheetOrigin = "default" | "user";
 
@@ -1975,15 +1992,15 @@ function rulesToInk(
 }
 
 export function resolveStylesForWidget(
-  framework: TextualFramework,
+  host: StyleResolutionHost,
   widget: Widget,
   parentCustomProperties: Record<string, string>,
   inheritedTextStyle?: unknown,
 ): ResolvedInkStyles {
   const candidatesByProperty = new Map<string, CascadeValue[]>();
   const customProperties = { ...parentCustomProperties };
-  const stylesheets = framework.getActiveStylesheetsFor(widget.typeName);
-  const defaultStylesheets = framework.getWidgetTypeMetadata(widget.typeName).defaultStylesheets;
+  const stylesheets = host.getActiveStylesheetsFor(widget.typeName);
+  const defaultStylesheets = host.getWidgetTypeMetadata(widget.typeName).defaultStylesheets;
   let cascadeOrder = 0;
 
   const addCandidate = (candidate: CascadeValue): void => {
@@ -1996,7 +2013,7 @@ export function resolveStylesForWidget(
   // pipeline so DEFAULT_CSS, user CSS, and inline styles cannot drift apart.
   for (const stylesheet of stylesheets) {
     for (const rule of stylesheet.rules) {
-      const matchingSelectors = rule.selectors.filter((selector) => matchesSelector(framework, widget, selector));
+      const matchingSelectors = rule.selectors.filter((selector) => matchesSelector(host, widget, selector));
 
       for (const selector of matchingSelectors) {
         for (const declaration of rule.declarations) {
@@ -2056,7 +2073,7 @@ export function resolveStylesForWidget(
     const defaultFallback = defaultStylesheets
       .flatMap((stylesheet) =>
         stylesheet.rules.flatMap((rule) =>
-          rule.selectors.some((selector) => matchesSelector(framework, widget, selector))
+          rule.selectors.some((selector) => matchesSelector(host, widget, selector))
             ? rule.declarations
                 .flatMap((declaration) => expandedDeclarationEntries(declaration))
                 .filter((candidate) => candidate.property === property && candidate.rawValue.trim() !== "initial")
@@ -2125,7 +2142,7 @@ export function resolveStylesForWidget(
   }
 
   return {
-    ...rulesToInk(rules, framework.terminalSize, framework.getWidgetTypeMetadata(widget.typeName).componentClasses),
+    ...rulesToInk(rules, host.terminalSize, host.getWidgetTypeMetadata(widget.typeName).componentClasses),
     rules,
     customProperties,
   };

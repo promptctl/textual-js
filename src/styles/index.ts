@@ -55,6 +55,7 @@ export {
   type ParsedDeclaration,
   type ParsedRule,
   type ParsedStylesheet,
+  type StyleResolutionHost,
   type StylesheetOrigin,
   type StyleAssignmentValue,
   type StylesheetSource,
@@ -77,5 +78,6 @@ export {
   parseSelectorList,
   type ParsedSelector,
   type ParsedSelectorSegment,
+  type SelectorMatchHost,
   type SelectorSpecificity,
 } from "./selectors.js";
