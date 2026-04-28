@@ -203,7 +203,7 @@ describe("testing harness", () => {
     const session = await runTest(<CounterApp />);
 
     expect(session.app.framework).toBe(session.framework);
-    expect(String(session.pilot)).toBe("<Pilot app=TextualFramework>");
+    expect(String(session.pilot)).toBe("<Pilot app=App>");
 
     await session.pilot.press("x", "x");
 

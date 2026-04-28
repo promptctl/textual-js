@@ -36,7 +36,7 @@ describe("App seam", () => {
 
     expect(session.app).toBe(app);
     expect(session.framework).toBe(app.framework);
-    expect(String(session.pilot)).toBe("<Pilot app=TextualFramework>");
+    expect(String(session.pilot)).toBe("<Pilot app=ReadyApp>");
     expect(session.lastFrame()).toContain("ready");
     expect(session.app.terminalSize.width).toBe(12);
     expect(session.app.terminalSize.height).toBe(3);
