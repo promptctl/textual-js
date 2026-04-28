@@ -73,10 +73,10 @@ const QueryContainer = observer(function QueryContainer(props: {
 
 describe("DOM query API", () => {
   it("supports selector matching, combinators, pseudo-classes, and chaining", async () => {
-    const framework = new App().framework;
+    const app = new App();
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp framework={app.framework}>
         <QueryContainer id="root">
           <QueryContainer id="first" classes="alpha">
             <QueryLabel id="one" classes="item status" text="one" />
@@ -89,11 +89,11 @@ describe("DOM query API", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const root = framework.registry.getByCssId("root") as Widget;
-    const second = framework.registry.getByCssId("second") as Widget;
-    const two = framework.registry.getByCssId("two") as Widget;
+    const root = app.getByCssId("root") as Widget;
+    const second = app.getByCssId("second") as Widget;
+    const two = app.getByCssId("two") as Widget;
     two.focus();
 
     expect(root.query(".item").results().map((widget) => widget.id)).toEqual(["one", "two"]);
@@ -121,10 +121,10 @@ describe("DOM query API", () => {
   });
 
   it("supports traversal snapshots, typed singleton queries, and result-set mutations", async () => {
-    const framework = new App().framework;
+    const app = new App();
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp framework={app.framework}>
         <QueryContainer id="root">
           <QueryContainer id="first" classes="alpha">
             <QueryLabel id="one" classes="item" text="one" />
@@ -137,10 +137,10 @@ describe("DOM query API", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const root = framework.registry.getByCssId("root") as Widget;
-    const two = framework.registry.getByCssId("two") as Widget;
+    const root = app.getByCssId("root") as Widget;
+    const two = app.getByCssId("two") as Widget;
 
     expect(root.walkChildren({ method: "depth" }).map((widget) => widget.id)).toEqual([
       "first",
@@ -166,17 +166,17 @@ describe("DOM query API", () => {
     expect(root.query(".item").reversed().map((widget) => widget.id)).toEqual(["three", "two", "one"]);
 
     root.query(".item").addClass("selected");
-    await framework.whenIdle();
+    await app.whenIdle();
     expect(root.query(".selected").results().map((widget) => widget.id)).toEqual(["one", "two", "three"]);
 
     root.query("#one").setStyles("background: red;");
-    await framework.whenIdle();
-    expect((framework.registry.getByCssId("one") as Widget).resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
+    await app.whenIdle();
+    expect((app.getByCssId("one") as Widget).resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
 
     expect(root.query(".item").focus()?.id).toBe("two");
-    expect(framework.focusedNodeId).toBe(two.nodeId);
+    expect(app.focusedNodeId).toBe(two.nodeId);
     root.query("#two").blur();
-    expect(framework.focusedNodeId).toBeNull();
+    expect(app.focusedNodeId).toBeNull();
 
     expect(() => root.addClass("bad class")).toThrow(BadIdentifier);
 
@@ -185,10 +185,10 @@ describe("DOM query API", () => {
   });
 
   it("matches type selectors through ancestry and supports queryExactlyOne(type)", async () => {
-    const framework = new App().framework;
+    const app = new App();
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp framework={app.framework}>
         <TypedBase id="typed-root">
           <QueryContainer id="typed-container">
             <TypedDerived id="typed-child" />
@@ -197,9 +197,9 @@ describe("DOM query API", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const rootHandle = framework.registry.getByCssId("typed-root") as Widget;
+    const rootHandle = app.getByCssId("typed-root") as Widget;
 
     expect(rootHandle.query("View").results().map((widget) => widget.id)).toContain("typed-child");
     expect(rootHandle.query("TypedBase").results().map((widget) => widget.id)).toContain("typed-child");

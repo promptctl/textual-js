@@ -71,7 +71,7 @@ describe("styled content integration", () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip="[bright_red]T[/]" />, {
       transients: { tooltips: true },
     });
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);

@@ -252,7 +252,7 @@ describe("Input suggester integration", () => {
 
     await session.pilot.type("h");
 
-    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input") as {
+    const input = session.app.findWidgets("Input")[0] as unknown as {
       _suggestion: string;
     };
 

@@ -124,27 +124,27 @@ describe("scroll animation level infrastructure", () => {
   }
 
   it("records animated scroll targets for full and basic levels", () => {
-    const framework = new App().framework;
-    const widget = createScrollWidget(framework);
+    const app = new App();
+    const widget = createScrollWidget(app.framework);
 
-    framework.setAnimationLevel("full");
+    app.animationLevel = "full";
     widget.scrollTo(12, 7, { animate: true, duration: 250 });
 
     expect(widget.scrollAnimation).toEqual({ x: 12, y: 7, duration: 250 });
     expect(widget.scrollTargetX).toBe(12);
     expect(widget.scrollTargetY).toBe(7);
 
-    framework.setAnimationLevel("basic");
+    app.animationLevel = "basic";
     widget.scrollTo(20, 15, { animate: true, duration: 100 });
 
     expect(widget.scrollAnimation).toEqual({ x: 20, y: 15, duration: 100 });
   });
 
   it("suppresses animated scroll metadata when animation level is none", () => {
-    const framework = new App().framework;
-    const widget = createScrollWidget(framework);
+    const app = new App();
+    const widget = createScrollWidget(app.framework);
 
-    framework.setAnimationLevel("none");
+    app.animationLevel = "none";
     widget.scrollTo(12, 7, { animate: true, duration: 250 });
 
     expect(widget.scrollOffsetX).toBe(12);

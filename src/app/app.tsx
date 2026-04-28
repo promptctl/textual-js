@@ -390,6 +390,10 @@ export class App<Result = unknown> {
     return this.framework.findWidgets(selector);
   }
 
+  getByCssId(cssId: string): Widget | undefined {
+    return this.framework.registry.getByCssId(cssId);
+  }
+
   isScreenInstalled(name: string): boolean {
     return this.framework.isScreenInstalled(name);
   }

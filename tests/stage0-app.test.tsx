@@ -38,14 +38,14 @@ describe("App seam", () => {
     expect(session.framework).toBe(app.framework);
     expect(String(session.pilot)).toBe("<Pilot app=TextualFramework>");
     expect(session.lastFrame()).toContain("ready");
-    expect(session.framework.terminalSize.width).toBe(12);
-    expect(session.framework.terminalSize.height).toBe(3);
+    expect(session.app.terminalSize.width).toBe(12);
+    expect(session.app.terminalSize.height).toBe(3);
 
     await session.pilot.exit("done");
 
     expect(app.returnValue).toBe("done");
     expect(session.result).toBe("done");
-    expect(app.framework.isRunning).toBe(false);
+    expect(app.isRunning).toBe(false);
 
     session.unmount();
   });
@@ -54,10 +54,10 @@ describe("App seam", () => {
     const app = new ReadyApp();
     const session = await app.runTest();
 
-    expect(app.framework.isRunning).toBe(true);
+    expect(app.isRunning).toBe(true);
     expect(app.exit("stop")).toBe("stop");
     expect(app.returnValue).toBe("stop");
-    expect(app.framework.isRunning).toBe(false);
+    expect(app.isRunning).toBe(false);
 
     session.unmount();
   });

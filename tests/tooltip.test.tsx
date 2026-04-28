@@ -60,7 +60,7 @@ function ToggleTooltipHarness(props: {
 describe("tooltip and hover lifecycle", () => {
   it("sets :hover from pointer movement and clears it when the pointer leaves", async () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip="details" />);
-    const widget = session.framework.registry.getByCssId("target")!;
+    const widget = session.app.getByCssId("target")!;
 
     expect(widget.hasPseudoClass("hover")).toBe(false);
 
@@ -77,14 +77,14 @@ describe("tooltip and hover lifecycle", () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip="details" />, {
       transients: { tooltips: true },
     });
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
-    expect(session.framework.activeTooltip).toBeNull();
+    expect(session.app.activeTooltip).toBeNull();
 
     await session.pilot.pause(0.02);
 
-    expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
+    expect(session.app.activeTooltip?.visual.plainText).toBe("details");
     expect(session.lastFrame()).toContain("details");
 
     session.unmount();
@@ -94,7 +94,7 @@ describe("tooltip and hover lifecycle", () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip="[#ff5555]Tip[/]" />, {
       transients: { tooltips: true },
     });
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);
@@ -112,12 +112,12 @@ describe("tooltip and hover lifecycle", () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip={tooltip} />, {
       transients: { tooltips: true },
     });
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);
 
-    expect(session.framework.activeTooltip?.visual.plainText).toBeNull();
+    expect(session.app.activeTooltip?.visual.plainText).toBeNull();
     expect(session.lastFrame()).toContain("details");
     expect(tooltip.measure).toHaveBeenCalled();
     expect(tooltip.render).toHaveBeenCalled();
@@ -127,14 +127,14 @@ describe("tooltip and hover lifecycle", () => {
 
   it("keeps the overlay hidden when test transients stay off", async () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip="details" />);
-    const widget = session.framework.registry.getByCssId("target")!;
-    session.framework.setTooltipDelay(10);
+    const widget = session.app.getByCssId("target")!;
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);
 
     expect(widget.hasPseudoClass("hover")).toBe(true);
-    expect(session.framework.activeTooltip).toBeNull();
+    expect(session.app.activeTooltip).toBeNull();
     expect(session.lastFrame()).not.toContain("details");
 
     session.unmount();
@@ -144,12 +144,12 @@ describe("tooltip and hover lifecycle", () => {
     const session = await runTest(<TooltipLeaf id="target" label="leaf" tooltip={null} />, {
       transients: { tooltips: true },
     });
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);
 
-    expect(session.framework.activeTooltip).toBeNull();
+    expect(session.app.activeTooltip).toBeNull();
 
     session.unmount();
   });
@@ -162,17 +162,17 @@ describe("tooltip and hover lifecycle", () => {
       </>,
       { transients: { tooltips: true } },
     );
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#first");
     await session.pilot.pause(0.02);
-    expect(session.framework.activeTooltip?.visual.plainText).toBe("first tip");
+    expect(session.app.activeTooltip?.visual.plainText).toBe("first tip");
 
     await session.pilot.hover("#second");
-    expect(session.framework.activeTooltip).toBeNull();
+    expect(session.app.activeTooltip).toBeNull();
 
     await session.pilot.pause(0.02);
-    expect(session.framework.activeTooltip?.visual.plainText).toBe("second tip");
+    expect(session.app.activeTooltip?.visual.plainText).toBe("second tip");
 
     session.unmount();
   });
@@ -187,15 +187,15 @@ describe("tooltip and hover lifecycle", () => {
       />,
       { transients: { tooltips: true } },
     );
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);
-    expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
+    expect(session.app.activeTooltip?.visual.plainText).toBe("details");
 
     toggleMounted(false);
     await session.pilot.pause();
-    expect(session.framework.activeTooltip).toBeNull();
+    expect(session.app.activeTooltip).toBeNull();
 
     session.unmount();
   });
@@ -213,15 +213,15 @@ describe("tooltip and hover lifecycle", () => {
       />,
       { transients: { tooltips: true } },
     );
-    session.framework.setTooltipDelay(10);
+    session.app.tooltipDelay = 10;
 
     await session.pilot.hover("#target");
     await session.pilot.pause(0.02);
-    expect(session.framework.activeTooltip?.visual.plainText).toBe("details");
+    expect(session.app.activeTooltip?.visual.plainText).toBe("details");
 
     widget.setDisplay(false);
     await session.pilot.pause();
-    expect(session.framework.activeTooltip).toBeNull();
+    expect(session.app.activeTooltip).toBeNull();
 
     session.unmount();
   });

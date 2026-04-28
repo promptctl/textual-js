@@ -344,7 +344,7 @@ describe("testing harness", () => {
     }
 
     const session = await runTest(<PointerHarness />);
-    const widget = session.framework.registry.getByCssId("pointer-target")!;
+    const widget = session.app.getByCssId("pointer-target")!;
 
     expect(await session.pilot.mouseDown("#pointer-target")).toBe(true);
     expect(await session.pilot.mouseUp(PilotTarget)).toBe(true);
@@ -376,7 +376,7 @@ describe("testing harness", () => {
     });
 
     await expect(session.pilot.click({ offset: { x: -1, y: 0 } })).rejects.toBeInstanceOf(OutOfBounds);
-    await expect(session.pilot.click({ offset: { x: session.framework.terminalSize.width, y: 0 } })).rejects.toBeInstanceOf(OutOfBounds);
+    await expect(session.pilot.click({ offset: { x: session.app.terminalSize.width, y: 0 } })).rejects.toBeInstanceOf(OutOfBounds);
 
     session.unmount();
   });
@@ -410,7 +410,7 @@ describe("testing harness", () => {
   it("suppresses mount-time notifications by default", async () => {
     const session = await runTest(<NotificationOnMount message="mount note" />);
 
-    expect(session.framework.notifications.length).toBe(0);
+    expect(session.app.notifications.length).toBe(0);
 
     session.unmount();
   });
@@ -420,7 +420,7 @@ describe("testing harness", () => {
       transients: { notifications: true },
     });
 
-    expect(session.framework.notifications.list().map((entry) => entry.message)).toEqual(["mount note"]);
+    expect(session.app.notifications.list().map((entry) => entry.message)).toEqual(["mount note"]);
 
     session.unmount();
   });
@@ -452,15 +452,15 @@ describe("testing harness", () => {
       { size: { width: 13, height: 4 } },
     );
 
-    expect(session.framework.terminalSize.width).toBe(13);
-    expect(session.framework.terminalSize.height).toBe(4);
+    expect(session.app.terminalSize.width).toBe(13);
+    expect(session.app.terminalSize.height).toBe(4);
     expect(widget.screenRegion.width).toBe(13);
     expect((session.lastFrame() ?? "").split("\n").length).toBeGreaterThanOrEqual(4);
 
     await session.pilot.resizeTerminal(17, 6);
 
-    expect(session.framework.terminalSize.width).toBe(17);
-    expect(session.framework.terminalSize.height).toBe(6);
+    expect(session.app.terminalSize.width).toBe(17);
+    expect(session.app.terminalSize.height).toBe(6);
     expect((session.lastFrame() ?? "").split("\n").length).toBeGreaterThanOrEqual(6);
 
     session.unmount();
@@ -497,8 +497,8 @@ describe("testing harness", () => {
     const session = await runTest(<PointerHarness />, {
       size: { width: 10, height: 4 },
     });
-    const parent = session.framework.registry.getByCssId("parent")!;
-    const child = session.framework.registry.getByCssId("child")!;
+    const parent = session.app.getByCssId("parent")!;
+    const child = session.app.getByCssId("child")!;
     const obscuringOffset = {
       x: child.screenRegion.x - parent.screenRegion.x,
       y: child.screenRegion.y - parent.screenRegion.y,

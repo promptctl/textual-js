@@ -37,13 +37,13 @@ describe("Stage 4 app pointer shape", () => {
     );
 
     expect(await session.pilot.hover("#default-target")).toBe(true);
-    expect(session.framework.pointerShape).toBe("default");
+    expect(session.app.pointerShape).toBe("default");
 
     expect(await session.pilot.hover("#pointer-target")).toBe(true);
-    expect(session.framework.pointerShape).toBe("pointer");
+    expect(session.app.pointerShape).toBe("pointer");
 
     expect(await session.pilot.hover("#text-target")).toBe(true);
-    expect(session.framework.pointerShape).toBe("text");
+    expect(session.app.pointerShape).toBe("text");
 
     session.unmount();
   });

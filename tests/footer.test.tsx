@@ -93,7 +93,7 @@ describe("footer active bindings", () => {
     );
 
     const frame = session.lastFrame() ?? "";
-    const activeBindings = session.framework.getActiveBindings();
+    const activeBindings = session.app.getActiveBindings();
 
     expect(frame).toContain("f1 Quit");
     expect(frame).not.toContain("Hidden");
@@ -143,7 +143,7 @@ describe("footer active bindings", () => {
     expect(session.lastFrame()).toContain("f1 First");
     expect(session.lastFrame()).not.toContain("f2 Second");
 
-    session.framework.focusWidget(session.framework.registry.getByCssId("second")!.nodeId);
+    session.app.focusWidget(session.app.getByCssId("second")!.nodeId);
     await session.pilot.pause();
 
     expect(session.lastFrame()).toContain("f2 Second");

@@ -41,7 +41,8 @@ describe("concurrency primitives", () => {
     vi.useFakeTimers();
 
     try {
-      const framework = new App().framework;
+      const app = new App();
+      const framework = app.framework;
       let widget!: Widget;
       const ticks: number[] = [];
 
@@ -55,7 +56,7 @@ describe("concurrency primitives", () => {
         </TextualApp>,
       );
 
-      await framework.whenIdle();
+      await app.whenIdle();
 
       widget.setInterval("heartbeat", 1000, () => {
         ticks.push(Date.now());
@@ -89,7 +90,8 @@ describe("concurrency primitives", () => {
   });
 
   it("schedules callbacks for next tick, later, and after refresh", async () => {
-    const framework = new App().framework;
+    const app = new App();
+      const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -98,19 +100,19 @@ describe("concurrency primitives", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
-    const displayCountBefore = framework.displayCount;
+    await app.whenIdle();
+    const displayCountBefore = app.displayCount;
 
-    framework.callNext(() => {
+    app.callNext(() => {
       order.push("next");
     });
-    framework.callLater(() => {
+    app.callLater(() => {
       order.push("later");
     });
 
     let afterRefreshDisplayCount = 0;
-    framework.callAfterRefresh(() => {
-      afterRefreshDisplayCount = framework.displayCount;
+    app.callAfterRefresh(() => {
+      afterRefreshDisplayCount = app.displayCount;
       order.push("after-refresh");
     });
 
@@ -130,9 +132,10 @@ describe("concurrency primitives", () => {
   });
 
   it("routes callLater through the message queue and idle drain", async () => {
-    const framework = new App().framework;
+    const app = new App();
+      const framework = app.framework;
     const observed: string[] = [];
-    const unsubscribe = framework.subscribeToMessages((message) => {
+    const unsubscribe = app.subscribeToMessages((message) => {
       observed.push(message.constructor.name);
     });
 
@@ -142,16 +145,16 @@ describe("concurrency primitives", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const order: string[] = [];
-    framework.callLater(() => {
+    app.callLater(() => {
       order.push("later");
     });
 
-    expect(framework.messageQueueSize).toBe(1);
+    expect(app.messageQueueSize).toBe(1);
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(order).toEqual(["later"]);
     expect(observed).toContain("Callback");
@@ -162,7 +165,8 @@ describe("concurrency primitives", () => {
   });
 
   it("flushes callNext from the dispatcher before later queued callbacks", async () => {
-    const framework = new App().framework;
+    const app = new App();
+      const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
@@ -172,10 +176,10 @@ describe("concurrency primitives", () => {
           handlers={{
             onNextTickPing: () => {
               order.push("handler");
-              framework.callNext(() => {
+              app.callNext(() => {
                 order.push("next");
               });
-              framework.callLater(() => {
+              app.callLater(() => {
                 order.push("later");
               });
             },
@@ -186,11 +190,11 @@ describe("concurrency primitives", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
-    framework.postMessage(widget.nodeId, new NextTickPing());
-    await framework.whenIdle();
+    const widget = app.findWidgets("*")[0];
+    app.postMessage(widget.nodeId, new NextTickPing());
+    await app.whenIdle();
 
     expect(order).toEqual(["handler", "next", "later"]);
 
@@ -253,7 +257,8 @@ describe("concurrency primitives", () => {
   });
 
   it("runs callAfterRefresh inside the active message pump context", async () => {
-    const framework = new App().framework;
+    const app = new App();
+      const framework = app.framework;
     let active: TextualFramework | null = null;
 
     const instance = render(
@@ -262,9 +267,9 @@ describe("concurrency primitives", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.callAfterRefresh(() => {
+    app.callAfterRefresh(() => {
       active = getActiveMessagePump<TextualFramework>();
     });
 
@@ -281,7 +286,8 @@ describe("concurrency primitives", () => {
 
     expect(() => stopped.callFromThread(() => "nope")).toThrow(RuntimeError);
 
-    const framework = new App().framework;
+    const app = new App();
+      const framework = app.framework;
     let samePumpError: unknown = null;
 
     const instance = render(
@@ -290,13 +296,13 @@ describe("concurrency primitives", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    expect(() => framework.callFromThread(() => "same-thread")).toThrow(RuntimeError);
+    expect(() => app.callFromThread(() => "same-thread")).toThrow(RuntimeError);
 
-    framework.callAfterRefresh(() => {
+    app.callAfterRefresh(() => {
       try {
-        void framework.callFromThread(() => "same");
+        void app.callFromThread(() => "same");
       } catch (error) {
         samePumpError = error;
       }
