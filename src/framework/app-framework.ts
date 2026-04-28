@@ -143,6 +143,11 @@ import {
   WidgetTypeRegistry,
   type WidgetTypeRegistryDeps,
 } from "./widget-type-registry.js";
+import {
+  SignalRegistry,
+  type AppSignals,
+  type SignalRegistryDeps,
+} from "./signal-registry.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -236,14 +241,10 @@ export interface BindingClash {
 
 export type { MessageSubscriber, PreventionSnapshot, DeferredCallback, QueuedMessage };
 
-export interface AppSignals {
-  theme_changed_signal: Signal<ActiveTheme>;
-  app_suspend_signal: Signal<void>;
-  app_resume_signal: Signal<void>;
-  mode_change_signal: Signal<string>;
-  screen_change_signal: Signal<Screen | null>;
-  bindings_updated_signal: Signal<void>;
-}
+// AppSignals composite is owned by SignalRegistry (extracted in 7w9.3) and
+// re-exported here so existing callers that import from app-framework keep
+// working unchanged until the framework barrel is removed in 7w9.10.
+export type { AppSignals };
 
 export interface PointerLocation {
   x: number;
@@ -530,13 +531,20 @@ export class TextualFramework {
   pointerShape: PointerShape = "default";
   pointerEngine!: PointerEngine;
   private pendingError: unknown = null;
-  private readonly signalRegistry = new Set<Signal<unknown>>();
+  // [LAW:single-enforcer] Signal state lives in `signalRegistry` (extracted
+  // in 7w9.3). The framework holds only the service handle.
+  readonly signalRegistry: SignalRegistry;
   private isClosing = false;
   private readyMessagePosted = false;
   batchUpdateCount = 0;
   activeCommandPalette: CommandPalette | null = null;
   private publicApp: unknown = null;
-  readonly signals: AppSignals;
+  // [LAW:single-enforcer] `signals` is a re-exposed view of signalRegistry's
+  // composite so existing consumers (framework.signals.X.publish/subscribe)
+  // and audit-§4.2's App.signals namespace continue to work unchanged.
+  get signals(): AppSignals {
+    return this.signalRegistry.signals;
+  }
 
   constructor(options: TextualFrameworkOptions = {}) {
     const featureState = parseTextualFeatures(options.env?.TEXTUAL ?? process.env.TEXTUAL ?? "");
@@ -545,14 +553,16 @@ export class TextualFramework {
     this.features = featureState.features;
     this.devtools = featureState.devtools;
     this.debug = featureState.debug;
-    this.signals = {
-      theme_changed_signal: this.createFrameworkSignal<ActiveTheme>(),
-      app_suspend_signal: this.createFrameworkSignal<void>(),
-      app_resume_signal: this.createFrameworkSignal<void>(),
-      mode_change_signal: this.createFrameworkSignal<string>(),
-      screen_change_signal: this.createFrameworkSignal<Screen | null>(),
-      bindings_updated_signal: this.createFrameworkSignal<void>(),
+
+    // [LAW:single-enforcer] SignalRegistry receives only the cross-cutting
+    // hooks it needs (run-state probe + node-mounted probe + callLater
+    // scheduler). It does NOT receive a back-reference to the framework.
+    const signalRegistryDeps: SignalRegistryDeps = {
+      isRunning: () => this.isRunning,
+      isNodeMounted: (node) => this.isNodeMounted(node),
+      callLater: (callback) => this.callLater(callback),
     };
+    this.signalRegistry = new SignalRegistry(signalRegistryDeps);
 
     // [LAW:single-enforcer] StyleEngine is constructed with a narrow deps
     // interface — the framework supplies only the cross-cutting hooks the
@@ -753,7 +763,6 @@ export class TextualFramework {
         widgetTypeRegistry: false,
         layoutEngine: false,
         tooltipService: false,
-        signals: false,
         signalRegistry: false,
         asyncResources: false,
         driver: false,
@@ -1054,11 +1063,10 @@ export class TextualFramework {
     this.focusEngine.releaseTrapIfNode(nodeId);
 
     this.registry.deregister(nodeId);
-    // [LAW:single-enforcer] Unmount-driven signal cleanup runs here so every
-    // widget removal prunes subscriptions through the same lifecycle seam.
-    for (const signal of this.signalRegistry) {
-      signal.pruneNode(nodeId);
-    }
+    // [LAW:single-enforcer] Unmount-driven signal cleanup flows through the
+    // SignalRegistry so every widget removal prunes subscriptions through
+    // exactly one entry point.
+    this.signalRegistry.pruneNode(nodeId);
     this.pump.markWidgetClosed(nodeId);
     this.recalculateStyles();
 
@@ -1463,15 +1471,10 @@ export class TextualFramework {
     return this.registry.get(widget.nodeId) === widget;
   }
 
+  // [LAW:single-enforcer] Per-widget Signal construction delegates to the
+  // SignalRegistry service (extracted in 7w9.3).
   createSignal<TValue>(owner: Widget, description = ""): Signal<TValue> {
-    const signal = new Signal<TValue>(
-      () => this.isNodeMounted(owner),
-      (node) => this.isNodeMounted(node),
-      (callback) => this.callLater(callback),
-      description,
-    );
-    this.signalRegistry.add(signal as Signal<unknown>);
-    return signal;
+    return this.signalRegistry.createSignal<TValue>(owner, description);
   }
 
   runWorker<TResult>(
@@ -2400,17 +2403,6 @@ export class TextualFramework {
       .map(([attribute, selectors]) => `${attribute}:${selectors.map((selector) => selector.raw).join(",")}`)
       .join("|");
     return `${selectorSignature}::${attributeSignature}`;
-  }
-
-  private createFrameworkSignal<TValue>(): Signal<TValue> {
-    const signal = new Signal<TValue>(
-      () => this.isRunning,
-      (node) => this.isNodeMounted(node),
-      (callback) => this.callLater(callback),
-      "framework",
-    );
-    this.signalRegistry.add(signal as Signal<unknown>);
-    return signal;
   }
 
   private getGlobalStyleVariables(): Record<string, string> {
