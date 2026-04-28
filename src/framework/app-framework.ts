@@ -124,6 +124,11 @@ import {
   normalizeCssSource,
   type StyleEngineDeps,
 } from "./style-engine.js";
+import {
+  FocusEngine,
+  type FocusAddress,
+  type FocusEngineDeps,
+} from "./focus-engine.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -476,12 +481,6 @@ const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
   { key: "ctrl+p", action: "app.command_palette" },
 ];
 
-interface FocusAddress {
-  path: number[];
-  widgetId: string | null;
-  typeName: string;
-}
-
 export class TextualFramework {
   static readonly CLICK_CHAIN_TIME_THRESHOLD = 0.5;
 
@@ -512,6 +511,11 @@ export class TextualFramework {
   // CSS watching, and pending-recalc deferral state is owned by StyleEngine.
   // Framework methods below are thin delegators.
   readonly styleEngine: StyleEngine;
+  // [LAW:single-enforcer] All focus-chain construction, focus traps, blur-state
+  // bookkeeping, and structural-address restore live in FocusEngine. Framework
+  // methods below are thin delegators; focusedNodeId remains here as the public
+  // observable but is mutated only through the engine's deps callbacks.
+  readonly focusEngine: FocusEngine;
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
   private readonly widgetTypeMetadata = new Map<string, WidgetTypeMetadata>();
   private readonly widgetTypeTokens = new Map<Function, string>();
@@ -530,14 +534,10 @@ export class TextualFramework {
   showTooltips = true;
   tooltipDelay = 500;
   activeTooltip: ActiveTooltip | null = null;
-  private isAppBlurred = false;
-  private blurredFocusAddress: FocusAddress | null = null;
-  private focusChangedWhileBlurred = false;
   private lastActionDispatchResult: ActionDispatchResult = "unhandled";
   private readonly bindingClashSignatures = new Map<string, string>();
   private lastPointerLocation: PointerLocation | null = null;
   pointerShape: PointerShape = "default";
-  private focusTrapNodeId: string | null = null;
   private pendingPointerClick: PendingPointerClick | null = null;
   private lastClickChain: ClickChainState | null = null;
   private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
@@ -630,6 +630,31 @@ export class TextualFramework {
     };
     this.pump = new MessagePump(pumpDeps);
 
+    // [LAW:single-enforcer] FocusEngine receives only the cross-cutting hooks
+    // it needs (focused-node accessor, registry reads, recalc/binding/blur
+    // notifications, after-refresh scheduler, selector helpers). It does NOT
+    // receive a back-reference to the framework.
+    const focusEngineDeps: FocusEngineDeps = {
+      getFocusedNodeId: () => this.focusedNodeId,
+      setFocusedNodeId: (id) => {
+        this.focusedNodeId = id;
+      },
+      getActiveScreen: () => this.activeScreen,
+      getAppAutoFocus: () => this.appAutoFocus,
+      isRunning: () => this.isRunning,
+      listWidgets: () => this.registry.list(),
+      getWidget: (id) => this.registry.get(id),
+      getChildren: (parentId) => this.registry.getChildren(parentId),
+      recalculateStyles: () => this.recalculateStyles(),
+      notifyBindingsUpdated: () => this.notifyBindingsUpdated(),
+      enqueueFocusBlur: (prev, next) => this.pump.enqueueFocusBlur(prev, next),
+      callAfterRefresh: (callback) => this.callAfterRefresh(callback),
+      parseSelectors: (text) => this.parseSelectors(text),
+      matchesSelector: (widget, selector) => this.matchesSelector(widget, selector as ParsedSelector),
+      resolveWidgetTypeName: (typeConstraint) => this.resolveWidgetTypeName(typeConstraint),
+    };
+    this.focusEngine = new FocusEngine(focusEngineDeps);
+
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
     this.appActions = {
       action_focus_next: () => {
@@ -678,7 +703,7 @@ export class TextualFramework {
         lastActionDispatchResult: false,
         bindingClashSignatures: false,
         handleBindingsClash: false,
-        focusTrapNodeId: false,
+        focusEngine: false,
         publicApp: false,
       } as never,
       { autoBind: true },
@@ -731,8 +756,8 @@ export class TextualFramework {
   setAppAutoFocus(selector: string | null | undefined): void {
     this.appAutoFocus = selector ?? null;
 
-    if (this.isRunning && !this.isAppBlurred && this.focusedNodeId === null) {
-      this.scheduleActiveScreenFocusResolution(true);
+    if (this.isRunning && !this.focusEngine.isAppBlurred && this.focusedNodeId === null) {
+      this.focusEngine.scheduleActiveScreenFocusResolution(true);
     }
   }
 
@@ -859,7 +884,7 @@ export class TextualFramework {
     }
 
     if (this.focusedNodeId === null) {
-      this.scheduleActiveScreenFocusResolution(true);
+      this.focusEngine.scheduleActiveScreenFocusResolution(true);
     }
 
     if (!this.readyMessagePosted) {
@@ -885,9 +910,7 @@ export class TextualFramework {
     this.pendingPointerClick = null;
     this.lastClickChain = null;
     this.styleEngine.closeAllWatchers();
-    this.isAppBlurred = false;
-    this.blurredFocusAddress = null;
-    this.focusChangedWhileBlurred = false;
+    this.focusEngine.resetBlurState();
     this.isRunning = false;
     this.pump.emitCloseMessages();
     this.signals.app_suspend_signal.publish(undefined);
@@ -1155,9 +1178,7 @@ export class TextualFramework {
       this.hoveredNodeId = null;
     }
 
-    if (this.focusTrapNodeId === nodeId) {
-      this.focusTrapNodeId = null;
-    }
+    this.focusEngine.releaseTrapIfNode(nodeId);
 
     this.registry.deregister(nodeId);
     // [LAW:single-enforcer] Unmount-driven signal cleanup runs here so every
@@ -1171,83 +1192,34 @@ export class TextualFramework {
     if (hadFocus) {
       // [LAW:single-enforcer] Focus recovery after removal enters through the
       // framework focus boundary rather than direct widget mutation.
-      this.applyFocusChange(this.getFocusChain()[0]?.nodeId ?? null, { markBlurOverride: true });
+      this.focusEngine.applyFocusChange(this.getFocusChain()[0]?.nodeId ?? null, { markBlurOverride: true });
     }
   }
 
+  // [LAW:single-enforcer] All focus-API methods delegate to FocusEngine which
+  // owns chain construction, traps, and blur bookkeeping.
   focusWidget(nodeId: string | null): void {
-    this.applyFocusChange(nodeId, { markBlurOverride: true });
+    this.focusEngine.focusWidget(nodeId);
   }
 
   clearFocusWithin(container: Widget): void {
-    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-
-    if (focused === undefined) {
-      return;
-    }
-
-    let current: Widget | undefined = focused;
-
-    while (current !== undefined) {
-      if (current.nodeId === container.nodeId) {
-        this.focusWidget(null);
-        return;
-      }
-
-      current = current.parent;
-    }
+    this.focusEngine.clearFocusWithin(container);
   }
 
   trapFocus(widget: Widget, enabled = true): void {
-    if (enabled && this.focusedNodeId !== null && this.isNodeWithin(this.registry.get(this.focusedNodeId), widget)) {
-      this.focusTrapNodeId = widget.nodeId;
-      this.notifyBindingsUpdated();
-      return;
-    }
-
-    if (!enabled && this.focusTrapNodeId === widget.nodeId) {
-      this.focusTrapNodeId = null;
-      this.notifyBindingsUpdated();
-    }
+    this.focusEngine.trapFocus(widget, enabled);
   }
 
   getFocusChain(): Widget[] {
-    const trap = this.focusTrapNodeId === null ? undefined : this.registry.get(this.focusTrapNodeId);
-
-    return this.registry.list().filter((widget) => {
-      const insideTrap = trap === undefined || this.isNodeWithin(widget, trap);
-      const ancestorsAllowFocus = this.ancestorsAllowFocus(widget);
-      return insideTrap && ancestorsAllowFocus && widget.allowFocus();
-    });
+    return this.focusEngine.getFocusChain();
   }
 
   focusNext(selector?: string | Function): Widget | null {
-    return this.moveFocus(1, selector);
+    return this.focusEngine.focusNext(selector);
   }
 
   focusPrevious(selector?: string | Function): Widget | null {
-    return this.moveFocus(-1, selector);
-  }
-
-  private moveFocus(direction: 1 | -1, selector?: string | Function): Widget | null {
-    const chain = this.filterFocusChain(selector);
-
-    if (chain.length === 0) {
-      this.focusWidget(null);
-      return null;
-    }
-
-    const currentIndex = this.focusedNodeId === null ? -1 : chain.findIndex((widget) => widget.nodeId === this.focusedNodeId);
-    const nextIndex =
-      currentIndex === -1
-        ? direction === 1
-          ? 0
-          : chain.length - 1
-        : (currentIndex + direction + chain.length) % chain.length;
-    const next = chain[nextIndex];
-
-    this.focusWidget(next.nodeId);
-    return next;
+    return this.focusEngine.focusPrevious(selector);
   }
 
   setTerminalSize(size: Size): void {
@@ -1864,39 +1836,31 @@ export class TextualFramework {
   }
 
   handleAppBlur(): void {
-    if (this.isAppBlurred) {
+    if (this.focusEngine.isAppBlurred) {
       return;
     }
 
-    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-    this.blurredFocusAddress = focused === undefined ? null : this.captureFocusAddress(focused);
-    this.isAppBlurred = true;
-    this.focusChangedWhileBlurred = false;
+    this.focusEngine.beginAppBlur();
     this.hideTooltip();
     this.pump.emitBroadcast(new AppBlur());
-    this.applyFocusChange(null, { markBlurOverride: false });
+    this.focusEngine.applyFocusChange(null, { markBlurOverride: false });
   }
 
   handleAppFocus(): void {
     this.pump.emitBroadcast(new AppFocus());
 
-    if (!this.isAppBlurred) {
+    if (!this.focusEngine.isAppBlurred) {
       return;
     }
 
-    const shouldRestore = !this.focusChangedWhileBlurred;
-    const blurredAddress = this.blurredFocusAddress;
-
-    this.isAppBlurred = false;
-    this.blurredFocusAddress = null;
-    this.focusChangedWhileBlurred = false;
+    const { shouldRestore, address } = this.focusEngine.endAppBlur();
 
     if (!shouldRestore) {
       return;
     }
 
-    const target = blurredAddress === null ? null : this.resolveExactFocusTarget(blurredAddress);
-    this.applyFocusChange(target?.nodeId ?? null, { markBlurOverride: false });
+    const target = address === null ? null : this.focusEngine.resolveExactFocusTarget(address);
+    this.focusEngine.applyFocusChange(target?.nodeId ?? null, { markBlurOverride: false });
   }
 
   attachAfterRefreshRequester(requester: () => void): () => void {
@@ -1975,7 +1939,7 @@ export class TextualFramework {
     let current = targetNode;
 
     while (current !== undefined) {
-      if (this.ancestorsAllowFocus(current) && current.allowFocus()) {
+      if (this.focusEngine.ancestorsAllowFocus(current) && current.allowFocus()) {
         return current;
       }
 
@@ -2444,7 +2408,7 @@ export class TextualFramework {
       return;
     }
 
-    this.saveScreenFocusSnapshot(screen);
+    this.focusEngine.saveScreenFocusSnapshot(screen);
     this.pump.emitBroadcast(new ScreenSuspend(screen.name));
   }
 
@@ -2456,7 +2420,7 @@ export class TextualFramework {
     }
 
     this.pump.emitBroadcast(new ScreenResume(screen.name));
-    this.scheduleActiveScreenFocusResolution(true);
+    this.focusEngine.scheduleActiveScreenFocusResolution(true);
   }
 
   // ---- Action dispatch --------------------------------------------------
@@ -2930,190 +2894,6 @@ export class TextualFramework {
     return signal;
   }
 
-  private applyFocusChange(nodeId: string | null, options: { markBlurOverride: boolean }): void {
-    if (this.focusedNodeId === nodeId) {
-      return;
-    }
-
-    const previousId = this.focusedNodeId;
-
-    if (this.isAppBlurred && options.markBlurOverride) {
-      this.focusChangedWhileBlurred = true;
-    }
-
-    this.focusedNodeId = nodeId;
-    this.recalculateStyles();
-
-    // [LAW:single-enforcer] Focus transitions are emitted from one method so
-    // restore, user focus changes, and blur-driven clears share one path.
-    const previousNode = previousId === null ? undefined : this.registry.get(previousId);
-
-    const nextNode = nodeId === null ? undefined : this.registry.get(nodeId);
-    this.pump.enqueueFocusBlur(previousNode, nextNode);
-
-    this.notifyBindingsUpdated();
-  }
-
-  private saveScreenFocusSnapshot(screen: Screen): void {
-    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-    screen.savedFocusNodeId = focused?.nodeId ?? null;
-    screen.lastFocusedAddress = focused === undefined ? null : this.captureFocusAddress(focused);
-  }
-
-  private captureFocusAddress(widget: Widget): FocusAddress {
-    const segments: number[] = [];
-    let current: Widget | undefined = widget;
-
-    // [LAW:one-source-of-truth] Focus restore captures one structural address
-    // derived from registry order. No alternate identity path participates.
-    while (current !== undefined) {
-      const siblings = this.registry.getChildren(current.parentId);
-      const index = siblings.findIndex((entry) => entry.nodeId === current!.nodeId);
-      segments.unshift(Math.max(0, index));
-      current = current.parent;
-    }
-
-    return {
-      path: segments,
-      widgetId: widget.id ?? null,
-      typeName: widget.typeName,
-    };
-  }
-
-  private scheduleActiveScreenFocusResolution(allowAutoFocus: boolean): void {
-    this.callAfterRefresh(() => {
-      if (this.isAppBlurred) {
-        return;
-      }
-
-      if (this.focusedNodeId !== null) {
-        return;
-      }
-
-      const target = this.resolveFocusTarget(this.activeScreen?.lastFocusedAddress ?? null, allowAutoFocus);
-      this.applyFocusChange(target?.nodeId ?? null, { markBlurOverride: false });
-    });
-  }
-
-  private resolveFocusTarget(address: FocusAddress | null, allowAutoFocus: boolean): Widget | null {
-    const chain = this.getFocusChain();
-
-    if (chain.length === 0) {
-      return null;
-    }
-
-    if (address !== null) {
-      return this.findNearestFocusCandidate(chain, address);
-    }
-
-    if (!allowAutoFocus) {
-      return null;
-    }
-
-    return this.resolveAutoFocusTarget(chain);
-  }
-
-  private filterFocusChain(selector?: string | Function): Widget[] {
-    const chain = this.getFocusChain();
-
-    if (selector === undefined) {
-      return chain;
-    }
-
-    if (typeof selector === "function") {
-      const typeName = this.resolveWidgetTypeName(selector);
-      return chain.filter((widget) => widget.matchesType(typeName));
-    }
-
-    const selectors = this.parseSelectors(selector);
-    return chain.filter((widget) => selectors.some((candidate) => this.matchesSelector(widget, candidate)));
-  }
-
-  private ancestorsAllowFocus(widget: Widget): boolean {
-    let current = widget.parent;
-
-    while (current !== undefined) {
-      if (!current.allowFocusChildren()) {
-        return false;
-      }
-
-      current = current.parent;
-    }
-
-    return true;
-  }
-
-  private isNodeWithin(widget: Widget | undefined, ancestor: Widget): boolean {
-    let current = widget;
-
-    while (current !== undefined) {
-      if (current.nodeId === ancestor.nodeId) {
-        return true;
-      }
-
-      current = current.parent;
-    }
-
-    return false;
-  }
-
-  private resolveAutoFocusTarget(chain: Widget[]): Widget | null {
-    const selector = this.getEffectiveAutoFocusSelector();
-
-    if (selector === null || selector === "") {
-      return null;
-    }
-
-    if (selector === "*") {
-      return chain[0] ?? null;
-    }
-
-    const selectors = this.parseSelectors(selector);
-    return chain.find((widget) => selectors.some((candidate) => this.matchesSelector(widget, candidate))) ?? null;
-  }
-
-  private resolveExactFocusTarget(address: FocusAddress): Widget | null {
-    const chain = this.getFocusChain();
-
-    for (const widget of chain) {
-      if (focusAddressesEqual(address, this.captureFocusAddress(widget))) {
-        return widget;
-      }
-    }
-
-    return null;
-  }
-
-  private getEffectiveAutoFocusSelector(): string | null {
-    const screen = this.activeScreen;
-
-    if (screen?.autoFocus === "") {
-      return "";
-    }
-
-    if (screen?.autoFocus !== null && screen?.autoFocus !== undefined) {
-      return screen.autoFocus;
-    }
-
-    return this.appAutoFocus;
-  }
-
-  private findNearestFocusCandidate(chain: Widget[], address: FocusAddress): Widget | null {
-    let best: Widget | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (const widget of chain) {
-      const distance = focusAddressDistance(address, this.captureFocusAddress(widget));
-
-      if (distance < bestDistance) {
-        best = widget;
-        bestDistance = distance;
-      }
-    }
-
-    return best;
-  }
-
   private installTimer(
     node: Widget,
     name: string,
@@ -3296,29 +3076,6 @@ function composeKeyWithModifiers(
   }
 
   return modifiers.length === 0 ? baseKey : `${modifiers.join("+")}+${baseKey}`;
-}
-
-function focusAddressDistance(left: FocusAddress, right: FocusAddress): number {
-  let shared = 0;
-  const shortestLength = Math.min(left.path.length, right.path.length);
-
-  while (shared < shortestLength && left.path[shared] === right.path[shared]) {
-    shared += 1;
-  }
-
-  const siblingDistance =
-    shared < left.path.length && shared < right.path.length ? Math.abs(left.path[shared] - right.path[shared]) : 0;
-
-  return siblingDistance + (left.path.length - shared) + (right.path.length - shared);
-}
-
-function focusAddressesEqual(left: FocusAddress, right: FocusAddress): boolean {
-  return (
-    left.widgetId === right.widgetId &&
-    left.typeName === right.typeName &&
-    left.path.length === right.path.length &&
-    left.path.every((segment, index) => segment === right.path[index])
-  );
 }
 
 function widgetDepth(widget: Widget): number {
