@@ -1,7 +1,6 @@
 import "./mobx-config.js";
 
 import React from "react";
-import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { threadId } from "node:worker_threads";
 import { makeAutoObservable, runInAction } from "mobx";
 
@@ -89,7 +88,6 @@ import {
   resolveStylesForWidget,
   type ParsedSelector,
   type ParsedStylesheet,
-  parseTcss,
 } from "../styles/index.js";
 import { Widget } from "./widget.js";
 import {
@@ -120,6 +118,12 @@ import {
   type QueuedMessage,
   type DeferredCallback,
 } from "./message-pump.js";
+import {
+  StyleEngine,
+  parseStylesheetOrThrow,
+  normalizeCssSource,
+  type StyleEngineDeps,
+} from "./style-engine.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -176,14 +180,6 @@ export interface WidgetTypeMetadata {
   componentClasses: string[];
   borderTitle: string | null;
   borderSubtitle: string | null;
-}
-
-interface ScreenStylesheetState {
-  css: string | null;
-  cssPath: string[];
-  scopedCss: boolean;
-  scopeTypeName?: string;
-  stylesheets: ParsedStylesheet[];
 }
 
 interface PendingPointerClick {
@@ -348,19 +344,6 @@ class HeadlessDriver implements AppDriver {
   }
 }
 
-function normalizeCssSource(source: string | undefined): string | undefined {
-  const normalizedSource = source?.trim();
-  return normalizedSource === undefined || normalizedSource.length === 0 ? undefined : normalizedSource;
-}
-
-function normalizeCssPathSource(path: string | readonly string[] | undefined): string[] {
-  if (path === undefined) {
-    return [];
-  }
-
-  return typeof path === "string" ? [path] : [...path];
-}
-
 function normalizeNotifyOptions(
   severityOrOptions: NotificationSeverity | NotifyOptions,
   timeout: number,
@@ -377,17 +360,6 @@ function normalizeNotifyOptions(
   }
 
   return { severity: severityOrOptions, timeout, title, markup };
-}
-
-function parseStylesheetOrThrow(
-  source: string,
-  options: { origin: "default" | "user"; scopeTypeName?: string; scopeMode?: "self" | "descendant" },
-): ParsedStylesheet {
-  try {
-    return parseTcss(source, options);
-  } catch (error) {
-    throw new StylesheetError((error as Error).message, { cause: error as Error });
-  }
 }
 
 function getMessageTypeDistance(message: Message, messageType: MessageConstructor): number | null {
@@ -536,13 +508,13 @@ export class TextualFramework {
   // [LAW:single-enforcer] All message-queue/dispatch/prevention state is owned
   // by MessagePump. Framework methods below are thin delegators.
   readonly pump: MessagePump;
-  private userStylesheets: ParsedStylesheet[] = [];
-  private cssPath: string[] = [];
+  // [LAW:single-enforcer] All stylesheet ingestion, screen-stylesheet caching,
+  // CSS watching, and pending-recalc deferral state is owned by StyleEngine.
+  // Framework methods below are thin delegators.
+  readonly styleEngine: StyleEngine;
   private readonly widgetTypes = new Map<string, WidgetTypeState>();
   private readonly widgetTypeMetadata = new Map<string, WidgetTypeMetadata>();
   private readonly widgetTypeTokens = new Map<Function, string>();
-  private readonly cssWatchers = new Map<string, FSWatcher>();
-  private readonly screenStyleCache = new Map<unknown, ScreenStylesheetState>();
   private readonly timers = new Map<string, ManagedTimer>();
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
   private readonly layoutReaders = new Map<string, LayoutReader>();
@@ -579,7 +551,6 @@ export class TextualFramework {
   private isClosing = false;
   private readyMessagePosted = false;
   batchUpdateCount = 0;
-  private pendingStyleRecalc = false;
   activeCommandPalette: CommandPalette | null = null;
   private publicApp: unknown = null;
   readonly signals: AppSignals;
@@ -600,12 +571,26 @@ export class TextualFramework {
       bindings_updated_signal: this.createFrameworkSignal<void>(),
     };
 
+    // [LAW:single-enforcer] StyleEngine is constructed with a narrow deps
+    // interface — the framework supplies only the cross-cutting hooks the
+    // engine needs (batch state, debug flag, screen iteration, recalc trigger).
+    // The engine does NOT receive a back-reference to the framework.
+    const styleEngineDeps: StyleEngineDeps = {
+      isInBatch: () => this.batchUpdateCount > 0,
+      isDebug: () => this.debug,
+      iterScreens: () => this.screenStack.iterAllStacks(),
+      recalculateStyles: () => this.recalculateStyles(),
+    };
+    const initialCssPath =
+      typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
+    this.styleEngine = new StyleEngine(styleEngineDeps, initialCssPath);
+
     // [LAW:single-enforcer] ScreenStackService is constructed with a narrow
     // deps interface — the framework supplies only the cross-cutting hooks the
     // service needs (style resolution, command-provider extraction). The
     // service does NOT receive a back-reference to the framework.
     const screenStackDeps: ScreenStackDeps = {
-      readScreenStylesheetState: (element, options) => this.readScreenStylesheetState(element, options),
+      readScreenStylesheetState: (element, options) => this.styleEngine.readScreenStylesheetState(element, options),
       readCommandProvidersFromElement: (element) => readCommandProvidersFromElement(element),
     };
     this.screenStack = new ScreenStackService(screenStackDeps);
@@ -646,7 +631,6 @@ export class TextualFramework {
     this.pump = new MessagePump(pumpDeps);
 
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
-    this.cssPath = typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
     this.appActions = {
       action_focus_next: () => {
         this.focusNext();
@@ -668,8 +652,6 @@ export class TextualFramework {
         widgetTypes: false,
         widgetTypeMetadata: false,
         widgetTypeTokens: false,
-        cssWatchers: false,
-        screenStyleCache: false,
         timers: false,
         afterRefreshCallbacks: false,
         layoutReaders: false,
@@ -686,6 +668,7 @@ export class TextualFramework {
         themeManager: false,
         screenStack: false,
         pump: false,
+        styleEngine: false,
         appBindings: false,
         appActions: false,
         appCommandProviders: false,
@@ -847,11 +830,7 @@ export class TextualFramework {
       if (this.batchUpdateCount === 0) {
         // [LAW:single-enforcer] Batched style and queue flushes resume only
         // from the outermost batch boundary instead of each nested caller.
-        if (this.pendingStyleRecalc) {
-          this.pendingStyleRecalc = false;
-          this.recalculateStyles();
-        }
-
+        this.styleEngine.flushPendingRecalc();
         this.pump.onBatchExit();
       }
     }
@@ -893,7 +872,7 @@ export class TextualFramework {
     this.isClosing = true;
     this.pump.closeAllMessageQueues(false);
     this.batchUpdateCount = 0;
-    this.pendingStyleRecalc = false;
+    this.styleEngine.resetPendingRecalc();
     this.pump.resetBatchPending();
     this.pump.discardQueuedCallbacks();
     this.focusedNodeId = null;
@@ -905,10 +884,7 @@ export class TextualFramework {
     this.lastPointerLocation = null;
     this.pendingPointerClick = null;
     this.lastClickChain = null;
-    for (const watcher of this.cssWatchers.values()) {
-      watcher.close();
-    }
-    this.cssWatchers.clear();
+    this.styleEngine.closeAllWatchers();
     this.isAppBlurred = false;
     this.blurredFocusAddress = null;
     this.focusChangedWhileBlurred = false;
@@ -1284,161 +1260,19 @@ export class TextualFramework {
   }
 
   setUserStylesheet(source: string): void {
-    this.userStylesheets = source.trim().length === 0 ? [] : [parseStylesheetOrThrow(source, { origin: "user" })];
-    this.recalculateStyles();
+    this.styleEngine.setUserStylesheet(source);
   }
 
   setCssPath(path: string | readonly string[]): void {
-    this.cssPath = typeof path === "string" ? [path] : [...path];
-    this.refreshCssWatchers();
-    this._on_css_change();
-  }
-
-  private getWatchedCssPaths(): string[] {
-    const screenPaths = [...this.screenStack.iterAllStacks()].flatMap((stack) => stack.flatMap((entry) => entry.cssPath));
-    return [...new Set([...this.cssPath, ...screenPaths])];
-  }
-
-  private parseScreenStylesheetState(state: Omit<ScreenStylesheetState, "stylesheets">): ScreenStylesheetState {
-    const stylesheets = [
-      ...(state.css === null
-        ? []
-        : [
-            parseStylesheetOrThrow(state.css, {
-              origin: "user",
-              scopeTypeName: state.scopedCss ? state.scopeTypeName : undefined,
-              scopeMode: "descendant",
-            }),
-          ]),
-      ...state.cssPath
-        .filter((path) => existsSync(path))
-        .map((path) =>
-          parseStylesheetOrThrow(readFileSync(path, "utf8"), {
-            origin: "user",
-            scopeTypeName: state.scopedCss ? state.scopeTypeName : undefined,
-            scopeMode: "descendant",
-          }),
-        ),
-    ];
-
-    return {
-      ...state,
-      stylesheets,
-    };
-  }
-
-  private readScreenStylesheetState(
-    element: React.ReactElement,
-    options: ScreenOptions,
-  ): ScreenStylesheetState {
-    const screenType = element.type as {
-      CSS?: string;
-      CSS_PATH?: string | readonly string[];
-      SCOPED_CSS?: boolean;
-      name?: string;
-    };
-    const css = normalizeCssSource(options.css ?? screenType.CSS) ?? null;
-    const cssPath = normalizeCssPathSource(options.cssPath ?? screenType.CSS_PATH);
-    const scopedCss = options.scopedCss ?? screenType.SCOPED_CSS ?? true;
-    const scopeTypeName =
-      scopedCss && typeof screenType.name === "string" && screenType.name.length > 0 ? screenType.name : undefined;
-    const cacheKey = element.type;
-    const cached = this.screenStyleCache.get(cacheKey);
-
-    if (
-      cached !== undefined &&
-      cached.css === css &&
-      cached.scopedCss === scopedCss &&
-      JSON.stringify(cached.cssPath) === JSON.stringify(cssPath) &&
-      cached.scopeTypeName === scopeTypeName
-    ) {
-      return cached;
-    }
-
-    const parsed = this.parseScreenStylesheetState({
-      css,
-      cssPath,
-      scopedCss,
-      scopeTypeName,
-    });
-    this.screenStyleCache.set(cacheKey, parsed);
-    return parsed;
-  }
-
-  private refreshScreenStylesheets(): void {
-    for (const [cacheKey, cached] of this.screenStyleCache.entries()) {
-      try {
-        this.screenStyleCache.set(cacheKey, this.parseScreenStylesheetState(cached));
-      } catch {
-        continue;
-      }
-    }
-
-    for (const stack of this.screenStack.iterAllStacks()) {
-      for (const entry of stack) {
-        if (entry.implicit || entry.element === null) {
-          continue;
-        }
-
-        const cached = this.screenStyleCache.get(entry.element.type);
-
-        if (cached !== undefined) {
-          entry.css = cached.css;
-          entry.cssPath = cached.cssPath;
-          entry.scopedCss = cached.scopedCss;
-          entry.stylesheets = cached.stylesheets;
-        }
-      }
-    }
-  }
-
-  private refreshCssWatchers(): void {
-    const watchedPaths = new Set(this.debug ? this.getWatchedCssPaths() : []);
-
-    for (const [path, watcher] of this.cssWatchers.entries()) {
-      if (!watchedPaths.has(path)) {
-        watcher.close();
-        this.cssWatchers.delete(path);
-      }
-    }
-
-    for (const path of watchedPaths) {
-      if (this.cssWatchers.has(path)) {
-        continue;
-      }
-
-      try {
-        const watcher = watch(path, () => {
-          this._on_css_change();
-        });
-        this.cssWatchers.set(path, watcher);
-      } catch {
-        continue;
-      }
-    }
+    this.styleEngine.setCssPath(path);
   }
 
   _on_css_change(): void {
-    let stylesheets: ParsedStylesheet[];
-
-    try {
-      stylesheets = this.cssPath.filter((path) => existsSync(path)).map((path) => {
-        return parseStylesheetOrThrow(readFileSync(path, "utf8"), { origin: "user" });
-      });
-    } catch {
-      return;
-    }
-
-    // [LAW:one-source-of-truth] CSS_PATH files are parsed into the same
-    // userStylesheets list consumed by cascade resolution and hot reload.
-    this.userStylesheets = stylesheets;
-    this.refreshScreenStylesheets();
-    this.refreshCssWatchers();
-    this.recalculateStyles();
+    this.styleEngine.onCssChange();
   }
 
   _onCssChange(): void {
-    this._on_css_change();
+    this.styleEngine.onCssChange();
   }
 
   registerTheme(theme: ThemeDefinition): ActiveTheme {
@@ -1633,13 +1467,10 @@ export class TextualFramework {
   }
 
   getActiveStylesheetsFor(typeName: string): ParsedStylesheet[] {
-    const cachedScreenStylesheets = [...this.screenStyleCache.values()].flatMap((state) => state.stylesheets);
-    return [
-      ...this.getWidgetTypeMetadata(typeName).defaultStylesheets,
-      ...this.userStylesheets,
-      ...cachedScreenStylesheets,
-      ...(this.activeScreen?.stylesheets ?? []),
-    ];
+    return this.styleEngine.getActiveStylesheetsFor(
+      this.getWidgetTypeMetadata(typeName).defaultStylesheets,
+      this.activeScreen?.stylesheets ?? [],
+    );
   }
 
   parseSelectors(selectorText: string): ParsedSelector[] {
@@ -1652,14 +1483,7 @@ export class TextualFramework {
 
   refreshStyles(changed: boolean): void {
     this.registry.touch();
-
-    if (changed) {
-      if (this.batchUpdateCount > 0) {
-        this.pendingStyleRecalc = true;
-      } else {
-        this.recalculateStyles();
-      }
-    }
+    this.styleEngine.refreshStyles(changed);
   }
 
   recalculateStyles(): void {
@@ -2427,7 +2251,7 @@ export class TextualFramework {
     }
 
     this.screenStack.setActiveMode(name);
-    this.refreshCssWatchers();
+    this.styleEngine.refreshCssWatchers();
     this.signals.mode_change_signal.publish(name);
     this.pump.emitBroadcast(new ModeChanged(name));
 
@@ -2478,7 +2302,7 @@ export class TextualFramework {
     this.suspendCurrentScreen();
 
     this.screenStack.pushEntry(entry);
-    this.refreshCssWatchers();
+    this.styleEngine.refreshCssWatchers();
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(entry);
@@ -2501,7 +2325,7 @@ export class TextualFramework {
     this.suspendCurrentScreen();
 
     const popped = this.screenStack.popEntry();
-    this.refreshCssWatchers();
+    this.styleEngine.refreshCssWatchers();
 
     this.screenStack.resolveScreenResult(popped, result);
 
@@ -2534,7 +2358,7 @@ export class TextualFramework {
     const entry = this.makeScreenEntry(element, options);
     this.screenStack.clearScreenWaiters(current);
     this.screenStack.replaceTop(entry);
-    this.refreshCssWatchers();
+    this.styleEngine.refreshCssWatchers();
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(entry);
