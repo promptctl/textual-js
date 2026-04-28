@@ -68,13 +68,8 @@ import {
 } from "../services/environment.js";
 import {
   CommandPalette,
-  CommandPaletteScreen,
-  SimpleCommandProvider,
-  SystemCommandsProvider,
   type CommandPaletteOptions,
-  type Provider,
   type ProviderConstructor,
-  type ProviderContext,
 } from "../commands/index.js";
 import {
   matchesSelector as selectorMatchesWidget,
@@ -156,6 +151,10 @@ import {
   type NotificationServiceDeps,
   type NotifyOptions,
 } from "./notification-service.js";
+import {
+  CommandService,
+  type CommandServiceDeps,
+} from "./command-service.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -520,8 +519,15 @@ export class TextualFramework {
   // in `bindingDispatcher` (extracted in 7w9.4). The framework holds only the
   // service handle.
   readonly bindingDispatcher: BindingDispatcher;
-  private appCommandProviders: ReadonlySet<ProviderConstructor> | null = null;
-  private systemCommandResolver: SystemCommandResolver = () => [];
+  // [LAW:single-enforcer] Palette orchestration state lives in
+  // `commandService` (extracted in 7w9.6). The framework holds only the
+  // service handle; activeCommandPalette is exposed via a getter so existing
+  // framework.activeCommandPalette consumers (CommandPalette.isOpen) work
+  // unchanged.
+  readonly commandService: CommandService;
+  get activeCommandPalette(): CommandPalette | null {
+    return this.commandService.activeCommandPalette;
+  }
   private appAutoFocus: string | null = null;
   // [LAW:single-enforcer] showNotifications is owned by notificationService.
   // Surface a getter here so existing framework.showNotifications consumers
@@ -541,8 +547,6 @@ export class TextualFramework {
   private isClosing = false;
   private readyMessagePosted = false;
   batchUpdateCount = 0;
-  activeCommandPalette: CommandPalette | null = null;
-  private publicApp: unknown = null;
   // [LAW:single-enforcer] `signals` is a re-exposed view of signalRegistry's
   // composite so existing consumers (framework.signals.X.publish/subscribe)
   // and audit-§4.2's App.signals namespace continue to work unchanged.
@@ -783,12 +787,27 @@ export class TextualFramework {
     };
     this.notificationService = new NotificationService(notificationServiceDeps);
 
+    // [LAW:single-enforcer] CommandService receives only the cross-cutting
+    // hooks it needs (active screen + focused widget lookup, push/pop screen,
+    // postAppMessage for Opened/Closed events). It does NOT receive a
+    // back-reference to the framework.
+    const commandServiceDeps: CommandServiceDeps = {
+      getActiveScreen: () => this.activeScreen,
+      getFocusedNodeId: () => this.focusedNodeId,
+      getWidget: (id) => this.registry.get(id),
+      pushScreen: (element, options) => this.pushScreen(element, options),
+      popScreen: (result) => this.popScreen(result),
+      postAppMessage: (message) => this.postAppMessage(message),
+    };
+    this.commandService = new CommandService(commandServiceDeps);
+
     makeAutoObservable(
       this,
       {
         widgetTypeRegistry: false,
         bindingDispatcher: false,
         notificationService: false,
+        commandService: false,
         layoutEngine: false,
         tooltipService: false,
         signalRegistry: false,
@@ -796,18 +815,14 @@ export class TextualFramework {
         driver: false,
         features: false,
         devtools: false,
-        activeCommandPalette: false,
         workers: false,
         themeManager: false,
         screenStack: false,
         pump: false,
         styleEngine: false,
-        appCommandProviders: false,
-        systemCommandResolver: false,
         handleBindingsClash: false,
         focusEngine: false,
         pointerEngine: false,
-        publicApp: false,
       } as never,
       { autoBind: true },
     );
@@ -1220,98 +1235,35 @@ export class TextualFramework {
     }
   }
 
+  // [LAW:single-enforcer] Palette + provider entry points delegate to
+  // CommandService (extracted in 7w9.6). Framework retains the public method
+  // surface as thin delegators until 7w9.10 deletes the framework class.
   setAppCommandProviders(providers: Iterable<ProviderConstructor> | null | undefined): void {
-    // [LAW:one-source-of-truth] App COMMANDS are normalized into one provider
-    // set here; palette launches derive from it instead of re-reading props.
-    this.appCommandProviders = providers === undefined ? null : new Set(providers);
+    this.commandService.setAppCommandProviders(providers);
   }
 
   setSystemCommandResolver(resolver: SystemCommandResolver | undefined): void {
-    this.systemCommandResolver = resolver ?? (() => []);
+    this.commandService.setSystemCommandResolver(resolver);
   }
 
   setPublicApp(app: unknown): void {
-    // [LAW:one-source-of-truth] The public App wrapper is registered once on
-    // the framework so provider contexts derive from the running app object.
-    this.publicApp = app;
+    this.commandService.setPublicApp(app);
   }
 
   getSystemCommands(screen: Screen | null): SystemCommand[] {
-    return Array.from(this.systemCommandResolver(screen));
+    return this.commandService.getSystemCommands(screen);
   }
 
-  private createCommandProviders(baseScreen: Screen | null): Provider[] {
-    const appProviders = this.appCommandProviders ?? new Set<ProviderConstructor>([SystemCommandsProvider]);
-    const screenProviders = baseScreen?.commandProviders ?? new Set<ProviderConstructor>();
-
-    // [LAW:one-source-of-truth] Provider composition is resolved once per
-    // palette launch from app replacement providers plus active screen additions.
-    return Array.from(new Set<ProviderConstructor>([...appProviders, ...screenProviders]))
-      .map((ProviderClass) => new ProviderClass());
+  searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
+    return this.commandService.searchCommands(commands);
   }
 
-  private getFocusedWidget(): Widget | null {
-    return this.focusedNodeId === null ? null : this.registry.get(this.focusedNodeId) ?? null;
+  openCommandPalette(options: CommandPaletteOptions = {}): Promise<CommandPalette> {
+    return this.commandService.openCommandPalette(options);
   }
 
-  async searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
-    const provider = new SimpleCommandProvider(commands);
-    const palette = new CommandPalette([provider], this.createProviderContext(this.activeScreen, this.getFocusedWidget()));
-
-    await palette.startup();
-    await palette.open();
-    this.activeCommandPalette = palette;
-    this.pushScreen(React.createElement(CommandPaletteScreen, { palette }), { name: CommandPalette.SCREEN_NAME });
-    this.postAppMessage(new CommandPalette.Opened());
-    return palette;
-  }
-
-  async openCommandPalette(options: CommandPaletteOptions = {}): Promise<CommandPalette> {
-    const baseScreen = this.activeScreen;
-    const focused = this.getFocusedWidget();
-    const providers = this.createCommandProviders(baseScreen);
-    const palette = new CommandPalette(providers, this.createProviderContext(baseScreen, focused), options);
-
-    await palette.startup();
-    await palette.open();
-    this.activeCommandPalette = palette;
-    this.pushScreen(React.createElement(CommandPaletteScreen, { palette }), { name: CommandPalette.SCREEN_NAME });
-    this.postAppMessage(new CommandPalette.Opened());
-    return palette;
-  }
-
-  async closeActiveCommandPalette(
-    optionSelected: boolean,
-    command?: () => void,
-  ): Promise<void> {
-    const palette = this.activeCommandPalette;
-
-    if (palette !== null) {
-      await palette.shutdown();
-    }
-
-    if (CommandPalette.isOpen(this)) {
-      this.popScreen(optionSelected);
-    }
-
-    this.activeCommandPalette = null;
-    this.postAppMessage(new CommandPalette.Closed(optionSelected));
-    command?.();
-  }
-
-  private createProviderContext(baseScreen: Screen | null, focused: Widget | null): ProviderContext {
-    // [LAW:one-source-of-truth] Providers always observe the public App; the
-    // framework is reachable via app.framework. publicApp is set in App's
-    // constructor so this must be present by the time a palette opens.
-    if (this.publicApp === null) {
-      throw new Error("Command palette requires a public App; framework-only harnesses cannot open a palette");
-    }
-
-    return {
-      app: this.publicApp as ProviderContext["app"],
-      screen: baseScreen,
-      focused,
-    };
+  closeActiveCommandPalette(optionSelected: boolean, command?: () => void): Promise<void> {
+    return this.commandService.closeActiveCommandPalette(optionSelected, command);
   }
 
   postAppMessage(message: Message): void {
