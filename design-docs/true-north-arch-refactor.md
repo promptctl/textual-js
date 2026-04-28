@@ -2,22 +2,33 @@
 
 ## Status (2026-04-28)
 
-Phase 1 ("Declare the Runtime Truth") is in progress under epic `textual-true-north-thu`. The reorientation described below is partially actualized:
+**Phase 1 ("Declare the Runtime Truth") — CLOSED.** Epic `textual-true-north-thu`.
 
-- **Closed:**
-  - `.1` Audit `TextualFramework` public surface — produced `design-docs/textual-framework-public-surface-audit.md` (137 members, ~750 external references, classified as definitely-public / sub-API / internal-only).
-  - `.2` Add App-equivalent methods for definitely-public framework members — `App` now exposes lifecycle, focus, dispatch, async, and sub-API access for every audit-§4.1 member.
-  - `.3` Rewrite consumer tests to drive App — 26 test files migrated, ~720 callsites changed.
-  - `.4` Drop TextualFramework from public exports — the public package barrel does not name `TextualFramework`; the internal `src/framework/index.ts` barrel was also cleaned.
-  - `.5` Migrate `runTest` harness to drive App — `Pilot`, `TestErrorBoundary`, `settleApp`, `runTestRoot`, `runTest` all take/drive `App`. `TestSession.framework` typed as `App["framework"]` (indexed-access) so the harness no longer imports `TextualFramework` directly.
-  - `.6` Verify `TextualApp` makes no runtime decisions — file-header `[LAW:single-enforcer]` block documents that `TextualApp` is a thin host bridge with no competing runtime authority.
+- `.1` Audit `TextualFramework` public surface — produced `design-docs/textual-framework-public-surface-audit.md` (137 members, ~750 external references).
+- `.2` Add App-equivalent methods for definitely-public framework members — `App` now exposes lifecycle, focus, dispatch, async, and sub-API access for every audit-§4.1 member.
+- `.3` Rewrite consumer tests to drive App — 26 test files migrated, ~720 callsites changed.
+- `.4` Drop TextualFramework from public exports — public + internal barrels cleaned.
+- `.5` Migrate `runTest` harness to drive App.
+- `.6` Verify `TextualApp` makes no runtime decisions — `[LAW:single-enforcer]` header documents host-bridge role.
+- `.7` README and design docs updated to describe App as authority.
+- `.8` LAW markers asserting App as runtime root.
+- `.9` Architectural guard `scripts/check-framework-imports.ts` — forbids `TextualFramework` imports outside `src/framework/` and `src/app/`, wired into `npm run lint`.
 
-- **In progress / remaining:**
-  - `.7` Update README and design docs to describe App as authority (this commit).
-  - `.8` Add LAW markers asserting App as runtime root.
-  - `.9` Architectural guard: forbid `TextualFramework` imports outside `src/framework/` and `src/app/`.
+**Phase 2 ("Collapse Identity Models" — reframed as service extraction) — CLOSED.** Epic `textual-true-north-o1w`.
 
-Phases 2–7 remain aspirational. The system today still has `TextualFramework` as a ~4,100-line god-object internally — Phase 7 decomposes it into per-concern services. What changed in Phase 1 is *who's named the authority*: `App` is now the public runtime root in code and docs, and the internal framework is a private collaborator on the path to decomposition.
+Reframed during execution: rather than collapsing duplicate-identity types (none survived Phase 1 in significant form), Phase 2 extracted internal services from the `TextualFramework` god-object so that Phase 7's "delete the framework shell" becomes mechanical. Each service owns a coherent slice of state, exposes a public API, accepts a narrow injected `Deps` interface, and has no back-reference to `TextualFramework`. Framework retains thin delegators so the public API is unchanged.
+
+- `.5` `ScreenStackService` — modeStacks, modeFactories, installedScreens, activeMode, screenStackVersion, ScreenFactoryRecord; install/push/pop/switch/mode operations.
+- `.6` `MessagePump` — queue, prevention discipline, deferred callbacks, dispatch/postMessage/whenIdle/subscribeToMessages/dispatchNodeKeyBindings.
+- `.7` `StyleEngine` — userStylesheets, cssPath, cssWatchers, screenStyleCache, pending recalc; setUserStylesheet/setCssPath/refreshStyles/getActiveStylesheetsFor.
+- `.8` `FocusEngine` — focusTrapNodeId, blur state, FocusAddress; focusWidget/clearFocusWithin/trapFocus/getFocusChain/focusNext/focusPrevious.
+- `.9` `PointerEngine` — hoveredNodeId, pendingPointerClick, lastClickChain; dispatchPointer*, hitTest.
+- `.10` `AsyncResourceManager` — timers, appWorkerOwner, appThreadId; setTimer/setInterval/runWorker/runAppWorker/callFromThread.
+- `.11` `LayoutEngine` (afterRefreshCallbacks, layoutReaders) + `TooltipService` (tooltipTimer, reveal pipeline).
+
+`TextualFramework` shrank from ~4,100 lines to 2,718 lines; ~1,400 lines extracted into 7 cohesive services totalling ~2,724 lines (each in `src/framework/<service>.{ts}`). Remaining framework concerns (binding/action dispatch, command palette, theme delegation, signal registry, widget-type registry, app lifecycle orchestration) await Phase 7 — most are smaller and more cohesive than the original god-object.
+
+**Phases 3–8 remain aspirational** — open epics: `textual-true-north-czk` (Phase 3), `textual-true-north-224` (Phase 4), `textual-true-north-r1k` (Phase 5), `textual-true-north-9vj` (Phase 6), `textual-true-north-7w9` (Phase 7), `textual-true-north-e0z` (Phase 8). Phase 7's job is now significantly easier: the services exist, dependencies are explicit, and removing the framework shell is mostly deleting the remaining delegators and rewiring `App` to reference services directly.
 
 ## Purpose
 
