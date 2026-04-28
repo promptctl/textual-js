@@ -52,15 +52,16 @@ function DialogRestoreScreen(): React.JSX.Element {
   );
 }
 
-async function settleFocus(framework: TextualFramework): Promise<void> {
-  await framework.whenIdle();
+async function settleFocus(app: App): Promise<void> {
+  await app.whenIdle();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  await framework.whenIdle();
+  await app.whenIdle();
 }
 
 describe("focus manager", () => {
   it("tracks :focus pseudo-class and emits Focus/Blur on transitions", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
@@ -75,25 +76,25 @@ describe("focus manager", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const first = framework.registry.getByCssId("first")!;
-    const middle = framework.registry.getByCssId("middle")!;
+    const first = app.getByCssId("first")!;
+    const middle = app.getByCssId("middle")!;
 
-    const unsubscribe = framework.subscribeToMessages((message) => {
+    const unsubscribe = app.subscribeToMessages((message) => {
       received.push(`${message.constructor.name}:${(message.sender as { nodeId?: string } | null)?.nodeId ?? "none"}`);
     });
 
-    framework.focusWidget(first.nodeId);
-    await framework.whenIdle();
+    app.focusWidget(first.nodeId);
+    await app.whenIdle();
 
     expect(first.isFocused).toBe(true);
     expect(first.hasPseudoClass("focus")).toBe(true);
     expect(first.hasPseudoClass("blur")).toBe(false);
     expect(middle.hasPseudoClass("blur")).toBe(true);
 
-    framework.focusWidget(middle.nodeId);
-    await framework.whenIdle();
+    app.focusWidget(middle.nodeId);
+    await app.whenIdle();
 
     expect(first.isFocused).toBe(false);
     expect(first.hasPseudoClass("blur")).toBe(true);
@@ -108,7 +109,8 @@ describe("focus manager", () => {
   });
 
   it("cycles focus through the focus chain with focusNext and focusPrevious", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -116,25 +118,26 @@ describe("focus manager", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const chainIds = framework.getFocusChain().map((widget) => widget.id);
+    const chainIds = app.getFocusChain().map((widget) => widget.id);
     expect(chainIds).toEqual(["first", "middle", "last"]);
 
-    framework.focusWidget(null);
+    app.focusWidget(null);
 
-    expect(framework.focusNext()?.id).toBe("first");
-    expect(framework.focusNext()?.id).toBe("middle");
-    expect(framework.focusNext()?.id).toBe("last");
-    expect(framework.focusNext()?.id).toBe("first");
-    expect(framework.focusPrevious()?.id).toBe("last");
+    expect(app.focusNext()?.id).toBe("first");
+    expect(app.focusNext()?.id).toBe("middle");
+    expect(app.focusNext()?.id).toBe("last");
+    expect(app.focusNext()?.id).toBe("first");
+    expect(app.focusPrevious()?.id).toBe("last");
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("supports selector-filtered focus navigation and clears focus when no candidate matches", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -150,15 +153,15 @@ describe("focus manager", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    framework.focusWidget(framework.registry.getByCssId("first-input")!.nodeId);
+    app.focusWidget(app.getByCssId("first-input")!.nodeId);
 
-    expect(framework.focusNext("Input")?.id).toBe("second-input");
-    expect(framework.focusNext("Input")?.id).toBe("first-input");
-    expect(framework.focusPrevious("Input")?.id).toBe("second-input");
-    expect(framework.focusNext(".missing")).toBeNull();
-    expect(framework.focusedNodeId).toBeNull();
+    expect(app.focusNext("Input")?.id).toBe("second-input");
+    expect(app.focusNext("Input")?.id).toBe("first-input");
+    expect(app.focusPrevious("Input")?.id).toBe("second-input");
+    expect(app.focusNext(".missing")).toBeNull();
+    expect(app.focusedNodeId).toBeNull();
 
     instance.unmount();
     instance.cleanup();
@@ -178,23 +181,23 @@ describe("focus manager", () => {
       </>,
     );
 
-    const parent = session.framework.registry.getByCssId("parent")!;
-    const child = session.framework.registry.getByCssId("child")!;
-    const leaf = session.framework.registry.getByCssId("leaf")!;
+    const parent = session.app.getByCssId("parent")!;
+    const child = session.app.getByCssId("child")!;
+    const leaf = session.app.getByCssId("leaf")!;
 
-    session.framework.focusWidget(null);
+    session.app.focusWidget(null);
 
     session.framework.dispatchPointerUp(leaf.screenRegion.x, leaf.screenRegion.y);
-    await session.framework.whenIdle();
-    expect(session.framework.focusedNodeId).toBeNull();
+    await session.app.whenIdle();
+    expect(session.app.focusedNodeId).toBeNull();
 
     session.framework.dispatchPointerDown(child.screenRegion.x, child.screenRegion.y);
-    await session.framework.whenIdle();
-    expect(session.framework.focusedNodeId).toBe(parent.nodeId);
+    await session.app.whenIdle();
+    expect(session.app.focusedNodeId).toBe(parent.nodeId);
 
     session.framework.dispatchPointerDown(leaf.screenRegion.x, leaf.screenRegion.y);
-    await session.framework.whenIdle();
-    expect(session.framework.focusedNodeId).toBe(leaf.nodeId);
+    await session.app.whenIdle();
+    expect(session.app.focusedNodeId).toBe(leaf.nodeId);
 
     session.unmount();
   });
@@ -203,23 +206,24 @@ describe("focus manager", () => {
     const session = await runTest(<FocusHarness />);
 
     await session.pilot.pause();
-    session.framework.focusWidget(session.framework.registry.getByCssId("first")!.nodeId);
+    session.app.focusWidget(session.app.getByCssId("first")!.nodeId);
     await session.pilot.pause();
 
-    session.framework.postKey("tab");
-    await session.framework.whenIdle();
-    expect(session.framework.focusedNodeId).toBe(session.framework.registry.getByCssId("middle")!.nodeId);
+    session.app.postKey("tab");
+    await session.app.whenIdle();
+    expect(session.app.focusedNodeId).toBe(session.app.getByCssId("middle")!.nodeId);
 
-    session.framework.postKey("tab", { shift: true });
-    await session.framework.whenIdle();
-    expect(session.framework.focusedNodeId).toBe(session.framework.registry.getByCssId("first")!.nodeId);
+    session.app.postKey("tab", { shift: true });
+    await session.app.whenIdle();
+    expect(session.app.focusedNodeId).toBe(session.app.getByCssId("first")!.nodeId);
 
     session.unmount();
   });
 
   it("restores focus to the previous screen after pop and mode return", async () => {
-    const framework = new App().framework;
-    framework.addMode("secondary", () => <DialogRestoreScreen />);
+    const app = new App();
+    const framework = app.framework;
+    app.addMode("secondary", () => <DialogRestoreScreen />);
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -227,44 +231,45 @@ describe("focus manager", () => {
       </TextualApp>,
     );
 
-    await settleFocus(framework);
+    await settleFocus(app);
 
-    framework.focusWidget(framework.registry.getByCssId("default-second")!.nodeId);
-    await settleFocus(framework);
+    app.focusWidget(app.getByCssId("default-second")!.nodeId);
+    await settleFocus(app);
 
-    framework.pushScreen(<DialogRestoreScreen />, { autoFocus: "#dialog-first" });
-    await settleFocus(framework);
+    app.pushScreen(<DialogRestoreScreen />, { autoFocus: "#dialog-first" });
+    await settleFocus(app);
 
-    framework.focusWidget(framework.registry.getByCssId("dialog-second")!.nodeId);
-    await settleFocus(framework);
+    app.focusWidget(app.getByCssId("dialog-second")!.nodeId);
+    await settleFocus(app);
 
-    framework.popScreen();
-    await settleFocus(framework);
+    app.popScreen();
+    await settleFocus(app);
 
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("default-second")!.nodeId);
+    expect(app.focusedNodeId).toBe(app.getByCssId("default-second")!.nodeId);
 
-    framework.switchMode("secondary");
-    await settleFocus(framework);
+    app.switchMode("secondary");
+    await settleFocus(app);
 
-    framework.focusWidget(framework.registry.getByCssId("dialog-second")!.nodeId);
-    await settleFocus(framework);
+    app.focusWidget(app.getByCssId("dialog-second")!.nodeId);
+    await settleFocus(app);
 
-    framework.switchMode("_default");
-    await settleFocus(framework);
+    app.switchMode("_default");
+    await settleFocus(app);
 
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("default-second")!.nodeId);
+    expect(app.focusedNodeId).toBe(app.getByCssId("default-second")!.nodeId);
 
-    framework.switchMode("secondary");
-    await settleFocus(framework);
+    app.switchMode("secondary");
+    await settleFocus(app);
 
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("dialog-second")!.nodeId);
+    expect(app.focusedNodeId).toBe(app.getByCssId("dialog-second")!.nodeId);
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("applies app and screen auto-focus selectors with screen precedence", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework} autoFocus="Label">
@@ -272,26 +277,26 @@ describe("focus manager", () => {
       </TextualApp>,
     );
 
-    await settleFocus(framework);
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("default-first")!.nodeId);
+    await settleFocus(app);
+    expect(app.focusedNodeId).toBe(app.getByCssId("default-first")!.nodeId);
 
-    framework.pushScreen(<DialogRestoreScreen />, { autoFocus: "#dialog-second" });
-    await settleFocus(framework);
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("dialog-second")!.nodeId);
+    app.pushScreen(<DialogRestoreScreen />, { autoFocus: "#dialog-second" });
+    await settleFocus(app);
+    expect(app.focusedNodeId).toBe(app.getByCssId("dialog-second")!.nodeId);
 
-    framework.popScreen();
-    await settleFocus(framework);
+    app.popScreen();
+    await settleFocus(app);
 
-    framework.pushScreen(<DialogRestoreScreen />);
-    await settleFocus(framework);
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("dialog-first")!.nodeId);
+    app.pushScreen(<DialogRestoreScreen />);
+    await settleFocus(app);
+    expect(app.focusedNodeId).toBe(app.getByCssId("dialog-first")!.nodeId);
 
-    framework.popScreen();
-    await settleFocus(framework);
+    app.popScreen();
+    await settleFocus(app);
 
-    framework.pushScreen(<DialogRestoreScreen />, { autoFocus: "" });
-    await settleFocus(framework);
-    expect(framework.focusedNodeId).toBeNull();
+    app.pushScreen(<DialogRestoreScreen />, { autoFocus: "" });
+    await settleFocus(app);
+    expect(app.focusedNodeId).toBeNull();
 
     instance.unmount();
     instance.cleanup();
