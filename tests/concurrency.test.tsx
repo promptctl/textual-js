@@ -3,8 +3,6 @@ import React, { useLayoutEffect } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import {
   Message,
   RLock,
@@ -259,7 +257,7 @@ describe("concurrency primitives", () => {
   it("runs callAfterRefresh inside the active message pump context", async () => {
     const app = new App();
       const framework = app.framework;
-    let active: TextualFramework | null = null;
+    let active: App["framework"] | null = null;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -270,7 +268,7 @@ describe("concurrency primitives", () => {
     await app.whenIdle();
 
     app.callAfterRefresh(() => {
-      active = getActiveMessagePump<TextualFramework>();
+      active = getActiveMessagePump<App["framework"]>();
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));

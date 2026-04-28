@@ -6,8 +6,6 @@ import { render } from "ink-testing-library";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import {
   ActiveModeError,
   Color,
@@ -57,7 +55,7 @@ function ScreenWithCss(): React.JSX.Element {
 
 let nextDetachedNodeId = 1;
 
-function createDetachedNode(framework: TextualFramework, typeName = "DetachedNode"): Widget {
+function createDetachedNode(framework: App["framework"], typeName = "DetachedNode"): Widget {
   const node = new Widget({
     framework,
     nodeId: `detached-node-${nextDetachedNodeId++}`,
@@ -78,7 +76,7 @@ function createDetachedNode(framework: TextualFramework, typeName = "DetachedNod
 }
 
 function createDetachedWorker<TResult>(
-  framework: TextualFramework,
+  framework: App["framework"],
   work: () => Promise<TResult> | TResult,
 ): Worker<TResult> {
   const node = new Widget({
@@ -466,7 +464,7 @@ describe("screen modes", () => {
     app.addMode("secondary", () => <DialogScreen />);
     const subscriber = createDetachedNode(framework, "SignalSubscriber");
     const modes: string[] = [];
-    const screens: Array<TextualFramework["activeScreen"]> = [];
+    const screens: Array<App["framework"]["activeScreen"]> = [];
 
     framework.startup();
     const unsubscribeMode = app.signals.mode_change_signal.subscribe(subscriber, (mode) => {

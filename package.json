@@ -18,7 +18,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit && tsx scripts/check-framework-imports.ts",
     "clean": "rm -rf dist",
     "visual": "bash visual-tests/run.sh",
     "visual:update-python": "bash visual-tests/update-python-baselines.sh"

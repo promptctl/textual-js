@@ -4,8 +4,6 @@ import { threadId } from "node:worker_threads";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import {
   Content,
   Widget,
@@ -242,7 +240,7 @@ describe("workers", () => {
 
   it("implements work decorator launch, thread sync methods, declaration errors, and exclusivity", async () => {
     class DecoratedWorkerHost {
-      constructor(readonly framework: TextualFramework) {}
+      constructor(readonly framework: App["framework"]) {}
 
       runWorker(callable: never, options = {}) {
         return this.framework.runAppWorker(callable, options);
