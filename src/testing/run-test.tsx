@@ -4,7 +4,6 @@ import { render } from "ink-testing-library";
 import type { Message } from "../events/message.js";
 import { App } from "../app/app.js";
 import { TextualApp, type TextualAppProps } from "../app/textual-app.js";
-import { TextualFramework } from "../framework/app-framework.js";
 import { Size } from "../geometry/index.js";
 import type { Widget } from "../framework/widget.js";
 
@@ -74,7 +73,7 @@ function readTypeName(target: React.ComponentType<unknown>): string {
   return target.displayName ?? target.name;
 }
 
-class TestErrorBoundary extends React.Component<React.PropsWithChildren<{ framework: TextualFramework }>, { failed: boolean }> {
+class TestErrorBoundary extends React.Component<React.PropsWithChildren<{ app: App }>, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
@@ -85,7 +84,7 @@ class TestErrorBoundary extends React.Component<React.PropsWithChildren<{ framew
     // [LAW:single-enforcer] Test-time render/compose failures are captured at
     // one boundary so runTest observes the same exception path for initial
     // render and later screen swaps instead of relying on Ink internals.
-    this.props.framework.reportUnhandledError(error);
+    this.props.app.framework.reportUnhandledError(error);
   }
 
   render(): React.ReactNode {
@@ -93,16 +92,22 @@ class TestErrorBoundary extends React.Component<React.PropsWithChildren<{ framew
   }
 }
 
+// [LAW:one-source-of-truth] Pilot drives App, not the framework directly.
+// App's public methods (postKey, exit, findWidgets, terminalSize) are the
+// driver's vocabulary. Test-only mechanics (raw pointer dispatch, hit-test,
+// terminal-size override) reach the framework via `app.framework` because
+// the audit categorized those as internal-only — they will not migrate to
+// App's public surface.
 export class Pilot {
-  constructor(private readonly framework: TextualFramework) {}
+  constructor(private readonly app: App) {}
 
   toString(): string {
-    return `<Pilot app=${this.framework.constructor.name}>`;
+    return `<Pilot app=${this.app.constructor.name}>`;
   }
 
   async press(...keys: string[]): Promise<void> {
     for (const key of keys) {
-      this.framework.postKey(key);
+      this.app.postKey(key);
       await this.pause();
     }
   }
@@ -152,17 +157,17 @@ export class Pilot {
   }
 
   async resizeTerminal(width: number, height: number): Promise<void> {
-    this.framework.setControlledTerminalSize(new Size(width, height));
-    this.framework.postResize(width, height);
+    this.app.framework.setControlledTerminalSize(new Size(width, height));
+    this.app.framework.postResize(width, height);
     await this.pause();
   }
 
   async pause(delay?: number): Promise<void> {
-    await settleFramework(this.framework);
+    await settleApp(this.app);
 
     if (delay !== undefined) {
       await sleep(Math.max(0, delay) * 1000);
-      await settleFramework(this.framework);
+      await settleApp(this.app);
     }
   }
 
@@ -176,7 +181,7 @@ export class Pilot {
 
   async exit(result?: unknown): Promise<unknown> {
     await this.pause();
-    return this.framework.exit(result);
+    return this.app.exit(result);
   }
 
   private async dispatchPointer(
@@ -194,11 +199,11 @@ export class Pilot {
     resolved: ResolvedPointerTarget,
   ): Promise<void> {
     if (kind === "down") {
-      this.framework.dispatchPointerDown(resolved.screenX, resolved.screenY);
+      this.app.framework.dispatchPointerDown(resolved.screenX, resolved.screenY);
     } else if (kind === "up") {
-      this.framework.dispatchPointerUp(resolved.screenX, resolved.screenY);
+      this.app.framework.dispatchPointerUp(resolved.screenX, resolved.screenY);
     } else {
-      this.framework.dispatchPointerMove(resolved.screenX, resolved.screenY);
+      this.app.framework.dispatchPointerMove(resolved.screenX, resolved.screenY);
     }
 
     await this.pause();
@@ -247,15 +252,15 @@ export class Pilot {
 
     if (typeof target === "string") {
       const [match] = target.startsWith("#")
-        ? this.framework.findWidgets(target)
-        : this.framework.registry.list().filter((widget) => widget.typeName === target);
+        ? this.app.findWidgets(target)
+        : this.app.framework.registry.list().filter((widget) => widget.typeName === target);
 
       if (match !== undefined) {
         return match;
       }
     } else {
       const typeName = readTypeName(target);
-      const match = this.framework.registry.list().find((widget) => widget.typeName === typeName);
+      const match = this.app.framework.registry.list().find((widget) => widget.typeName === typeName);
 
       if (match !== undefined) {
         return match;
@@ -266,7 +271,7 @@ export class Pilot {
   }
 
   private assertBounds(x: number, y: number): void {
-    if (x < 0 || y < 0 || x >= this.framework.terminalSize.width || y >= this.framework.terminalSize.height) {
+    if (x < 0 || y < 0 || x >= this.app.terminalSize.width || y >= this.app.terminalSize.height) {
       throw new OutOfBounds(`Pointer target (${x}, ${y}) is outside the terminal bounds`);
     }
   }
@@ -299,7 +304,7 @@ export class Pilot {
     absoluteX: number,
     absoluteY: number,
   ): ResolvedPointerTarget {
-    const targetNode = this.framework.hitTest(absoluteX, absoluteY);
+    const targetNode = this.app.framework.hitTest(absoluteX, absoluteY);
     const localX = targetNode === undefined ? absoluteX : absoluteX - targetNode.effectiveScreenRegion.x;
     const localY = targetNode === undefined ? absoluteY : absoluteY - targetNode.effectiveScreenRegion.y;
 
@@ -341,9 +346,9 @@ function defaultPointerCoordinate(size: number): number {
   return size <= 0 ? 0 : Math.floor((size - 1) / 2);
 }
 
-async function settleFramework(framework: TextualFramework): Promise<void> {
-  // [LAW:single-enforcer] Test settling iterates until the framework reaches
-  // a fixed point. Each Mount dispatch can flip a widget's lifecycleReady,
+async function settleApp(app: App): Promise<void> {
+  // [LAW:single-enforcer] Test settling iterates until the app reaches a
+  // fixed point. Each Mount dispatch can flip a widget's lifecycleReady,
   // which (via mobx-react observers) schedules a React render; that render
   // mounts the next layer of children, whose useLayoutEffect runs
   // registerWidget and enqueues fresh Mount messages. We loop until two
@@ -352,7 +357,7 @@ async function settleFramework(framework: TextualFramework): Promise<void> {
   // test exercises hit-tests or the rendered frame.
   let previousSignature: string | null = null;
   for (let iteration = 0; iteration < 50; iteration += 1) {
-    await framework.whenIdle();
+    await app.whenIdle();
     // Yield through several microtasks. mobx-react-lite's useSyncExternalStore
     // flips an internal version on observable mutation, and React processes
     // the resulting render in the next microtask round. Avoid setTimeout
@@ -363,24 +368,30 @@ async function settleFramework(framework: TextualFramework): Promise<void> {
     // Re-sync layout readers so widget regions reflect the latest Ink
     // measurement after staged child mounts. Without this, parent regions
     // captured before children rendered remain stale.
-    framework.recordDisplayPass();
-    const widgets = framework.findWidgets("*");
+    app.framework.recordDisplayPass();
+    const widgets = app.findWidgets("*");
     const signature = widgets
       .map((w) => `${w.nodeId}:${w.screenRegion.width}x${w.screenRegion.height}`)
       .sort()
       .join("|");
     if (signature === previousSignature) {
-      framework.throwPendingError();
+      app.framework.throwPendingError();
       return;
     }
     previousSignature = signature;
   }
-  throw new Error("settleFramework: framework never reached a fixed point in 50 iterations");
+  throw new Error("settleApp: app never reached a fixed point in 50 iterations");
 }
 
+// [LAW:one-source-of-truth] App is the test session's primary handle.
+// `framework` is retained as a read-only peer typed via App["framework"]
+// so existing tests that touch internal mechanics continue to compile
+// without this file directly importing TextualFramework. Future tickets
+// retire those test usages as their underlying production-source bypasses
+// migrate to App's public surface or are re-homed in Phase 7.
 export interface TestSession {
   app: App;
-  framework: TextualFramework;
+  framework: App["framework"];
   pilot: Pilot;
   cleanup: () => void;
   unmount: () => void;
@@ -394,26 +405,25 @@ export async function runTestRoot(
   app: App,
   options: RunTestOptions = {},
 ): Promise<TestSession> {
-  const framework = app.framework;
   const size = options.size ?? { width: 80, height: 24 };
 
   // [LAW:one-source-of-truth] The requested test size is installed on the
   // framework before the first render so mount/layout code observes one
   // canonical terminal dimension instead of a later corrective resize.
-  framework.setControlledTerminalSize(new Size(size.width, size.height));
-  framework.setCaptureUnhandledErrors(true);
-  framework.setShowNotifications(options.transients?.notifications ?? false);
-  framework.setShowTooltips(options.transients?.tooltips ?? false);
+  app.framework.setControlledTerminalSize(new Size(size.width, size.height));
+  app.framework.setCaptureUnhandledErrors(true);
+  app.framework.setShowNotifications(options.transients?.notifications ?? false);
+  app.framework.setShowTooltips(options.transients?.tooltips ?? false);
   const unsubscribeMessageHook =
-    options.messageHook === undefined ? undefined : framework.subscribeToMessages(options.messageHook);
+    options.messageHook === undefined ? undefined : app.subscribeToMessages(options.messageHook);
   const instance = render(
-    <TestErrorBoundary framework={framework}>
+    <TestErrorBoundary app={app}>
       {root}
     </TestErrorBoundary>,
   );
 
   try {
-    await settleFramework(framework);
+    await settleApp(app);
   } catch (error) {
     unsubscribeMessageHook?.();
     instance.unmount();
@@ -437,19 +447,19 @@ export async function runTestRoot(
       throw thrownError;
     }
 
-    framework.throwPendingError();
+    app.framework.throwPendingError();
   };
 
   return {
     app,
-    framework,
-    pilot: new Pilot(framework),
+    framework: app.framework,
+    pilot: new Pilot(app),
     cleanup: unmount,
     unmount,
     lastFrame: instance.lastFrame,
     instance,
     get result() {
-      return framework.exitResult;
+      return app.returnValue;
     },
   };
 }
