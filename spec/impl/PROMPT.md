@@ -258,9 +258,9 @@ Run each of these and confirm the result before reporting completion:
 
 - `spec/impl/INDEX.md` — the conformance tracker is reference-only and agents do not maintain it.
 - `README.md` — do not add a status section, progress badge, or "what's done" summary.
-- Any file matching `*STATUS*.md`, `*PROGRESS*.md`, `*COMPLETE*.md`, `*CHANGELOG*.md` that is not already part of an established workflow you have observed in `git log`.
+- Any file matching `*STATUS*.md`, `*PROGRESS*.md`, `*COMPLETE*.md`, `*CHANGELOG*.md`.
 
-The authoritative ledger of what exists in this project is: the code under `src/`, the tests under `tests/`, and the git log. Tracking documents accumulate drift and substitute for reading the actual code. Do not produce them.
+The authoritative ledger of what exists in this project is: the code under `src/` and the tests under `tests/`. A git log is not a source of truth — it only proves that a particular commit message was authored, never that the work it describes is correct, complete, or still present. Tracking documents accumulate drift and substitute for reading the actual code. Do not produce them.
 
 ## Key directories
 
