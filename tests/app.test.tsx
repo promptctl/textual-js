@@ -2,8 +2,6 @@ import React, { useLayoutEffect, useState } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import {
   App,
   Click,
@@ -30,7 +28,7 @@ import {
 
 class Ping extends Message {}
 
-function AppDispatcher(props: { onReady: (framework: TextualFramework) => void }): null {
+function AppDispatcher(props: { onReady: (framework: App["framework"]) => void }): null {
   const framework = useTextual();
 
   useLayoutEffect(() => {
@@ -40,7 +38,7 @@ function AppDispatcher(props: { onReady: (framework: TextualFramework) => void }
   return null;
 }
 
-function AppServiceHarness(props: { onReady: (framework: TextualFramework, widget: Widget) => void }): React.JSX.Element {
+function AppServiceHarness(props: { onReady: (framework: App["framework"], widget: Widget) => void }): React.JSX.Element {
   const framework = useTextual();
   const widget = useWidget({
     id: "app-service-harness",
@@ -87,7 +85,7 @@ async function settleApp(app: App): Promise<void> {
   await app.whenIdle();
 }
 
-function createDetachedWidget(framework: TextualFramework, options: Partial<ConstructorParameters<typeof Widget>[0]> = {}): Widget {
+function createDetachedWidget(framework: App["framework"], options: Partial<ConstructorParameters<typeof Widget>[0]> = {}): Widget {
   return new Widget({
     framework,
     nodeId: options.nodeId ?? `widget-${Math.random()}`,
@@ -185,7 +183,7 @@ describe("TextualApp and widget registry", () => {
   it("exposes an app-level dispatch surface through TextualApp context", async () => {
     const app = new App();
     const framework = app.framework;
-    let appContext!: TextualFramework;
+    let appContext!: App["framework"];
     const senders: unknown[] = [];
 
     const instance = render(
@@ -510,7 +508,7 @@ describe("TextualApp and widget registry", () => {
       session.framework.dispatchPointerUp(second.screenRegion.x, second.screenRegion.y);
       await session.app.whenIdle();
 
-      vi.advanceTimersByTime(Math.ceil(TextualFramework.CLICK_CHAIN_TIME_THRESHOLD * 1000) + 1);
+      vi.advanceTimersByTime(Math.ceil(App.CLICK_CHAIN_TIME_THRESHOLD * 1000) + 1);
       session.framework.dispatchPointerDown(second.screenRegion.x, second.screenRegion.y);
       session.framework.dispatchPointerUp(second.screenRegion.x, second.screenRegion.y);
       await session.app.whenIdle();

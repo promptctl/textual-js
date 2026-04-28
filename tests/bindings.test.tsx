@@ -3,8 +3,6 @@ import React, { useEffect } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import {
   ActionError,
   BindingsMap,
@@ -250,46 +248,42 @@ describe("binding dispatch", () => {
     instance.cleanup();
   });
 
-  it("routes binding dispatch through runAction", async () => {
-    const seenActions: string[] = [];
-    const prototype = TextualFramework.prototype as TextualFramework;
-    const originalRunAction = prototype.runAction;
-    prototype.runAction = function (action, defaultTarget) {
-      seenActions.push(action);
-      return originalRunAction.call(this, action, defaultTarget);
-    };
-
-    try {
-      const app = new App();
+  it("routes binding dispatch through the action namespace", async () => {
+    // [LAW:behavior-not-structure] Verify binding → action wiring by
+    // observing the action handler runs, not by patching runAction. The
+    // action name "save" only resolves to action_save when the dispatcher
+    // routes through the action namespace; a parallel bypass path would
+    // not match this contract.
+    let saveCallCount = 0;
+    const app = new App();
     const framework = app.framework;
-      const instance = render(
-        <TextualApp framework={framework}>
-          <WidgetHost
-            typeName="Leaf"
-            focusable
-            autoFocus
-            bindings={[{ key: "f4", action: "save" }]}
-            actions={{
-              action_save: () => undefined,
-            }}
-          >
-            <Text>leaf</Text>
-          </WidgetHost>
-        </TextualApp>,
-      );
+    const instance = render(
+      <TextualApp framework={framework}>
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f4", action: "save" }]}
+          actions={{
+            action_save: () => {
+              saveCallCount += 1;
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
 
-      await app.whenIdle();
+    await app.whenIdle();
 
-      app.postKey("f4");
-      await app.whenIdle();
+    app.postKey("f4");
+    await app.whenIdle();
 
-      expect(seenActions).toContain("save");
+    expect(saveCallCount).toBe(1);
 
-      instance.unmount();
-      instance.cleanup();
-    } finally {
-      prototype.runAction = originalRunAction;
-    }
+    instance.unmount();
+    instance.cleanup();
   });
 
   it("consumes disabled bindings instead of bubbling past them", async () => {

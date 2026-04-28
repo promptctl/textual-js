@@ -88,6 +88,11 @@ export class App<Result = unknown> {
   // cannot inject a foreign framework. This collapses the former dual
   // construction path where either App or TextualFramework could root the tree.
   readonly framework: TextualFramework;
+
+  // [LAW:one-source-of-truth] Click-chain time threshold is a public runtime
+  // tunable. App re-exports the framework's value so consumers reference
+  // App.CLICK_CHAIN_TIME_THRESHOLD without reaching into the private collaborator.
+  static readonly CLICK_CHAIN_TIME_THRESHOLD = TextualFramework.CLICK_CHAIN_TIME_THRESHOLD;
   private readonly appOptions: StoredAppOptions;
   private appTitle = "";
   private appSubTitle = "";

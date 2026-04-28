@@ -3,8 +3,6 @@ import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import {
   Click,
   Key,
@@ -302,7 +300,7 @@ describe("focus chain gating", () => {
 });
 
 function createTestWidget(
-  framework: TextualFramework,
+  framework: App["framework"],
   options: Partial<ConstructorParameters<typeof Widget>[0]> = {},
 ): Widget {
   return new Widget({

@@ -1,7 +1,5 @@
 import { App } from "../src/index.js";
 import { describe, expect, it } from "vitest";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import { Offset, Region, Size, Widget } from "../src/index.js";
 
 describe("scroll geometry", () => {
@@ -101,7 +99,7 @@ describe("scrollbar-gutter CSS property", () => {
 });
 
 describe("scroll animation level infrastructure", () => {
-  function createScrollWidget(framework: TextualFramework): Widget {
+  function createScrollWidget(framework: App["framework"]): Widget {
     const widget = new Widget({
       framework,
       nodeId: "scroll-target",
