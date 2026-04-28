@@ -51,7 +51,8 @@ function createNode(
 
 describe("public Widget base surface", () => {
   it("requires a framework on construction and validates class names", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     class Parent extends Widget {}
     class Child extends Widget {}
 
@@ -73,7 +74,8 @@ describe("public Widget base surface", () => {
   });
 
   it("mounts, moves, removes, sorts, and looks up direct children", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
     const first = createNode(framework, { nodeId: "first", id: "first", typeName: "Leaf" });
     const second = createNode(framework, { nodeId: "second", id: "second", typeName: "Leaf" });
@@ -104,7 +106,8 @@ describe("public Widget base surface", () => {
   });
 
   it("mount_all accepts iterables and preserves mount placement/error contracts", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const mountedParent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
     const detachedParent = createNode(framework, { nodeId: "detached", id: "detached", typeName: "Parent" });
     const existing = createNode(framework, { nodeId: "existing", id: "existing", typeName: "Leaf" });
@@ -126,7 +129,8 @@ describe("public Widget base surface", () => {
   });
 
   it("resolves _find_mount_point for indices, selectors, widget references, and spec error cases", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
     const alpha = createNode(framework, { nodeId: "alpha", id: "alpha", typeName: "Alpha" });
     const beta = createNode(framework, { nodeId: "beta", id: "beta", typeName: "Beta" });
@@ -154,7 +158,8 @@ describe("public Widget base surface", () => {
       }
     }
 
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const parent = createNode(framework, { nodeId: "parent", id: "parent" });
     const first = createNode(framework, { nodeId: "first", id: "first", parentId: "parent", typeName: "Leaf" });
     const second = createNode(framework, { nodeId: "second", id: "second", parentId: "parent", typeName: "Leaf" });
@@ -190,7 +195,8 @@ describe("Stage 4 focus and visibility policy", () => {
       return <Text>unused</Text>;
     }
 
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const instance = render(
       <TextualApp framework={framework}>
         <WidgetHost typeName="Container" canFocusChildren={false}>
@@ -207,30 +213,32 @@ describe("Stage 4 focus and visibility policy", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(["first", "label"]);
-    expect(framework.focusNext(Input)?.id).toBe("first");
+    expect(app.getFocusChain().map((widget) => widget.id)).toEqual(["first", "label"]);
+    expect(app.focusNext(Input)?.id).toBe("first");
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("reassigns focus when the focused widget is removed", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const first = createNode(framework, { nodeId: "first", id: "first", focusable: true });
     const second = createNode(framework, { nodeId: "second", id: "second", focusable: true });
 
     framework.registerWidget(first);
     framework.registerWidget(second);
-    framework.focusWidget(first.nodeId);
+    app.focusWidget(first.nodeId);
     first.remove();
 
-    expect(framework.focusedNodeId).toBe(second.nodeId);
+    expect(app.focusedNodeId).toBe(second.nodeId);
   });
 
   it("emits Show and Hide when visible changes", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const events: string[] = [];
     const widget = createNode(framework, {
       nodeId: "visible",
@@ -242,16 +250,16 @@ describe("Stage 4 focus and visibility policy", () => {
         },
       },
     });
-    const unsubscribe = framework.subscribeToMessages((message) => {
+    const unsubscribe = app.subscribeToMessages((message) => {
       if (message instanceof Show) events.push("broadcast-show");
       if (message instanceof Hide) events.push("broadcast-hide");
     });
 
     framework.registerWidget(widget);
     widget.visible = false;
-    await framework.whenIdle();
+    await app.whenIdle();
     widget.visible = true;
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(events).toEqual(["hide", "broadcast-hide", "show", "broadcast-show"]);
     unsubscribe();
@@ -275,14 +283,15 @@ describe("Stage 4 focus and visibility policy", () => {
     );
 
     session.framework.dispatchPointerMove(19, 4);
-    await session.framework.whenIdle();
+    await session.app.whenIdle();
 
     expect(received).toEqual(["move"]);
     session.unmount();
   });
 
   it("traps focus to a subtree only when focus is already inside it and restores the full chain on release", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const instance = render(
       <TextualApp framework={framework}>
         <WidgetHost typeName="Dialog" id="dialog">
@@ -299,25 +308,25 @@ describe("Stage 4 focus and visibility policy", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const dialog = framework.registry.getByCssId("dialog")!;
-    const dialogFirst = framework.registry.getByCssId("dialog-first")!;
-    const outside = framework.registry.getByCssId("outside")!;
-    const fullChain = framework.getFocusChain().map((widget) => widget.id);
+    const dialog = app.getByCssId("dialog")!;
+    const dialogFirst = app.getByCssId("dialog-first")!;
+    const outside = app.getByCssId("outside")!;
+    const fullChain = app.getFocusChain().map((widget) => widget.id);
 
-    framework.focusWidget(outside.nodeId);
+    app.focusWidget(outside.nodeId);
     dialog.trap_focus();
-    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(fullChain);
+    expect(app.getFocusChain().map((widget) => widget.id)).toEqual(fullChain);
 
-    framework.focusWidget(dialogFirst.nodeId);
+    app.focusWidget(dialogFirst.nodeId);
     dialog.trap_focus();
-    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(["dialog-first", "dialog-second"]);
-    expect(framework.focusNext()?.id).toBe("dialog-second");
-    expect(framework.focusNext()?.id).toBe("dialog-first");
+    expect(app.getFocusChain().map((widget) => widget.id)).toEqual(["dialog-first", "dialog-second"]);
+    expect(app.focusNext()?.id).toBe("dialog-second");
+    expect(app.focusNext()?.id).toBe("dialog-first");
 
     dialog.trap_focus(false);
-    expect(framework.getFocusChain().map((widget) => widget.id)).toEqual(fullChain);
+    expect(app.getFocusChain().map((widget) => widget.id)).toEqual(fullChain);
 
     instance.unmount();
     instance.cleanup();

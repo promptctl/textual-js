@@ -172,19 +172,21 @@ describe("command palette provider composition", () => {
   ScreenWithCommands.COMMANDS = new Set([ScreenProvider]);
 
   it("uses SystemCommandsProvider by default", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
-    const palette = await framework.openCommandPalette();
+    const palette = await app.openCommandPalette();
 
     expect(palette.providers.some((provider) => provider instanceof SystemCommandsProvider)).toBe(true);
   });
 
   it("replaces default system providers with app COMMANDS and adds screen COMMANDS", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     framework.setAppCommandProviders(new Set([AppProvider]));
-    framework.pushScreen(ScreenWithCommands);
+    app.pushScreen(ScreenWithCommands);
 
-    const palette = await framework.openCommandPalette();
+    const palette = await app.openCommandPalette();
 
     expect(palette.providers.some((provider) => provider instanceof SystemCommandsProvider)).toBe(false);
     expect(palette.providers.some((provider) => provider instanceof AppProvider)).toBe(true);
@@ -215,10 +217,10 @@ describe("command palette provider composition", () => {
     const session = await runTest(React.createElement(FocusedApp));
     session.framework.setAppCommandProviders(new Set([ContextProvider]));
 
-    await session.framework.openCommandPalette();
+    await session.app.openCommandPalette();
 
     expect(contexts[0]?.app).toBe(session.app);
-    expect(contexts[0]?.screen).toBe(session.framework.getScreenStack()[0]);
+    expect(contexts[0]?.screen).toBe(session.app.screenStack[0]);
     expect(contexts[0]?.focused?.typeName).toBe("Focused");
 
     session.unmount();
@@ -244,7 +246,7 @@ describe("command palette provider composition", () => {
     const app = new PaletteApp();
     const session = await app.runTest();
 
-    await app.framework.openCommandPalette();
+    await app.openCommandPalette();
 
     expect(contexts[0]?.app).toBe(app);
 
@@ -401,8 +403,9 @@ describe("command palette options", () => {
     CommandPalette.run_on_select = false;
 
     const palette = createPalette([]);
-    const framework = new App().framework;
-    framework.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
+    const app = new App();
+    const framework = app.framework;
+    app.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
 
     expect(palette.runOnSelect).toBe(false);
     expect(CommandPalette.is_open(framework)).toBe(true);
@@ -421,21 +424,23 @@ describe("command palette options", () => {
   });
 
   it("reports open state from the active screen name", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     expect(CommandPalette.isOpen(framework)).toBe(false);
 
-    framework.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
+    app.pushScreen(React.createElement(React.Fragment), { name: CommandPalette.SCREEN_NAME });
     expect(CommandPalette.isOpen(framework)).toBe(true);
 
-    framework.popScreen();
+    app.popScreen();
     expect(CommandPalette.isOpen(framework)).toBe(false);
   });
 
   it("ignores non-palette screens when checking open state", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
-    framework.pushScreen(React.createElement(React.Fragment), { name: "dialog" });
+    app.pushScreen(React.createElement(React.Fragment), { name: "dialog" });
     expect(CommandPalette.isOpen(framework)).toBe(false);
   });
 });
@@ -520,7 +525,7 @@ describe("command palette screen interaction", () => {
     await session.pilot.press("ctrl+p", "escape");
     expect(CommandPalette.isOpen(session.framework)).toBe(false);
 
-    await session.framework.openCommandPalette();
+    await session.app.openCommandPalette();
     await session.pilot.click({ offset: { x: 79, y: 23 } });
 
     expect(CommandPalette.isOpen(session.framework)).toBe(false);
@@ -530,15 +535,16 @@ describe("command palette screen interaction", () => {
   });
 
   it("cancels palette-owned workers without disturbing unrelated app workers", async () => {
-    const framework = new App().framework;
-    const unrelated = framework.runAppWorker(async (signal) => {
+    const app = new App();
+    const framework = app.framework;
+    const unrelated = app.runWorker(async (signal) => {
       await new Promise((_resolve, reject) => {
         signal.addEventListener("abort", () => {
           reject(new WorkerCancelled("cancelled"));
         });
       });
     }, { name: "unrelated" });
-    const palette = await framework.openCommandPalette();
+    const palette = await app.openCommandPalette();
     const paletteWorker = palette.runWorker(async (signal) => {
       await new Promise((_resolve, reject) => {
         signal.addEventListener("abort", () => {
@@ -548,7 +554,7 @@ describe("command palette screen interaction", () => {
     }, { name: "palette-owned" });
 
     await framework.closeActiveCommandPalette(false);
-    await framework.workers.waitForComplete([paletteWorker]);
+    await app.workers.waitForComplete([paletteWorker]);
 
     expect(paletteWorker.isCancelled).toBe(true);
     expect(unrelated.isRunning).toBe(true);

@@ -46,13 +46,13 @@ describe("runTest and Pilot", () => {
       size: { width: 100, height: 40 },
     });
 
-    expect(session.framework.terminalSize.width).toBe(100);
-    expect(session.framework.terminalSize.height).toBe(40);
+    expect(session.app.terminalSize.width).toBe(100);
+    expect(session.app.terminalSize.height).toBe(40);
 
     await session.pilot.exit("done");
 
     expect(session.result).toBe("done");
-    expect(session.framework.isRunning).toBe(false);
+    expect(session.app.isRunning).toBe(false);
 
     session.unmount();
   });
@@ -107,8 +107,8 @@ describe("runTest and Pilot", () => {
     }
 
     const session = await runTest(<PointerApp />);
-    const parent = session.framework.registry.getByCssId("parent")!;
-    const child = session.framework.registry.getByCssId("child")!;
+    const parent = session.app.getByCssId("parent")!;
+    const child = session.app.getByCssId("child")!;
     const obscuringOffset = {
       x: child.screenRegion.x - parent.screenRegion.x,
       y: child.screenRegion.y - parent.screenRegion.y,

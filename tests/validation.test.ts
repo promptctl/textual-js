@@ -265,7 +265,7 @@ describe("Input validation integration", () => {
 
     await session.pilot.type("a");
 
-    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input")!;
+    const input = session.app.findWidgets("Input")[0]!;
     expect(changed[0]?.validationResult?.isValid).toBe(false);
     expect(changed[0]?.validation_result?.isValid).toBe(false);
     expect(input.hasClass("-invalid")).toBe(true);
@@ -294,7 +294,7 @@ describe("Input validation integration", () => {
     );
 
     await session.pilot.type("a");
-    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input")!;
+    const input = session.app.findWidgets("Input")[0]!;
 
     expect(changed[0]?.validationResult).toBeNull();
     expect(input.hasClass("-invalid")).toBe(false);
@@ -317,7 +317,7 @@ describe("Input validation integration", () => {
       }),
     );
 
-    const input = session.framework.registry.list().find((widget) => widget.typeName === "Input") as {
+    const input = session.app.findWidgets("Input")[0] as {
       valid_empty: boolean;
       hasClass: (name: string) => boolean;
     };

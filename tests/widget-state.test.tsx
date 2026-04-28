@@ -20,7 +20,8 @@ import {
 
 describe("widget disabled state", () => {
   it("marks :disabled on the widget and cascades to descendants", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -32,10 +33,10 @@ describe("widget disabled state", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const container = framework.registry.getByCssId("container")!;
-    const leaf = framework.registry.getByCssId("leaf")!;
+    const container = app.getByCssId("container")!;
+    const leaf = app.getByCssId("leaf")!;
 
     expect(container.hasPseudoClass("disabled")).toBe(true);
     expect(container.hasPseudoClass("enabled")).toBe(false);
@@ -47,7 +48,8 @@ describe("widget disabled state", () => {
   });
 
   it("suppresses mouse and key input at disabled widgets but allows scroll", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
@@ -78,16 +80,16 @@ describe("widget disabled state", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const leaf = framework.registry.getByCssId("leaf")!;
+    const leaf = app.getByCssId("leaf")!;
 
-    framework.postMessage(leaf.nodeId, new Click(0, 0));
-    framework.postMessage(leaf.nodeId, new MouseDown(0, 0));
-    framework.postMessage(leaf.nodeId, new Key("a", "a"));
-    framework.postMessage(leaf.nodeId, new ScrollEvent(0, 0, 0, 1));
+    app.postMessage(leaf.nodeId, new Click(0, 0));
+    app.postMessage(leaf.nodeId, new MouseDown(0, 0));
+    app.postMessage(leaf.nodeId, new Key("a", "a"));
+    app.postMessage(leaf.nodeId, new ScrollEvent(0, 0, 0, 1));
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(received).toEqual(["scroll"]);
 
@@ -96,7 +98,8 @@ describe("widget disabled state", () => {
   });
 
   it("clears focus when a focused descendant becomes disabled by an ancestor", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let setDisabled!: (value: boolean) => void;
 
     function Harness(): React.JSX.Element {
@@ -118,16 +121,16 @@ describe("widget disabled state", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
-    const leaf = framework.registry.getByCssId("leaf")!;
-    framework.focusWidget(leaf.nodeId);
-    expect(framework.focusedNodeId).toBe(leaf.nodeId);
+    await app.whenIdle();
+    const leaf = app.getByCssId("leaf")!;
+    app.focusWidget(leaf.nodeId);
+    expect(app.focusedNodeId).toBe(leaf.nodeId);
 
     setDisabled(true);
     await Promise.resolve();
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    expect(framework.focusedNodeId).toBeNull();
+    expect(app.focusedNodeId).toBeNull();
 
     instance.unmount();
     instance.cleanup();
@@ -174,7 +177,8 @@ describe("widget disabled state", () => {
 
 describe("widget loading state", () => {
   it("marks :loading on the widget and suppresses all user input", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
@@ -202,17 +206,17 @@ describe("widget loading state", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const leaf = framework.registry.getByCssId("leaf")!;
+    const leaf = app.getByCssId("leaf")!;
 
     expect(leaf.hasPseudoClass("loading")).toBe(true);
 
-    framework.postMessage(leaf.nodeId, new Click(0, 0));
-    framework.postMessage(leaf.nodeId, new Key("a", "a"));
-    framework.postMessage(leaf.nodeId, new ScrollEvent(0, 0, 0, 1));
+    app.postMessage(leaf.nodeId, new Click(0, 0));
+    app.postMessage(leaf.nodeId, new Key("a", "a"));
+    app.postMessage(leaf.nodeId, new ScrollEvent(0, 0, 0, 1));
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(received).toEqual([]);
 
@@ -261,7 +265,8 @@ describe("widget loading state", () => {
 
 describe("focus chain gating", () => {
   it("excludes disabled and loading widgets from the focus chain", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
 
     const instance = render(
       <TextualApp framework={framework}>
@@ -280,16 +285,16 @@ describe("focus chain gating", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    const chainIds = framework.getFocusChain().map((widget) => widget.id);
+    const chainIds = app.getFocusChain().map((widget) => widget.id);
     expect(chainIds).toEqual(["a", "d"]);
 
-    framework.focusNext();
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("a")!.nodeId);
+    app.focusNext();
+    expect(app.focusedNodeId).toBe(app.getByCssId("a")!.nodeId);
 
-    framework.focusNext();
-    expect(framework.focusedNodeId).toBe(framework.registry.getByCssId("d")!.nodeId);
+    app.focusNext();
+    expect(app.focusedNodeId).toBe(app.getByCssId("d")!.nodeId);
 
     instance.unmount();
     instance.cleanup();
@@ -320,7 +325,8 @@ function createTestWidget(
 
 describe("widget scroll shell", () => {
   it("clamps scroll offsets and supports page/end helpers", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const widget = createTestWidget(framework);
 
     widget.updateScreenRegion(new Region(0, 0, 8, 3));
@@ -346,7 +352,8 @@ describe("widget scroll shell", () => {
   });
 
   it("scrolls a target region into view with the minimum delta", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const widget = createTestWidget(framework);
 
     widget.updateScreenRegion(new Region(0, 0, 8, 3));
@@ -358,7 +365,8 @@ describe("widget scroll shell", () => {
   });
 
   it("resolves widget-based visibility against the viewport seam", () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const parent = createTestWidget(framework, { nodeId: "parent", id: "parent" });
     const child = createTestWidget(framework, { nodeId: "child", id: "child", parentId: "parent" });
 

@@ -82,7 +82,7 @@ describe("Static", () => {
   it("registers with the framework as typeName Static", async () => {
     const session = await runTest(<Static id="greeting" content="Hi" />);
 
-    const widget = session.framework.registry.getByCssId("greeting");
+    const widget = session.app.getByCssId("greeting");
     expect(widget).toBeDefined();
     expect(widget!.typeName).toBe("Static");
 
@@ -96,7 +96,7 @@ describe("Static", () => {
     );
 
     // Widget should be registered and styled
-    const widget = session.framework.registry.getByCssId("styled");
+    const widget = session.app.getByCssId("styled");
     expect(widget).toBeDefined();
 
     session.unmount();
@@ -150,9 +150,9 @@ describe("Button", () => {
     );
 
     // Focus the button
-    const btn = session.framework.registry.getByCssId("btn");
+    const btn = session.app.getByCssId("btn");
     expect(btn).toBeDefined();
-    session.framework.focusWidget(btn!.nodeId);
+    session.app.focusWidget(btn!.nodeId);
     await session.pilot.pause();
 
     // Press enter
@@ -176,8 +176,8 @@ describe("Button", () => {
       },
     );
 
-    const btn = session.framework.registry.getByCssId("btn");
-    session.framework.focusWidget(btn!.nodeId);
+    const btn = session.app.getByCssId("btn");
+    session.app.focusWidget(btn!.nodeId);
     await session.pilot.pause();
 
     await session.pilot.press("space");
@@ -200,8 +200,8 @@ describe("Button", () => {
       },
     );
 
-    const btn = session.framework.registry.getByCssId("btn");
-    session.framework.focusWidget(btn!.nodeId);
+    const btn = session.app.getByCssId("btn");
+    session.app.focusWidget(btn!.nodeId);
     await session.pilot.pause();
 
     await session.pilot.press("enter");
@@ -224,8 +224,8 @@ describe("Button", () => {
       },
     );
 
-    const btn = session.framework.registry.getByCssId("btn");
-    session.framework.focusWidget(btn!.nodeId);
+    const btn = session.app.getByCssId("btn");
+    session.app.focusWidget(btn!.nodeId);
     await session.pilot.pause();
 
     await session.pilot.press("enter");
@@ -238,7 +238,7 @@ describe("Button", () => {
   it("registers with variant CSS class", async () => {
     const session = await runTest(<Button id="btn" label="OK" variant="primary" />);
 
-    const btn = session.framework.registry.getByCssId("btn");
+    const btn = session.app.getByCssId("btn");
     expect(btn).toBeDefined();
     expect(btn!.hasClass("-primary")).toBe(true);
 
@@ -253,7 +253,7 @@ describe("Button", () => {
       </>,
     );
 
-    const chain = session.framework.getFocusChain();
+    const chain = session.app.getFocusChain();
     const ids = chain.map((w) => w.id);
 
     expect(ids).toContain("a");
@@ -267,7 +267,7 @@ describe("Switch", () => {
   it("renders with initial off state", async () => {
     const session = await runTest(<Switch id="sw" />);
 
-    const sw = session.framework.registry.getByCssId("sw");
+    const sw = session.app.getByCssId("sw");
     expect(sw).toBeDefined();
     expect(session.lastFrame()).toContain("▊");
     expect(session.lastFrame()).toContain("▎");
@@ -297,8 +297,8 @@ describe("Switch", () => {
       },
     );
 
-    const sw = session.framework.registry.getByCssId("sw");
-    session.framework.focusWidget(sw!.nodeId);
+    const sw = session.app.getByCssId("sw");
+    session.app.focusWidget(sw!.nodeId);
     await session.pilot.pause();
 
     await session.pilot.press("enter");
@@ -326,8 +326,8 @@ describe("Switch", () => {
       },
     );
 
-    const sw = session.framework.registry.getByCssId("sw");
-    session.framework.focusWidget(sw!.nodeId);
+    const sw = session.app.getByCssId("sw");
+    session.app.focusWidget(sw!.nodeId);
     await session.pilot.pause();
 
     await session.pilot.press("space");
@@ -350,8 +350,8 @@ describe("Switch", () => {
       },
     );
 
-    const sw = session.framework.registry.getByCssId("sw");
-    session.framework.focusWidget(sw!.nodeId);
+    const sw = session.app.getByCssId("sw");
+    session.app.focusWidget(sw!.nodeId);
     await session.pilot.pause();
 
     await session.pilot.press("enter");
@@ -369,7 +369,7 @@ describe("Switch", () => {
       </>,
     );
 
-    const chain = session.framework.getFocusChain();
+    const chain = session.app.getFocusChain();
     const ids = chain.map((w) => w.id);
 
     expect(ids).toContain("sw1");
@@ -392,7 +392,7 @@ describe("steel-thread: full framework path", () => {
     expect(session.lastFrame()).toContain("Status: Ready");
     expect(session.lastFrame()).toContain("Go");
 
-    const chain = session.framework.getFocusChain();
+    const chain = session.app.getFocusChain();
     expect(chain.length).toBeGreaterThanOrEqual(2);
 
     session.unmount();
@@ -418,13 +418,13 @@ describe("steel-thread: full framework path", () => {
     );
 
     // Focus button and press
-    const btn = session.framework.registry.getByCssId("btn");
-    session.framework.focusWidget(btn!.nodeId);
+    const btn = session.app.getByCssId("btn");
+    session.app.focusWidget(btn!.nodeId);
     await session.pilot.pause();
     await session.pilot.press("enter");
 
     // Tab to switch and toggle
-    session.framework.focusNext();
+    session.app.focusNext();
     await session.pilot.pause();
     await session.pilot.press("enter");
 

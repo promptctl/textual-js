@@ -53,7 +53,8 @@ function WorkerHarness(props: {
 
 describe("workers", () => {
   it("tracks lifecycle, progress, current worker context, and manager cleanup", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const states: string[] = [];
     let widget!: Widget;
 
@@ -70,7 +71,7 @@ describe("workers", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const worker = widget.runWorker(async (_signal, currentWorker) => {
       expect(getCurrentWorker()).toBe(currentWorker);
@@ -80,23 +81,24 @@ describe("workers", () => {
     }, { name: "success-worker" });
 
     await expect(worker.wait()).resolves.toBe("done");
-    await framework.whenIdle();
-    expect(framework.workers.has(worker)).toBe(true);
-    await framework.workers.waitForComplete();
+    await app.whenIdle();
+    expect(app.workers.has(worker)).toBe(true);
+    await app.workers.waitForComplete();
 
     expect(worker.progress).toBe(100);
     expect(worker.completed_steps).toBe(2);
     expect(worker.total_steps).toBe(2);
     expect(worker.is_finished).toBe(true);
     expect(states).toEqual(["running", "success"]);
-    expect(framework.workers.length).toBe(0);
+    expect(app.workers.length).toBe(0);
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("maps aborts to cancellation and reports failures distinctly", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const states: string[] = [];
     let widget!: Widget;
 
@@ -113,7 +115,7 @@ describe("workers", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const cancellableWorker = widget.runWorker(
       (_signal) =>
@@ -133,7 +135,7 @@ describe("workers", () => {
     }, { name: "fail-worker" });
 
     await expect(failingWorker.wait()).rejects.toBeInstanceOf(WorkerFailed);
-    await framework.whenIdle();
+    await app.whenIdle();
 
     expect(states).toContain("cancelled");
     expect(states).toContain("error");
@@ -143,7 +145,8 @@ describe("workers", () => {
   });
 
   it("cancels widget-owned workers on unmount", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let widget!: Widget;
 
     const instance = render(
@@ -156,7 +159,7 @@ describe("workers", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
+    await app.whenIdle();
 
     const worker = widget.runWorker(
       (signal) =>
@@ -175,44 +178,46 @@ describe("workers", () => {
   });
 
   it("supports run_worker aliases, pending start, callable inputs, and manager surfaces", async () => {
-    const framework = new App().framework;
-    const pendingWorker = framework.runAppWorker(async () => "pending", { start: false, name: "pending" });
+    const app = new App();
+    const framework = app.framework;
+    const pendingWorker = app.runWorker(async () => "pending", { start: false, name: "pending" });
 
     expect(pendingWorker.state).toBe("pending");
-    expect(framework.workers.has(pendingWorker)).toBe(true);
+    expect(app.workers.has(pendingWorker)).toBe(true);
     await expect(pendingWorker.wait()).rejects.toBeInstanceOf(WorkerError);
 
-    framework.workers.start_all();
+    app.workers.start_all();
     await expect(pendingWorker.wait()).resolves.toBe("pending");
 
-    const promiseWorker = framework.runAppWorker(Promise.resolve("promise"), { name: "promise" });
-    const syncThreadWorker = framework.runAppWorker(() => {
+    const promiseWorker = app.runWorker(Promise.resolve("promise"), { name: "promise" });
+    const syncThreadWorker = app.runWorker(() => {
       return globalThis.process ? 1 : 0;
     }, { thread: true, name: "sync", description: Content.styled("sync worker", "bold") });
 
     await expect(promiseWorker.wait()).resolves.toBe("promise");
     await expect(syncThreadWorker.wait()).resolves.toBe(1);
     expect(syncThreadWorker.description).toBeInstanceOf(Content);
-    expect(framework.workers.has(syncThreadWorker)).toBe(true);
-    await framework.workers.wait_for_complete();
+    expect(app.workers.has(syncThreadWorker)).toBe(true);
+    await app.workers.wait_for_complete();
 
-    expect(framework.workers.length).toBe(0);
-    expect(Array.from(framework.workers.reversed())).toEqual([]);
-    expect(framework.workers.toString()).toContain("0 workers");
+    expect(app.workers.length).toBe(0);
+    expect(Array.from(app.workers.reversed())).toEqual([]);
+    expect(app.workers.toString()).toContain("0 workers");
   });
 
   it("runs sync and async thread workers on a worker thread", async () => {
-    const framework = new App().framework;
-    const syncThreadWorker = framework.runAppWorker(() => {
+    const app = new App();
+    const framework = app.framework;
+    const syncThreadWorker = app.runWorker(() => {
       return require("node:worker_threads").threadId as number;
     }, { thread: true, name: "sync-thread" });
-    const asyncThreadWorker = framework.runAppWorker(async () => {
+    const asyncThreadWorker = app.runWorker(async () => {
       return require("node:worker_threads").threadId as number;
     }, { thread: true, name: "async-thread" });
 
     await expect(syncThreadWorker.wait()).resolves.not.toBe(threadId);
     await expect(asyncThreadWorker.wait()).resolves.not.toBe(threadId);
-    await framework.workers.wait_for_complete();
+    await app.workers.wait_for_complete();
   });
 
   it("defaults exitOnError to true but suppresses app error forwarding when disabled", async () => {
@@ -288,7 +293,8 @@ describe("workers", () => {
       work(InvalidHost.prototype, "sync", invalidDescriptor);
     }).toThrow(WorkerDeclarationError);
 
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const host = new DecoratedWorkerHost(framework);
 
     await expect((host.asyncTask("ok") as unknown as { wait: () => Promise<unknown> }).wait()).resolves.toBe("async:ok");
@@ -302,22 +308,23 @@ describe("workers", () => {
   });
 
   it("allows nested workers and surfaces self-wait deadlocks as worker failures", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     const results: string[] = [];
 
-    const parent = framework.runAppWorker(async () => {
-      framework.runAppWorker(async () => {
+    const parent = app.runWorker(async () => {
+      app.runWorker(async () => {
         results.push("child");
       }, { name: "child" });
       results.push("parent");
     }, { name: "parent" });
 
     await parent.wait();
-    await framework.workers.wait_for_complete();
+    await app.workers.wait_for_complete();
 
     expect(new Set(results)).toEqual(new Set(["parent", "child"]));
 
-    const selfWaiter = framework.runAppWorker(async () => {
+    const selfWaiter = app.runWorker(async () => {
       await getCurrentWorker().wait();
     }, { name: "self" });
 

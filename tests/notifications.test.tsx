@@ -102,7 +102,8 @@ describe("notifications and themes", () => {
   });
 
   it("funnels widget notifications into the app store, posts Notify, and reapplies theme CSS variables", async () => {
-    const framework = new App().framework;
+    const app = new App();
+    const framework = app.framework;
     let widget!: Widget;
     const observedThemes: string[] = [];
     const notifyMessages: Notification[] = [];
@@ -125,41 +126,41 @@ describe("notifications and themes", () => {
       </TextualApp>,
     );
 
-    await framework.whenIdle();
-    const unsubscribeMessages = framework.subscribeToMessages((message) => {
+    await app.whenIdle();
+    const unsubscribeMessages = app.subscribeToMessages((message) => {
       if (message instanceof Notify) {
         notifyMessages.push(message.notification as Notification);
       }
     });
 
-    const unsubscribe = framework.signals.theme_changed_signal.subscribe(widget, (theme) => {
+    const unsubscribe = app.signals.theme_changed_signal.subscribe(widget, (theme) => {
       observedThemes.push(theme.name);
     });
 
-    const defaultPrimary = framework.activeTheme.primary;
+    const defaultPrimary = app.activeTheme.primary;
 
-    framework.notify(Content.styled("from-app", "bold"), { severity: "warning", timeout: 250, title: Content.styled("Title", "italic") });
+    app.notify(Content.styled("from-app", "bold"), { severity: "warning", timeout: 250, title: Content.styled("Title", "italic") });
     widget.notify("from-widget", { severity: "error", timeout: 500, markup: false });
-    await framework.whenIdle();
+    await app.whenIdle();
 
-    expect(framework.notifications.length).toBe(2);
-    expect(framework.notifications.list()[0]!.message).toBeInstanceOf(Content);
-    expect(framework.notifications.list().map((entry) => entry.severityClass)).toEqual(["-warning", "-error"]);
+    expect(app.notifications.length).toBe(2);
+    expect(app.notifications.list()[0]!.message).toBeInstanceOf(Content);
+    expect(app.notifications.list().map((entry) => entry.severityClass)).toEqual(["-warning", "-error"]);
     expect(notifyMessages.map((entry) => entry.severity)).toEqual(["warning", "error"]);
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse(defaultPrimary));
-    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse(framework.activeTheme.foreground));
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse(app.activeTheme.foreground));
 
-    framework.setTheme("dark");
+    app.theme = ("dark");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse(framework.activeTheme.primary));
+    expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse(app.activeTheme.primary));
     expect(observedThemes).toEqual(["dark"]);
 
-    framework.dismissNotification(framework.notifications.list()[0]!.identity);
-    expect(framework.notifications.length).toBe(1);
+    framework.dismissNotification(app.notifications.list()[0]!.identity);
+    expect(app.notifications.length).toBe(1);
 
-    framework.clearNotifications();
-    expect(framework.notifications.length).toBe(0);
+    app.clearNotifications();
+    expect(app.notifications.length).toBe(0);
 
     unsubscribe();
     unsubscribeMessages();
@@ -176,17 +177,18 @@ describe("notifications and themes", () => {
     expect(app.features.has("devtools")).toBe(true);
     expect(app.devtools).not.toBeNull();
     expect(app.debug).toBe(true);
-    expect(app.mode_change_signal).toBe(framework.signals.mode_change_signal);
-    expect(app.screen_change_signal).toBe(framework.signals.screen_change_signal);
-    expect(framework.notifications.has(notification)).toBe(true);
+    expect(app.mode_change_signal).toBe(app.signals.mode_change_signal);
+    expect(app.screen_change_signal).toBe(app.signals.screen_change_signal);
+    expect(app.notifications.has(notification)).toBe(true);
 
     app._unnotify(notification);
-    expect(framework.notifications.has(notification)).toBe(false);
+    expect(app.notifications.has(notification)).toBe(false);
   });
 
   it("stores theme palette values as Color and exposes derived CSS variables", () => {
-    const framework = new App().framework;
-    const activeTheme = framework.registerTheme({
+    const app = new App();
+    const framework = app.framework;
+    const activeTheme = app.registerTheme({
       name: "custom-color-theme",
       dark: false,
       primary: Color.parse("#123456"),
@@ -204,9 +206,9 @@ describe("notifications and themes", () => {
       },
     });
 
-    framework.setTheme("custom-color-theme");
+    app.theme = ("custom-color-theme");
 
-    const variables = framework.themeManager.getCssVariables();
+    const variables = app.themeManager.getCssVariables();
     expect(activeTheme.primary).toBeInstanceOf(Color);
     expect(activeTheme.variables["custom-color"]).toBeInstanceOf(Color);
     expect(variables["--primary-lighten-2"]).toBe(Color.parse("#123456").lighten(0.3).hex6.toLowerCase());
@@ -219,7 +221,8 @@ describe("notifications and themes", () => {
     vi.useFakeTimers();
 
     try {
-      const framework = new App().framework;
+      const app = new App();
+    const framework = app.framework;
 
       const instance = render(
         <TextualApp framework={framework}>
@@ -227,10 +230,10 @@ describe("notifications and themes", () => {
         </TextualApp>,
       );
 
-      await framework.whenIdle();
+      await app.whenIdle();
 
-      framework.notify("toast-one", "information", 100);
-      framework.notify("toast-two", { severity: "error", timeout: 0, title: "Problem" });
+      app.notify("toast-one", "information", 100);
+      app.notify("toast-two", { severity: "error", timeout: 0, title: "Problem" });
       await Promise.resolve();
 
       expect(instance.lastFrame()).toContain("toast-one");
@@ -240,7 +243,7 @@ describe("notifications and themes", () => {
       vi.advanceTimersByTime(150);
       await Promise.resolve();
 
-      expect(framework.notifications.list().map((entry) => entry.message)).toEqual(["toast-two"]);
+      expect(app.notifications.list().map((entry) => entry.message)).toEqual(["toast-two"]);
       expect(instance.lastFrame()).not.toContain("toast-one");
       expect(instance.lastFrame()).toContain("toast-two");
 
