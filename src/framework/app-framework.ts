@@ -106,6 +106,12 @@ import {
   type WidgetHandlers,
   type WidgetMessageHandler,
 } from "./widget-registry.js";
+import {
+  ScreenStackService,
+  DEFAULT_MODE,
+  normalizePushArgs,
+  type ScreenStackDeps,
+} from "./screen-stack-service.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -168,11 +174,6 @@ export interface WidgetTypeMetadata {
   componentClasses: string[];
   borderTitle: string | null;
   borderSubtitle: string | null;
-}
-
-interface ScreenFactoryRecord {
-  factory: () => React.ReactElement;
-  cachedElement: React.ReactElement | null;
 }
 
 interface ScreenStylesheetState {
@@ -498,7 +499,6 @@ function keyNameAliases(key: string): string[] {
   return [normalizedKey.replace(/\+/g, "_")];
 }
 
-const DEFAULT_MODE = "_default";
 const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
   { key: "tab", action: "app.focus_next" },
   { key: "shift+tab", action: "app.focus_previous" },
@@ -507,7 +507,6 @@ const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
   { key: "ctrl+p", action: "app.command_palette" },
 ];
 
-let nextScreenId = 1;
 interface FocusAddress {
   path: number[];
   widgetId: string | null;
@@ -533,11 +532,10 @@ export class TextualFramework {
   terminalSize = new Size(80, 24);
   private controlledTerminalSize: Size | null = null;
   captureUnhandledErrors = false;
-  activeMode = DEFAULT_MODE;
   animationLevel: AnimationLevel = "full";
-  private readonly modeStacks = new Map<string, Screen[]>();
-  private readonly modeFactories = new Map<string, () => React.ReactElement>();
-  private readonly installedScreens = new Map<string, ScreenFactoryRecord>();
+  // [LAW:single-enforcer] All screen-stack/mode/installed-screen state is owned
+  // by ScreenStackService. Framework getters/setters below are thin delegators.
+  readonly screenStack: ScreenStackService;
   private readonly queue: QueuedMessage[] = [];
   private readonly closedQueues = new Set<string | null>();
   private readonly unmountingQueues = new Set<string>();
@@ -594,7 +592,6 @@ export class TextualFramework {
   activeCommandPalette: CommandPalette | null = null;
   private publicApp: unknown = null;
   readonly signals: AppSignals;
-  screenStackVersion = 0;
 
   constructor(options: TextualFrameworkOptions = {}) {
     const featureState = parseTextualFeatures(options.env?.TEXTUAL ?? process.env.TEXTUAL ?? "");
@@ -612,10 +609,16 @@ export class TextualFramework {
       bindings_updated_signal: this.createFrameworkSignal<void>(),
     };
 
-    // [LAW:one-source-of-truth] The default mode always carries an implicit base
-    // entry; popScreen's "last screen" invariant reads from stack length, which
-    // means that phantom is the single anchor preventing an empty default stack.
-    this.modeStacks.set(DEFAULT_MODE, [createImplicitEntry()]);
+    // [LAW:single-enforcer] ScreenStackService is constructed with a narrow
+    // deps interface — the framework supplies only the cross-cutting hooks the
+    // service needs (style resolution, command-provider extraction). The
+    // service does NOT receive a back-reference to the framework.
+    const screenStackDeps: ScreenStackDeps = {
+      readScreenStylesheetState: (element, options) => this.readScreenStylesheetState(element, options),
+      readCommandProvidersFromElement: (element) => readCommandProvidersFromElement(element),
+    };
+    this.screenStack = new ScreenStackService(screenStackDeps);
+
     this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
     this.cssPath = typeof options.cssPath === "string" ? [options.cssPath] : [...(options.cssPath ?? [])];
     this.appActions = {
@@ -662,9 +665,7 @@ export class TextualFramework {
         workers: false,
         notifications: false,
         themeManager: false,
-        modeStacks: false,
-        modeFactories: false,
-        installedScreens: false,
+        screenStack: false,
         appBindings: false,
         appActions: false,
         appCommandProviders: false,
@@ -1349,7 +1350,7 @@ export class TextualFramework {
   }
 
   private getWatchedCssPaths(): string[] {
-    const screenPaths = [...this.modeStacks.values()].flatMap((stack) => stack.flatMap((entry) => entry.cssPath));
+    const screenPaths = [...this.screenStack.iterAllStacks()].flatMap((stack) => stack.flatMap((entry) => entry.cssPath));
     return [...new Set([...this.cssPath, ...screenPaths])];
   }
 
@@ -1428,7 +1429,7 @@ export class TextualFramework {
       }
     }
 
-    for (const stack of this.modeStacks.values()) {
+    for (const stack of this.screenStack.iterAllStacks()) {
       for (const entry of stack) {
         if (entry.implicit || entry.element === null) {
           continue;
@@ -2510,27 +2511,30 @@ export class TextualFramework {
   }
 
   // ---- Screen stack and modes -------------------------------------------
+  // [LAW:single-enforcer] All screen-stack state lives in this.screenStack.
+  // The methods below are thin orchestrators: they sequence the cross-cutting
+  // effects (pointer clear, suspend/resume, css watcher refresh, signals,
+  // broadcasts, binding updates) around state mutations performed by the
+  // service.
+
+  get activeMode(): string {
+    return this.screenStack.activeMode;
+  }
+
+  get screenStackVersion(): number {
+    return this.screenStack.screenStackVersion;
+  }
 
   installScreen(name: string, factory: () => React.ReactElement): void {
-    if (this.installedScreens.has(name)) {
-      throw new Error(`Screen "${name}" is already installed`);
-    }
-
-    this.installedScreens.set(name, { factory, cachedElement: null });
+    this.screenStack.installScreen(name, factory);
   }
 
   uninstallScreen(name: string): void {
-    for (const stack of this.modeStacks.values()) {
-      if (stack.some((entry) => entry.name === name)) {
-        throw new ScreenStackError(`Cannot uninstall screen "${name}" while it is on a stack`);
-      }
-    }
-
-    this.installedScreens.delete(name);
+    this.screenStack.uninstallScreen(name);
   }
 
   isScreenInstalled(name: string): boolean {
-    return this.installedScreens.has(name);
+    return this.screenStack.isScreenInstalled(name);
   }
 
   getScreen(name: string): React.ReactElement;
@@ -2542,73 +2546,41 @@ export class TextualFramework {
     name: string,
     expectedType?: React.ComponentType<Record<string, unknown>>,
   ): React.ReactElement {
-    const record = this.installedScreens.get(name);
-
-    if (record === undefined) {
-      throw new Error(`Screen "${name}" is not installed`);
-    }
-
-    const element = record.cachedElement ?? record.factory();
-    record.cachedElement = element;
-
-    if (expectedType !== undefined && element.type !== expectedType) {
-      throw new TypeError(`Installed screen "${name}" does not match the expected type`);
-    }
-
-    return element;
+    return expectedType === undefined
+      ? this.screenStack.getScreen(name)
+      : this.screenStack.getScreen(name, expectedType);
   }
 
   addMode(name: string, factory: () => React.ReactElement): void {
-    if (name === DEFAULT_MODE) {
-      throw new InvalidModeError(`Mode name "${DEFAULT_MODE}" is reserved`);
-    }
-
-    if (this.modeFactories.has(name) || this.modeStacks.has(name)) {
-      throw new InvalidModeError(`Mode "${name}" is already registered`);
-    }
-
-    this.modeFactories.set(name, factory);
-    this.modeStacks.set(name, []);
+    this.screenStack.addMode(name, factory);
   }
 
   removeMode(name: string): void {
-    if (name === DEFAULT_MODE) {
-      throw new InvalidModeError(`Cannot remove default mode`);
-    }
-
-    if (name === this.activeMode) {
-      throw new ActiveModeError(`Cannot remove the active mode "${name}"`);
-    }
-
-    this.modeFactories.delete(name);
-    this.modeStacks.delete(name);
+    this.screenStack.removeMode(name);
   }
 
   switchMode(name: string): void {
-    if (name === this.activeMode) {
+    if (name === this.screenStack.activeMode) {
       return;
     }
 
-    if (name !== DEFAULT_MODE && !this.modeFactories.has(name)) {
-      throw new UnknownModeError(`Unknown mode "${name}"`);
-    }
+    this.screenStack.ensureKnownMode(name);
 
     this.clearPointerState();
     this.suspendCurrentScreen();
 
-    if (name !== DEFAULT_MODE && (this.modeStacks.get(name)?.length ?? 0) === 0) {
-      const factory = this.modeFactories.get(name);
+    if (name !== DEFAULT_MODE && this.screenStack.modeStackLength(name) === 0) {
+      const factory = this.screenStack.modeFactory(name);
 
       if (factory !== undefined) {
         // [LAW:one-source-of-truth] The mode's factory is the sole producer of
         // its base screen; the mode name is not doubled up as the screen name.
-        const entry = this.createScreen(factory(), {});
-        this.modeStacks.set(name, [entry]);
+        const entry = this.makeScreenEntry(factory(), {});
+        this.screenStack.setModeStack(name, [entry]);
       }
     }
 
-    this.activeMode = name;
-    this.screenStackVersion += 1;
+    this.screenStack.setActiveMode(name);
     this.refreshCssWatchers();
     this.signals.mode_change_signal.publish(name);
     this.emitBroadcast(new ModeChanged(name));
@@ -2619,32 +2591,19 @@ export class TextualFramework {
   }
 
   get activeScreen(): Screen | null {
-    // [LAW:dataflow-not-control-flow] Reading screenStackVersion hooks MobX into
-    // mutations of a plain-Map-backed stack, so observer()s re-render on changes.
-    void this.screenStackVersion;
-    const stack = this.modeStacks.get(this.activeMode) ?? [];
-    return stack.length === 0 ? null : stack[stack.length - 1];
+    return this.screenStack.activeScreen;
   }
 
   get activeScreenElement(): React.ReactElement | null {
-    const screen = this.activeScreen;
-
-    if (screen === null || screen.implicit) {
-      return null;
-    }
-
-    return screen.element;
+    return this.screenStack.activeScreenElement;
   }
 
   get screenStackDepth(): number {
-    void this.screenStackVersion;
-    const stack = this.modeStacks.get(this.activeMode) ?? [];
-    return stack.filter((entry) => !entry.implicit).length;
+    return this.screenStack.screenStackDepth;
   }
 
   getScreenStack(mode?: string): Screen[] {
-    void this.screenStackVersion;
-    return (this.modeStacks.get(mode ?? this.activeMode) ?? []).slice();
+    return this.screenStack.getScreenStack(mode);
   }
 
   getActiveBindings(): ActiveBinding[] {
@@ -2666,16 +2625,13 @@ export class TextualFramework {
 
   pushScreen(descriptor: ScreenDescriptor, callbackOrOptions?: ((result: unknown) => void) | ScreenOptions, extraOptions?: ScreenOptions): Screen {
     const { callback, options } = normalizePushArgs(callbackOrOptions, extraOptions);
-    const element = this.resolveScreenElement(descriptor, options.name);
-    const entry = this.createScreen(element, { ...options, callback });
+    const element = this.screenStack.resolveScreenElement(descriptor);
+    const entry = this.makeScreenEntry(element, { ...options, callback });
 
     this.clearPointerState();
     this.suspendCurrentScreen();
 
-    const stack = this.modeStacks.get(this.activeMode) ?? [];
-    stack.push(entry);
-    this.modeStacks.set(this.activeMode, stack);
-    this.screenStackVersion += 1;
+    this.screenStack.pushEntry(entry);
     this.refreshCssWatchers();
 
     this.resumeActiveScreen();
@@ -2695,21 +2651,13 @@ export class TextualFramework {
   }
 
   popScreen(result?: unknown): Screen | null {
-    const stack = this.modeStacks.get(this.activeMode) ?? [];
-
-    if (stack.length <= 1) {
-      throw new ScreenStackError(`Cannot pop the last screen`);
-    }
-
     this.clearPointerState();
     this.suspendCurrentScreen();
 
-    const popped = stack.pop()!;
-    this.modeStacks.set(this.activeMode, stack);
-    this.screenStackVersion += 1;
+    const popped = this.screenStack.popEntry();
     this.refreshCssWatchers();
 
-    this.resolveScreenResult(popped, result);
+    this.screenStack.resolveScreenResult(popped, result);
 
     this.resumeActiveScreen();
     this.signals.screen_change_signal.publish(this.activeScreen);
@@ -2723,14 +2671,12 @@ export class TextualFramework {
   }
 
   switchScreen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Screen {
-    const stack = this.modeStacks.get(this.activeMode) ?? [];
-
-    if (stack.length === 0) {
+    if (this.screenStack.activeStackIsEmpty()) {
       return this.pushScreen(descriptor, options);
     }
 
-    const element = this.resolveScreenElement(descriptor, options.name);
-    const current = stack[stack.length - 1];
+    const element = this.screenStack.resolveScreenElement(descriptor);
+    const current = this.screenStack.topOfActiveStack();
 
     if (current !== undefined && current.element === element) {
       return current;
@@ -2739,11 +2685,9 @@ export class TextualFramework {
     this.clearPointerState();
     this.suspendCurrentScreen();
 
-    const entry = this.createScreen(element, options);
-    this.clearScreenWaiters(current);
-    stack[stack.length - 1] = entry;
-    this.modeStacks.set(this.activeMode, stack);
-    this.screenStackVersion += 1;
+    const entry = this.makeScreenEntry(element, options);
+    this.screenStack.clearScreenWaiters(current);
+    this.screenStack.replaceTop(entry);
     this.refreshCssWatchers();
 
     this.resumeActiveScreen();
@@ -2751,6 +2695,19 @@ export class TextualFramework {
     this.notifyBindingsUpdated();
 
     return entry;
+  }
+
+  // [LAW:single-enforcer] Screen-entry construction is delegated to the
+  // service so dismiss-action wiring and screen factory rules live in one
+  // place. The framework only supplies the dismiss callback that translates a
+  // screen-local action back into the framework's pop pipeline.
+  private makeScreenEntry(
+    element: React.ReactElement,
+    options: ScreenOptions & { callback?: (result: unknown) => void },
+  ): Screen {
+    return this.screenStack.createScreen(element, options, (result) => {
+      this.dismissScreen(result);
+    });
   }
 
   runAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
@@ -2808,69 +2765,6 @@ export class TextualFramework {
       typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
 
     return checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
-  }
-
-  private resolveScreenElement(descriptor: ScreenDescriptor, name?: string): React.ReactElement {
-    if (typeof descriptor === "string") {
-      return this.getScreen(descriptor);
-    }
-
-    if (typeof descriptor === "function") {
-      const Component = descriptor as React.ComponentType<Record<string, unknown>>;
-      return React.createElement(Component);
-    }
-
-    void name;
-    return descriptor;
-  }
-
-  private createScreen(
-    element: React.ReactElement,
-    options: ScreenOptions & { callback?: (result: unknown) => void },
-  ): Screen {
-    const screenType = element.type as { AUTO_FOCUS?: string | null; BINDINGS?: Iterable<BindingDeclaration> };
-    const bindings = makeBindings([...(screenType.BINDINGS ?? []), ...(options.bindings ?? [])]);
-    const screenStyles = this.readScreenStylesheetState(element, options);
-    const staticAutoFocus = screenType.AUTO_FOCUS;
-    const entry: Screen = {
-      id: `screen-${nextScreenId++}`,
-      name: options.name ?? null,
-      element,
-      bindings,
-      actions: undefined,
-      autoFocus: options.autoFocus ?? staticAutoFocus ?? null,
-      css: screenStyles.css,
-      cssPath: screenStyles.cssPath,
-      scopedCss: screenStyles.scopedCss,
-      stylesheets: screenStyles.stylesheets,
-      implicit: false,
-      savedFocusNodeId: null,
-      commandProviders: readCommandProvidersFromElement(element),
-      lastFocusedAddress: null,
-      waiters: [],
-      callback: options.callback,
-    };
-
-    entry.actions = this.mergeScreenActions(entry, options.actions);
-    return entry;
-  }
-
-  private mergeScreenActions(entry: Screen, actions: WidgetActions | undefined): WidgetActions {
-    const builtins: WidgetActions = {
-      action_dismiss: (result?: unknown) => {
-        void entry;
-        this.dismissScreen(result);
-      },
-      _action_dismiss: (result?: unknown) => {
-        void entry;
-        this.dismissScreen(result);
-      },
-    };
-
-    return {
-      ...builtins,
-      ...(actions ?? {}),
-    };
   }
 
   private suspendCurrentScreen(): void {
@@ -3811,27 +3705,6 @@ export class TextualFramework {
     return best;
   }
 
-  private resolveScreenResult(screen: Screen, result: unknown): void {
-    const callback = screen.callback;
-    const waiters = screen.waiters.splice(0);
-
-    screen.callback = undefined;
-    callback?.(result);
-
-    for (const waiter of waiters) {
-      waiter(result);
-    }
-  }
-
-  private clearScreenWaiters(screen: Screen | undefined): void {
-    if (screen === undefined) {
-      return;
-    }
-
-    screen.callback = undefined;
-    screen.waiters.splice(0);
-  }
-
   private installTimer(
     node: Widget,
     name: string,
@@ -3933,40 +3806,9 @@ export interface ActionTargetDescriptor {
 
 type ActionDispatchResult = "handled" | "consumed" | "unhandled";
 
-function createImplicitEntry(): Screen {
-  return {
-    id: "_default",
-    name: null,
-    element: null,
-    bindings: [],
-    actions: undefined,
-    autoFocus: null,
-    css: null,
-    cssPath: [],
-    scopedCss: true,
-    stylesheets: [],
-    implicit: true,
-    savedFocusNodeId: null,
-    commandProviders: new Set(),
-    lastFocusedAddress: null,
-    waiters: [],
-  };
-}
-
 function readCommandProvidersFromElement(element: React.ReactElement): ReadonlySet<ProviderConstructor> {
   const typeWithCommands = element.type as { COMMANDS?: Iterable<ProviderConstructor> };
   return new Set(typeWithCommands.COMMANDS ?? []);
-}
-
-function normalizePushArgs(
-  callbackOrOptions?: ((result: unknown) => void) | ScreenOptions,
-  extraOptions?: ScreenOptions,
-): { callback?: (result: unknown) => void; options: ScreenOptions } {
-  if (typeof callbackOrOptions === "function") {
-    return { callback: callbackOrOptions, options: extraOptions ?? {} };
-  }
-
-  return { callback: undefined, options: callbackOrOptions ?? {} };
 }
 
 function pickActionCallback(actions: WidgetActions | undefined, key: string): WidgetActionCallback | undefined {
