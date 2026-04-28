@@ -91,36 +91,9 @@ This table is a historical reference. **Agents do not update it.** It will drift
 The authoritative ledgers of what exists are:
 - The code under `src/`
 - The tests under `tests/`
-- The git log
 
-Every agent must independently verify the actual state of the codebase by reading those sources directly. Do not trust this table. Do not edit this table. If a row says "Implemented" but the corresponding test file no longer exists, that is informative — it tells you the code drifted. Investigate the code; do not "fix" the tracker.
+A git log is not a source of truth. It only proves that a particular commit message was authored — it says nothing about whether the work it describes is correct, complete, still present, or behaves as claimed. Do not infer status from commit messages.
 
-| spec-tests file | Stage | Status | Test file(s) |
-|----------------|-------|--------|-------------|
-| `testing.md` | 0 | Implemented | `tests/integration.test.tsx` |
-| `geometry.md` | 0 | Implemented | `tests/geometry.test.ts` |
-| `app.md` | 0 | Startup slice implemented | `tests/app.test.tsx`, `tests/integration.test.tsx` |
-| `events_and_messages.md` | 1 | Implemented | `tests/message.test.tsx` |
-| `reactivity.md` | 1 | Implemented | `tests/reactive.test.ts` |
-| `app.md` | 1 | Lifecycle slice implemented | `tests/app.test.tsx`, `tests/message.test.tsx`, `tests/integration.test.tsx` |
-| `color.md` | 2 | Implemented | `tests/color.test.ts` |
-| `css_scalars.md` | 2 | Implemented | `tests/css-scalars.test.ts` |
-| `css_parsing.md` | 2 | Implemented | `tests/css-parsing.test.ts` |
-| `css_styles.md` | 3 | Implemented | `tests/styles.test.tsx` |
-| `css_nested.md` | 3 | Implemented | `tests/css-parsing.test.ts`, `tests/styles.test.tsx` |
-| `dom.md` | 3 | Implemented | `tests/dom-query.test.tsx` |
-| `borders.md` | 3 | Implemented | `tests/borders.test.ts` |
-| `bindings_and_actions.md` | 4 | — | — |
-| `widget.md` | 4 | — | — |
-| `app.md` | 5 | Theme and notification integration implemented | `tests/notifications.test.tsx` |
-| `workers.md` | 5 | Implemented | `tests/workers.test.tsx` |
-| `notifications.md` | 5 | Implemented | `tests/notifications.test.tsx` |
-| `concurrency.md` | 5 | Implemented | `tests/concurrency.test.tsx` |
-| `command_palette.md` | 6 | — | — |
-| `button.md` | 7 | — | — |
-| `input.md` | 7 | — | — |
-| `list_view.md` | 8 | — | — |
-| `data_table.md` | 9 | — | — |
-| `text_area.md` | 9 | — | — |
-| `markdown.md` | 10 | — | — |
-| `animations.md` | 11 | — | — |
+Every agent must independently verify the actual state of the codebase by reading those sources directly. Do not trust this table. Do not edit this table. 
+
+[Table Removed.  Do not add it back.  Do not read history.]
