@@ -148,6 +148,10 @@ import {
   type AppSignals,
   type SignalRegistryDeps,
 } from "./signal-registry.js";
+import {
+  BindingDispatcher,
+  type BindingDispatcherDeps,
+} from "./binding-dispatcher.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -516,18 +520,17 @@ export class TextualFramework {
   // remain public observables here, with the service writing activeTooltip via
   // deps.
   readonly tooltipService: TooltipService;
-  private appBindings: Binding[] = [];
-  private appActions: WidgetActions | undefined = undefined;
+  // [LAW:single-enforcer] App-binding / keymap / action-dispatch state lives
+  // in `bindingDispatcher` (extracted in 7w9.4). The framework holds only the
+  // service handle.
+  readonly bindingDispatcher: BindingDispatcher;
   private appCommandProviders: ReadonlySet<ProviderConstructor> | null = null;
   private systemCommandResolver: SystemCommandResolver = () => [];
-  private keymap = new Map<string, string[]>();
   private appAutoFocus: string | null = null;
   showNotifications = true;
   showTooltips = true;
   tooltipDelay = 500;
   activeTooltip: ActiveTooltip | null = null;
-  private lastActionDispatchResult: ActionDispatchResult = "unhandled";
-  private readonly bindingClashSignatures = new Map<string, string>();
   pointerShape: PointerShape = "default";
   pointerEngine!: PointerEngine;
   private pendingError: unknown = null;
@@ -601,12 +604,12 @@ export class TextualFramework {
       reportUnhandledError: (error) => this.reportUnhandledError(error),
       resolveHandlers: (handlers, message) => this.resolveHandlers(handlers, message),
       dispatchKeyHandler: (handlers, message) => this.dispatchKeyHandler(handlers, message),
-      resolveBindingsForNode: (node) => this.resolveBindingsForNode(node),
-      dispatchScreenKeyBindings: (key) => this.dispatchScreenKeyBindings(key),
+      resolveBindingsForNode: (node) => this.bindingDispatcher.resolveBindingsForNode(node),
+      dispatchScreenKeyBindings: (key) => this.bindingDispatcher.dispatchScreenKeyBindings(key),
       dispatchBindingActionForNode: (node, action) =>
-        this.dispatchBindingAction(action, { actions: node.actions }),
-      dispatchPriorityBindings: (key) => this.dispatchPriorityBindings(key),
-      resolveDefaultDispatchTarget: () => this.resolveDefaultDispatchTarget(),
+        this.bindingDispatcher.dispatchBindingActionForNode(node, action),
+      dispatchPriorityBindings: (key) => this.bindingDispatcher.dispatchPriorityBindings(key),
+      resolveDefaultDispatchTarget: () => this.bindingDispatcher.resolveDefaultDispatchTarget(),
       clearPendingError: () => {
         runInAction(() => {
           this.pendingError = null;
@@ -656,7 +659,7 @@ export class TextualFramework {
       listWidgets: () => this.registry.list(),
       getWidget: (id) => this.registry.get(id),
       getRootChildren: () => this.registry.getChildren(null),
-      resolveDefaultDispatchTarget: () => this.resolveDefaultDispatchTarget(),
+      resolveDefaultDispatchTarget: () => this.bindingDispatcher.resolveDefaultDispatchTarget(),
       ancestorsAllowFocus: (widget) => this.focusEngine.ancestorsAllowFocus(widget),
       postMessage: (id, message) => this.postMessage(id, message),
       focusWidget: (id) => this.focusWidget(id),
@@ -741,26 +744,41 @@ export class TextualFramework {
     };
     this.widgetTypeRegistry = new WidgetTypeRegistry(widgetTypeRegistryDeps);
 
-    this.appBindings = makeBindings(APP_NAVIGATION_BINDINGS);
-    this.appActions = {
-      action_focus_next: () => {
+    // [LAW:single-enforcer] BindingDispatcher receives only the cross-cutting
+    // hooks it needs (navigation default actions, focused-node + active-screen
+    // resolution, bindings_updated publish, app-overridable clash report). It
+    // does NOT receive a back-reference to the framework.
+    const bindingDispatcherDeps: BindingDispatcherDeps = {
+      focusNext: () => {
         this.focusNext();
       },
-      action_focus_previous: () => {
+      focusPrevious: () => {
         this.focusPrevious();
       },
-      action_quit: () => {
+      exit: () => {
         this.exit();
       },
-      action_command_palette: () => {
+      openCommandPalette: () => {
         void this.openCommandPalette();
       },
+      getFocusedNodeId: () => this.focusedNodeId,
+      getWidget: (id) => this.registry.get(id),
+      listWidgets: () => this.registry.list(),
+      getActiveScreen: () => this.activeScreen,
+      publishBindingsUpdated: () => {
+        this.signals.bindings_updated_signal.publish(undefined);
+      },
+      reportBindingsClash: (clashes, namespace) => {
+        this.handleBindingsClash(clashes, namespace);
+      },
     };
+    this.bindingDispatcher = new BindingDispatcher(bindingDispatcherDeps, APP_NAVIGATION_BINDINGS);
 
     makeAutoObservable(
       this,
       {
         widgetTypeRegistry: false,
+        bindingDispatcher: false,
         layoutEngine: false,
         tooltipService: false,
         signalRegistry: false,
@@ -775,13 +793,8 @@ export class TextualFramework {
         screenStack: false,
         pump: false,
         styleEngine: false,
-        appBindings: false,
-        appActions: false,
         appCommandProviders: false,
         systemCommandResolver: false,
-        keymap: false,
-        lastActionDispatchResult: false,
-        bindingClashSignatures: false,
         handleBindingsClash: false,
         focusEngine: false,
         pointerEngine: false,
@@ -791,47 +804,24 @@ export class TextualFramework {
     );
   }
 
+  // [LAW:single-enforcer] App-binding / keymap / action-dispatch entry points
+  // delegate to BindingDispatcher (extracted in 7w9.4). Framework retains the
+  // public method surface only to keep existing consumers stable until 7w9.10
+  // deletes the framework class.
   setAppBindings(declarations: Iterable<BindingDeclaration>): void {
-    // [LAW:one-source-of-truth] App bindings are merged with navigation defaults
-    // at one point; callers never assemble their own binding list.
-    this.appBindings = makeBindings([...APP_NAVIGATION_BINDINGS, ...declarations]);
-    this.notifyBindingsUpdated();
+    this.bindingDispatcher.setAppBindings(declarations);
   }
 
   setKeymap(next: KeymapInput): void {
-    // [LAW:one-source-of-truth] Runtime key remaps are canonicalized into one
-    // internal keymap store; dispatch and footer consumers derive from it.
-    this.keymap = normalizeKeymap(next);
-    this.notifyBindingsUpdated();
+    this.bindingDispatcher.setKeymap(next);
   }
 
   updateKeymap(patch: KeymapInput): void {
-    const next = new Map(this.keymap);
-
-    for (const [bindingId, keys] of normalizeKeymap(patch).entries()) {
-      next.set(bindingId, keys);
-    }
-
-    this.keymap = next;
-    this.notifyBindingsUpdated();
+    this.bindingDispatcher.updateKeymap(patch);
   }
 
   setAppActions(actions: WidgetActions | undefined): void {
-    const navigation: WidgetActions = {
-      action_focus_next: () => {
-        this.focusNext();
-      },
-      action_focus_previous: () => {
-        this.focusPrevious();
-      },
-      action_quit: () => {
-        this.exit();
-      },
-      action_command_palette: () => {
-        void this.openCommandPalette();
-      },
-    };
-    this.appActions = { ...navigation, ...(actions ?? {}) };
+    this.bindingDispatcher.setAppActions(actions);
   }
 
   setAppAutoFocus(selector: string | null | undefined): void {
@@ -1763,20 +1753,7 @@ export class TextualFramework {
   }
 
   getActiveBindings(): ActiveBinding[] {
-    const chain = this.buildBindingChain();
-    const activeBindings: ActiveBinding[] = [];
-    const claimedKeys = new Set<string>();
-    const widgetLayers = chain.filter((entry) => entry.namespace.kind === "widget").slice().reverse();
-    const screenLayers = chain.filter((entry) => entry.namespace.kind === "screen");
-    const appLayers = chain.filter((entry) => entry.namespace.kind === "app");
-
-    // [LAW:single-enforcer] Binding display is derived once here so widgets
-    // like Footer consume the same precedence, keymap, and checkAction rules
-    // that execution uses instead of rebuilding them independently.
-    this.collectActiveBindings(activeBindings, claimedKeys, chain, true);
-    this.collectActiveBindings(activeBindings, claimedKeys, [...widgetLayers, ...screenLayers, ...appLayers], false);
-
-    return activeBindings;
+    return this.bindingDispatcher.getActiveBindings();
   }
 
   pushScreen(descriptor: ScreenDescriptor, callbackOrOptions?: ((result: unknown) => void) | ScreenOptions, extraOptions?: ScreenOptions): Screen {
@@ -1867,60 +1844,11 @@ export class TextualFramework {
   }
 
   runAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
-    const parsed = parseAction(action);
-    const target = this.resolveActionTarget(parsed.namespace, defaultTarget);
-
-    if (target === null) {
-      this.lastActionDispatchResult = "unhandled";
-      return false;
-    }
-
-    const actions = target.actions;
-    const checkAction: WidgetCheckAction | undefined =
-      typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
-    const gate = checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
-
-    if (gate === false || gate === null) {
-      this.lastActionDispatchResult = "consumed";
-      return false;
-    }
-
-    const candidate =
-      pickActionCallback(actions, `_action_${parsed.actionName}`) ??
-      pickActionCallback(actions, `action_${parsed.actionName}`);
-
-    if (candidate === undefined) {
-      this.lastActionDispatchResult = "unhandled";
-      return false;
-    }
-
-    try {
-      candidate(...parsed.params);
-      this.lastActionDispatchResult = "handled";
-      return true;
-    } catch (error) {
-      if (error instanceof SkipAction) {
-        this.lastActionDispatchResult = "unhandled";
-        return false;
-      }
-
-      throw error;
-    }
+    return this.bindingDispatcher.runAction(action, defaultTarget);
   }
 
   checkAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean | null {
-    const parsed = parseAction(action);
-    const target = this.resolveActionTarget(parsed.namespace, defaultTarget);
-
-    if (target === null) {
-      return false;
-    }
-
-    const actions = target.actions;
-    const checkAction: WidgetCheckAction | undefined =
-      typeof actions?.checkAction === "function" ? (actions.checkAction as WidgetCheckAction) : undefined;
-
-    return checkAction === undefined ? true : checkAction(parsed.actionName, parsed.params);
+    return this.bindingDispatcher.checkAction(action, defaultTarget);
   }
 
   private suspendCurrentScreen(): void {
@@ -1945,283 +1873,15 @@ export class TextualFramework {
     this.focusEngine.scheduleActiveScreenFocusResolution(true);
   }
 
-  // ---- Action dispatch --------------------------------------------------
-
-  private resolveActionTarget(
-    namespace: string,
-    defaultTarget?: ActionTargetDescriptor,
-  ): { actions: WidgetActions | undefined } | null {
-    // [LAW:dataflow-not-control-flow] Named action namespaces dispatch via a
-    // table keyed on namespace string. Adding a namespace registers a
-    // resolver here; resolveActionTarget does not branch on namespace name.
-    const namedNamespaces: Record<string, () => { actions: WidgetActions | undefined } | null> = {
-      app: () => ({ actions: this.appActions }),
-      screen: () => {
-        const screen = this.activeScreen;
-        return screen === null ? null : { actions: screen.actions };
-      },
-      focused: () => {
-        const focused = this.focusedWidget();
-        return focused === undefined ? null : { actions: focused.actions };
-      },
-    };
-
-    if (namespace !== "") {
-      return namedNamespaces[namespace]?.() ?? null;
-    }
-
-    // Unnamespaced action: defaultTarget → focused widget → app, in order.
-    const focused = this.focusedWidget();
-    return (
-      (defaultTarget === undefined ? undefined : { actions: defaultTarget.actions }) ??
-      (focused === undefined ? undefined : { actions: focused.actions }) ??
-      { actions: this.appActions }
-    );
-  }
-
-  private focusedWidget(): Widget | undefined {
-    return this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-  }
-
-  private dispatchBindingAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
-    // [LAW:single-enforcer] runAction is the single action-dispatch boundary;
-    // binding handling derives consumed-vs-unhandled from its canonical result.
-    void this.runAction(action, defaultTarget);
-    return this.lastActionDispatchResult !== "unhandled";
-  }
-
-  // ---- Binding dispatch -------------------------------------------------
-
-  private resolveBindingsForApp(): Binding[] {
-    return this.rewriteBindings(this.appBindings, createAppBindingNamespace());
-  }
-
-  private resolveBindingsForScreen(screen: Screen): Binding[] {
-    return this.rewriteBindings(screen.bindings, createScreenBindingNamespace(screen));
-  }
-
-  private resolveBindingsForNode(node: Widget): Binding[] {
-    return this.rewriteBindings(node.bindings, createWidgetBindingNamespace(node));
-  }
-
-  private rewriteBindings(bindings: Binding[], namespace: BindingNamespace): Binding[] {
-    const rewritten: Binding[] = [];
-    const remappedIds = new Set<string>();
-
-    // [LAW:single-enforcer] Keymap application lives in one rewrite path so app,
-    // screen, and widget bindings cannot drift in remap semantics.
-    for (const binding of bindings) {
-      const bindingId = binding.id;
-      const mappedKeys = bindingId === undefined ? undefined : this.keymap.get(bindingId);
-
-      if (bindingId === undefined || mappedKeys === undefined) {
-        rewritten.push(binding);
-        continue;
-      }
-
-      if (remappedIds.has(bindingId)) {
-        continue;
-      }
-
-      remappedIds.add(bindingId);
-
-      for (const key of mappedKeys) {
-        rewritten.push({ ...binding, key });
-      }
-    }
-
-    this.reportBindingClashes(namespace, rewritten);
-    return rewritten;
-  }
-
-  private reportBindingClashes(namespace: BindingNamespace, bindings: Binding[]): void {
-    const bindingsByKey = new Map<string, Binding[]>();
-
-    for (const binding of bindings) {
-      const bucket = bindingsByKey.get(binding.key) ?? [];
-      bucket.push(binding);
-      bindingsByKey.set(binding.key, bucket);
-    }
-
-    const clashes = Array.from(bindingsByKey.entries())
-      .filter(([, entries]) => entries.length > 1)
-      .map(([key, entries]) => ({ key, bindings: entries.slice() }));
-    const signature = clashes
-      .map((entry) => `${entry.key}:${entry.bindings.map((binding) => binding.id ?? binding.action).join("|")}`)
-      .join(";");
-    const previous = this.bindingClashSignatures.get(namespace.key);
-
-    if (signature.length === 0) {
-      this.bindingClashSignatures.delete(namespace.key);
-      return;
-    }
-
-    if (previous === signature) {
-      return;
-    }
-
-    this.bindingClashSignatures.set(namespace.key, signature);
-    this.handleBindingsClash(clashes, namespace);
-  }
-
+  // [LAW:single-enforcer] Binding/action dispatch lives in BindingDispatcher
+  // (extracted in 7w9.4). Framework retains the public methods only as thin
+  // delegators until 7w9.10 deletes the framework class.
   notifyBindingsUpdated(): void {
-    this.syncActiveBindingClashes();
-    this.signals.bindings_updated_signal.publish(undefined);
-  }
-
-  private syncActiveBindingClashes(): void {
-    const activeNamespaces = new Set(this.buildBindingChain().map((entry) => entry.namespace.key));
-
-    for (const namespaceKey of this.bindingClashSignatures.keys()) {
-      if (!activeNamespaces.has(namespaceKey)) {
-        this.bindingClashSignatures.delete(namespaceKey);
-      }
-    }
-  }
-
-  private dispatchPriorityBindings(key: string): boolean {
-    const chain = this.buildBindingChain();
-
-    // [LAW:dataflow-not-control-flow] Walk the chain top-down (app → screen → focused).
-    // Data (priority flag) decides whether each binding fires, not conditional skips.
-    for (const level of chain) {
-      for (const binding of level.bindings) {
-        if (binding.priority === true && binding.key === key) {
-          if (this.dispatchBindingAction(binding.action, { actions: level.actions })) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
+    this.bindingDispatcher.notifyBindingsUpdated();
   }
 
   dispatchNodeKeyBindings(node: Widget, key: string): boolean {
     return this.pump.dispatchNodeKeyBindings(node, key);
-  }
-
-  private dispatchScreenKeyBindings(key: string): boolean {
-    const screen = this.activeScreen;
-
-    if (screen !== null) {
-      for (const binding of this.resolveBindingsForScreen(screen)) {
-        if (binding.priority !== true && binding.key === key) {
-          if (this.dispatchBindingAction(binding.action, { actions: screen.actions })) {
-            return true;
-          }
-        }
-      }
-    }
-
-    for (const binding of this.resolveBindingsForApp()) {
-      if (binding.priority !== true && binding.key === key) {
-        if (this.dispatchBindingAction(binding.action, { actions: this.appActions })) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  private collectActiveBindings(
-    target: ActiveBinding[],
-    claimedKeys: Set<string>,
-    layers: BindingChainEntry[],
-    priority: boolean,
-  ): void {
-    for (const layer of layers) {
-      for (const binding of layer.bindings) {
-        if ((binding.priority === true) !== priority) {
-          continue;
-        }
-
-        if (binding.show === false || claimedKeys.has(binding.key)) {
-          continue;
-        }
-
-        const gate = this.checkAction(binding.action, { actions: layer.actions });
-
-        if (gate === false) {
-          continue;
-        }
-
-        claimedKeys.add(binding.key);
-        target.push(this.createActiveBinding({
-          binding,
-          namespace: layer.namespace,
-          actions: layer.actions,
-        }, gate !== null));
-      }
-    }
-  }
-
-  private createActiveBinding(seed: ActiveBindingSeed, enabled: boolean): ActiveBinding {
-    return {
-      key: seed.binding.key,
-      action: seed.binding.action,
-      description: seed.binding.description,
-      enabled,
-      priority: seed.binding.priority === true,
-      namespace: seed.namespace,
-      run: () => this.runAction(seed.binding.action, { actions: seed.actions }),
-    };
-  }
-
-  private buildBindingChain(): BindingChainEntry[] {
-    const chain: BindingChainEntry[] = [];
-
-    // App layer first so priority bindings are evaluated top-down.
-    chain.push({
-      namespace: createAppBindingNamespace(),
-      bindings: this.resolveBindingsForApp(),
-      actions: this.appActions,
-    });
-
-    const screen = this.activeScreen;
-
-    if (screen !== null) {
-      chain.push({
-        namespace: createScreenBindingNamespace(screen),
-        bindings: this.resolveBindingsForScreen(screen),
-        actions: screen.actions,
-      });
-    }
-
-    const focused = this.focusedNodeId === null ? undefined : this.registry.get(this.focusedNodeId);
-
-    if (focused !== undefined) {
-      const ancestry: Widget[] = [];
-      let current: Widget | undefined = focused;
-
-      while (current !== undefined) {
-        ancestry.unshift(current);
-        current = current.parent;
-      }
-
-      for (const node of ancestry) {
-        chain.push({
-          namespace: createWidgetBindingNamespace(node),
-          bindings: this.resolveBindingsForNode(node),
-          actions: node.actions,
-        });
-      }
-    }
-
-    return chain;
-  }
-
-  private resolveDefaultDispatchTarget(): Widget | undefined {
-    const interactiveWidgets = this.registry.list().filter((entry) => entry.isInteractive);
-
-    // [LAW:one-source-of-truth] Focus/default dispatch target resolution lives
-    // in one helper so input routing and app-level dispatch share the same target choice.
-    return (
-      interactiveWidgets.find((entry) => entry.nodeId === this.focusedNodeId) ??
-      interactiveWidgets.find((entry) => entry.focusable) ??
-      interactiveWidgets[0]
-    );
   }
 
   private resolveHandlers(
@@ -2410,81 +2070,13 @@ export class TextualFramework {
   }
 }
 
-interface BindingChainEntry {
-  namespace: BindingNamespace;
-  bindings: Binding[];
-  actions: WidgetActions | undefined;
-}
-
-interface ActiveBindingSeed {
-  binding: Binding;
-  namespace: BindingNamespace;
-  actions: WidgetActions | undefined;
-}
-
 export interface ActionTargetDescriptor {
   actions: WidgetActions | undefined;
 }
 
-type ActionDispatchResult = "handled" | "consumed" | "unhandled";
-
 function readCommandProvidersFromElement(element: React.ReactElement): ReadonlySet<ProviderConstructor> {
   const typeWithCommands = element.type as { COMMANDS?: Iterable<ProviderConstructor> };
   return new Set(typeWithCommands.COMMANDS ?? []);
-}
-
-function pickActionCallback(actions: WidgetActions | undefined, key: string): WidgetActionCallback | undefined {
-  if (actions === undefined) {
-    return undefined;
-  }
-
-  const candidate = actions[key];
-  return typeof candidate === "function" ? (candidate as WidgetActionCallback) : undefined;
-}
-
-function createAppBindingNamespace(): BindingNamespace {
-  return {
-    kind: "app",
-    key: "app",
-    name: "app",
-    nodeId: null,
-  };
-}
-
-function createScreenBindingNamespace(screen: Screen): BindingNamespace {
-  return {
-    kind: "screen",
-    key: `screen:${screen.id}`,
-    name: screen.name,
-    nodeId: null,
-  };
-}
-
-function createWidgetBindingNamespace(widget: Widget): BindingNamespace {
-  return {
-    kind: "widget",
-    key: `widget:${widget.nodeId}`,
-    name: widget.id ?? widget.typeName,
-    nodeId: widget.nodeId,
-  };
-}
-
-function normalizeKeymap(input: KeymapInput): Map<string, string[]> {
-  const entries = input instanceof Map ? input.entries() : Object.entries(input);
-  const normalized = new Map<string, string[]>();
-
-  for (const [bindingId, keyList] of entries) {
-    normalized.set(bindingId, normalizeKeyList(keyList));
-  }
-
-  return normalized;
-}
-
-function normalizeKeyList(source: string): string[] {
-  return source
-    .split(",")
-    .map((key) => normalizeKeyName(key).key)
-    .filter((key) => key.length > 0);
 }
 
 // [LAW:single-enforcer] Modifier composition happens in one place so binding keys
