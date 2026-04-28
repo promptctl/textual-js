@@ -20,8 +20,6 @@ export {
   type SystemCommandResolver,
   StylesheetError,
   SuspendNotSupported,
-  type TextualFrameworkOptions,
-  TextualFramework,
   UnknownModeError,
   formatKey,
   getKeyDisplay,

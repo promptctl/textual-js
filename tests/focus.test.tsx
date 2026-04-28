@@ -3,8 +3,6 @@ import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
-import { TextualFramework } from "../src/framework/app-framework.js";
-
 import { TextualApp, WidgetHost, runTest } from "../src/index.js";
 
 function FocusHarness(): React.JSX.Element {

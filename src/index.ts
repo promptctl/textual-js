@@ -112,6 +112,7 @@ export {
   InvalidModeError,
   MountError,
   type KeymapInput,
+  type MessageSubscriber,
   type NotifyOptions,
   type PointerShape,
   OnDecoratorError,
