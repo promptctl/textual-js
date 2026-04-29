@@ -350,6 +350,9 @@ export {
   Input,
   InputChanged,
   InputSubmitted,
+  InvalidLineStyle,
+  InvalidRuleOrientation,
+  Rule,
   Static,
   Switch,
   SwitchChanged,
@@ -358,6 +361,8 @@ export {
   type FooterKeyProps,
   type FooterProps,
   type InputProps,
+  type RuleOrientation,
+  type RuleProps,
   type StaticProps,
   type SwitchProps,
 } from "./widgets/index.js";
