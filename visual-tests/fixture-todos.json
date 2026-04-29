@@ -18,18 +18,6 @@
     "reason": "Pre-seeded Python baseline for stacked-toast severity rendering"
   },
   {
-    "name": "checkbox_disabled",
-    "stage": "7",
-    "component": "Checkbox",
-    "reason": "Pre-seeded Python baseline for Stage 7 Checkbox implementation"
-  },
-  {
-    "name": "checkbox_states",
-    "stage": "7",
-    "component": "Checkbox",
-    "reason": "Pre-seeded Python baseline for Stage 7 Checkbox implementation"
-  },
-  {
     "name": "collapsible_collapsed",
     "stage": "8",
     "component": "Collapsible",
