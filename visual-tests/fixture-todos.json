@@ -123,13 +123,13 @@
     "name": "footer_empty",
     "stage": "future",
     "component": "Footer",
-    "reason": "Bar bg-color requires Ink to emit colored whitespace. Ink trims trailing-whitespace Text elements and does not accept backgroundColor on Box, so a 1-row bar of pure spaces produces no ANSI output. Suppress until either Box backgroundColor is supported or the bar is filled with a non-whitespace anchor (e.g. show_command_palette adds chars on the right)."
+    "reason": "Footer position fixed via marginTop:auto (chips/bar now dock at the bottom), but xterm renders the bar bg color (#212B32) as pure black for the empty-Footer case. Ink's testing-library output emits the truecolor `[48;2;33;43;50m` codes correctly, yet the docker xterm screenshot shows gray(0). FG colors render fine (chip text is yellow from #fea62b), so this is a BG-specific truecolor rendering miss — root cause not yet identified (candidates: Ink's color emission for whitespace-only Text, xterm-direct terminfo handling of BG truecolor on otherwise-empty rows, or a scroll/erase interaction at the terminal's last visible row). Tracked as a follow-up under .11.2."
   },
   {
     "name": "footer_with_bindings",
     "stage": "future",
     "component": "Footer",
-    "reason": "Binding-chip race fixed in .11.1 (chips now render via MobX-tracked observer reads). Pixel parity still blocked on (a) dock-bottom layout — JS Footer renders at the top of the FixtureScreen flex column instead of bottom, and (b) bar background fill — Ink's whitespace-only colored Text emits no ANSI, so the FOOTER_BACKGROUND fill segment is invisible. Tracked under .11.2 and follow-up framework gaps."
+    "reason": "Binding-chip race fixed in .11.1, dock-bottom positioning fixed in .11.2 (marginTop:auto). Chip text and palette segments render at the correct row. Remaining diff is the bar BG (#212B32 → black in docker xterm — see footer_empty for the same gap) plus chip-key color differences (yellow vs orange — likely truecolor rounding) and key formatting (`ctrl+r` vs Python's caret notation `^r`). Tracked as separate follow-ups."
   },
   {
     "name": "header_default",

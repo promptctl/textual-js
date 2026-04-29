@@ -154,31 +154,41 @@ export const Footer = observer(function Footer({
   const totalBarWidth = 80;
   const fillWidth = Math.max(0, totalBarWidth - chipsTotalWidth - reservedRightWidth);
 
+  // [LAW:dataflow-not-control-flow] The Footer always docks at the bottom of
+  // its flex-column parent. `marginTop: auto` pushes it to the end whenever
+  // there's leftover space; with no leftover space it has no effect — same
+  // code path either way, the flex container's spare height varies the layout
+  // outcome. This mirrors Textual's `dock: bottom` for the Footer widget.
+  // Yoga supports auto margins at runtime; Ink's TS type for marginTop is
+  // narrowed to `number` and does not advertise this. Cast through unknown.
+  const dockBottomStyle = { marginTop: "auto" } as unknown as { marginTop: number };
   return (
-    <WidgetScope widget={widget.handle}>
-      <Box flexDirection="row">
-        {bindings.map((binding) => (
-          <FooterKey
-            key={`${binding.namespace.key}:${binding.key}:${binding.action}`}
-            binding={binding}
-            compact={compact}
-          />
-        ))}
-        <Text backgroundColor={FOOTER_BACKGROUND}>{" ".repeat(fillWidth)}</Text>
-        {showCommandPalette ? (
-          <>
-            <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
-              {FOOTER_PALETTE_SEPARATOR}
-            </Text>
-            <Text color={FOOTER_KEY_COLOR} backgroundColor={FOOTER_BACKGROUND} bold>
-              {PALETTE_KEY}
-            </Text>
-            <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
-              {PALETTE_LABEL}
-            </Text>
-          </>
-        ) : null}
-      </Box>
-    </WidgetScope>
+    <Box {...dockBottomStyle}>
+      <WidgetScope widget={widget.handle}>
+        <Box flexDirection="row">
+          {bindings.map((binding) => (
+            <FooterKey
+              key={`${binding.namespace.key}:${binding.key}:${binding.action}`}
+              binding={binding}
+              compact={compact}
+            />
+          ))}
+          <Text backgroundColor={FOOTER_BACKGROUND}>{" ".repeat(fillWidth)}</Text>
+          {showCommandPalette ? (
+            <>
+              <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
+                {FOOTER_PALETTE_SEPARATOR}
+              </Text>
+              <Text color={FOOTER_KEY_COLOR} backgroundColor={FOOTER_BACKGROUND} bold>
+                {PALETTE_KEY}
+              </Text>
+              <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
+                {PALETTE_LABEL}
+              </Text>
+            </>
+          ) : null}
+        </Box>
+      </WidgetScope>
+    </Box>
   );
 });
