@@ -402,36 +402,6 @@
     "reason": "Pre-seeded Python baseline for Stage 7 Pretty implementation"
   },
   {
-    "name": "progress_complete",
-    "stage": "7",
-    "component": "ProgressBar",
-    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
-  },
-  {
-    "name": "progress_empty",
-    "stage": "7",
-    "component": "ProgressBar",
-    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
-  },
-  {
-    "name": "progress_indeterminate",
-    "stage": "7",
-    "component": "ProgressBar",
-    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
-  },
-  {
-    "name": "progress_no_eta",
-    "stage": "7",
-    "component": "ProgressBar",
-    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
-  },
-  {
-    "name": "progress_partial",
-    "stage": "7",
-    "component": "ProgressBar",
-    "reason": "Pre-seeded Python baseline for Stage 7 ProgressBar implementation"
-  },
-  {
     "name": "radio_button_states",
     "stage": "7",
     "component": "RadioButton",

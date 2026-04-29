@@ -6,6 +6,7 @@ import * as textual from "../src/index.js";
 import {
   ButtonPressed,
   Button,
+  ProgressBar,
   Static,
   SwitchChanged,
   Switch,
@@ -374,6 +375,76 @@ describe("Switch", () => {
 
     expect(ids).toContain("sw1");
     expect(ids).toContain("sw2");
+
+    session.unmount();
+  });
+});
+
+describe("ProgressBar", () => {
+  it("renders the percentage label for determinate progress", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={100} progress={50} showEta={false} />,
+    );
+
+    expect(session.lastFrame()).toContain("50%");
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName ProgressBar", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={100} progress={25} showEta={false} />,
+    );
+
+    const widget = session.app.getByCssId("pb");
+    expect(widget).toBeDefined();
+    expect(widget!.typeName).toBe("ProgressBar");
+
+    session.unmount();
+  });
+
+  it("renders 100% at completion and 0% when empty", async () => {
+    const full = await runTest(
+      <ProgressBar id="full" total={100} progress={100} showEta={false} />,
+    );
+    expect(full.lastFrame()).toContain("100%");
+    full.unmount();
+
+    const empty = await runTest(
+      <ProgressBar id="empty" total={100} progress={0} showEta={false} />,
+    );
+    expect(empty.lastFrame()).toContain("0%");
+    empty.unmount();
+  });
+
+  it("renders --% in indeterminate mode (total=null)", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={null} showEta={false} />,
+    );
+
+    expect(session.lastFrame()).toContain("--%");
+
+    session.unmount();
+  });
+
+  it("applies the -indeterminate class when total is null", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={null} showEta={false} />,
+    );
+
+    const widget = session.app.getByCssId("pb");
+    expect(widget!.classes).toContain("-indeterminate");
+
+    session.unmount();
+  });
+
+  it("applies the -complete class when progress reaches total", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={100} progress={100} showEta={false} />,
+    );
+
+    const widget = session.app.getByCssId("pb");
+    expect(widget!.classes).toContain("-complete");
 
     session.unmount();
   });
