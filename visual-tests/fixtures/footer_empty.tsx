@@ -15,7 +15,7 @@ export default function FooterEmptyFixture(): React.JSX.Element {
   return (
     <FixtureScreen>
       <Static content="Body content" />
-      <Footer />
+      <Footer showCommandPalette={false} />
     </FixtureScreen>
   );
 }

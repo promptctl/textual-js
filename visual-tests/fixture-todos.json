@@ -123,13 +123,13 @@
     "name": "footer_empty",
     "stage": "future",
     "component": "Footer",
-    "reason": "JS Footer renders no bar when bindings list is empty; Python renders the bar background. Fixture .tsx exists; suppress until JS Footer matches."
+    "reason": "Bar bg-color requires Ink to emit colored whitespace. Ink trims trailing-whitespace Text elements and does not accept backgroundColor on Box, so a 1-row bar of pure spaces produces no ANSI output. Suppress until either Box backgroundColor is supported or the bar is filled with a non-whitespace anchor (e.g. show_command_palette adds chars on the right)."
   },
   {
     "name": "footer_with_bindings",
     "stage": "future",
     "component": "Footer",
-    "reason": "JS Footer rendering of binding chips diverges from Python. Fixture .tsx exists; suppress until JS Footer matches."
+    "reason": "App-level user bindings (passed via TextualApp `bindings` prop) never reach the Footer's reactive subscription: `setAppBindings` fires its bindings_updated_signal in TextualApp's useLayoutEffect, which runs *after* the child Footer's useLayoutEffect has subscribed (parent layout effects fire after children) — but the child's signal subscriber is then cleaned up before any subsequent React commit propagates state. The Footer reads only the synchronous default-navigation bindings (no descriptions → filtered out), so chips never render. Fix is in framework binding propagation, not in Footer."
   },
   {
     "name": "header_default",
