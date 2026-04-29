@@ -41,7 +41,7 @@
 // alternate path from props to framework state and no second renderer.
 
 import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
-import { Box, useInput, useStdout } from "ink";
+import { Box, useInput, useStdout, type Key as InkKey } from "ink";
 import { observer } from "mobx-react-lite";
 import { Padding } from "rich-js";
 
@@ -192,15 +192,48 @@ function renderToastTitle(notification: Notification): React.JSX.Element | null 
   );
 }
 
+// [LAW:one-source-of-truth] Map Ink's `Key` flags onto the framework's
+// canonical key names. Special keys (tab, arrows, etc.) arrive from Ink with
+// `input === ""` and the matching boolean set; the framework's
+// `normalizeKeyName` only understands the canonical name.
+const INK_FLAG_KEY_ORDER: Array<{ flag: keyof InkKey; name: string }> = [
+  { flag: "tab", name: "tab" },
+  { flag: "escape", name: "escape" },
+  { flag: "return", name: "enter" },
+  { flag: "backspace", name: "backspace" },
+  { flag: "delete", name: "delete" },
+  { flag: "upArrow", name: "up" },
+  { flag: "downArrow", name: "down" },
+  { flag: "leftArrow", name: "left" },
+  { flag: "rightArrow", name: "right" },
+  { flag: "pageUp", name: "pageup" },
+  { flag: "pageDown", name: "pagedown" },
+];
+
+function resolveInkKeyName(input: string, key: InkKey): string {
+  // [LAW:dataflow-not-control-flow] The flag table drives selection; the
+  // function always walks the table and returns the first match (or input).
+  const named = INK_FLAG_KEY_ORDER.find((entry) => key[entry.flag] === true);
+  return named === undefined ? input : named.name;
+}
+
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const framework = useTextual();
   const { stdout } = useStdout();
   const [, requestAfterRefresh] = useState(0);
 
   // [LAW:single-enforcer] Host → framework keyboard bridge. Ink's keypress
-  // events enter the runtime at exactly this seam.
+  // events enter the runtime at exactly this seam. Ink encodes special keys
+  // (tab, escape, arrows, etc.) as boolean flags on the second arg with an
+  // empty `input` string; the framework expects a canonical key name as the
+  // first arg, so this seam translates Ink's flag-shaped key into the
+  // framework's name-shaped key.
   useInput((input, key) => {
-    framework.postKey(input, key);
+    framework.postKey(resolveInkKeyName(input, key), {
+      ctrl: key.ctrl,
+      shift: key.shift,
+      meta: key.meta,
+    });
   });
 
   // [LAW:single-enforcer] Host → framework terminal-size bridge. Stdout's

@@ -149,19 +149,7 @@
     "component": "HelpPanel",
     "reason": "Pre-seeded Python baseline for Stage 10 HelpPanel implementation"
   },
-  {
-    "name": "button_disabled",
-    "stage": "future",
-    "component": "Button",
-    "reason": "JS Button does not dim when disabled (variant background remains fully saturated). Fixture .tsx exists; suppress until JS Button matches Python disabled rendering."
-  },
-  {
-    "name": "button_focused",
-    "stage": "future",
-    "component": "Button",
-    "reason": "JS Button does not visually respond to Tab focus; xterm screenshot watchdog times out. Fixture .tsx exists; suppress until JS Button shows focus state."
-  },
-  {
+{
     "name": "input_empty",
     "stage": "future",
     "component": "Input",
