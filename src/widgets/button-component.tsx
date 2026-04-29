@@ -131,6 +131,15 @@ function decorateButtonLabel(content: Content, styles: string[]): Content {
   return styles.reduce((current, style) => current.stylize(style), content);
 }
 
+// [LAW:one-source-of-truth] All disabled-state dimming derives from this single
+// factor and pivot color so label, edge rows, and background stay in sync.
+const DISABLED_DIM_TARGET = "#121212";
+const DISABLED_DIM_FACTOR = 0.5825;
+
+function dimColor(color: string | undefined): string | undefined {
+  return color === undefined ? undefined : mixColor(color, DISABLED_DIM_TARGET, DISABLED_DIM_FACTOR) ?? color;
+}
+
 function dimButtonLabel(content: Content, background: string | undefined): Content {
   const baseBackground = background ?? "#121212";
 
@@ -141,9 +150,18 @@ function dimButtonLabel(content: Content, background: string | undefined): Conte
       // [LAW:single-enforcer] Disabled-state dimming for authored label colors
       // is applied once at the button label seam so CSS colors and explicit
       // content spans follow the same opacity rule.
-      style: rewriteForegroundColor(span.style, (color) => mixColor(color, baseBackground, 0.5825)),
+      style: rewriteForegroundColor(span.style, (color) => mixColor(color, baseBackground, DISABLED_DIM_FACTOR)),
     })),
   );
+}
+
+function dimPalette(palette: ButtonPalette): ButtonPalette {
+  return {
+    background: dimColor(palette.background),
+    foreground: dimColor(palette.foreground) ?? palette.foreground,
+    top: dimColor(palette.top) ?? palette.top,
+    bottom: dimColor(palette.bottom) ?? palette.bottom,
+  };
 }
 
 function readButtonPalette(
@@ -227,7 +245,11 @@ export const Button = observer(function Button({
   });
 
   const styles = useStyles(widget.handle);
-  const palette = readButtonPalette(styles, variant);
+  // [LAW:dataflow-not-control-flow] The disabled-state palette is derived
+  // unconditionally from the resolved palette; the data controls visual
+  // dimming, not branching at every paint site.
+  const basePalette = readButtonPalette(styles, variant);
+  const palette = widget.handle.isDisabledEffective ? dimPalette(basePalette) : basePalette;
   const explicitWidth = readNumericBoxValue(styles.box.width);
   const minWidth = readNumericBoxValue(styles.box.minWidth) ?? 0;
   const height = readNumericBoxValue(styles.box.height) ?? 3;
@@ -237,7 +259,7 @@ export const Button = observer(function Button({
     resolved.firstLine.truncate(Math.max(0, contentWidth - 2), { overflow: "crop" }),
     true,
   );
-  const labelCore = widget.handle.isDisabledEffective ? dimButtonLabel(normalizedLabel, palette.background) : normalizedLabel;
+  const labelCore = widget.handle.isDisabledEffective ? dimButtonLabel(normalizedLabel, basePalette.background) : normalizedLabel;
   const emphasizeLabel = height > 1;
   const labelStyles = [
     emphasizeLabel ? "bold" : undefined,
@@ -248,9 +270,6 @@ export const Button = observer(function Button({
     labelStyles,
   );
   const width = Math.max(explicitWidth ?? 0, minWidth, labelContent.cellLength);
-  const disabledForeground = widget.handle.isDisabledEffective
-    ? mixColor(palette.foreground, "#121212", 0.5825) ?? palette.foreground
-    : palette.foreground;
   const middleRowText = (() => {
     const line = Array.from({ length: width }, () => " ");
     const labelOffset =
@@ -276,7 +295,7 @@ export const Button = observer(function Button({
       {renderContent(
         Content.styled(
           middleRowText.text.slice(0, middleRowText.offset),
-          [palette.background === undefined ? disabledForeground : undefined, palette.background === undefined ? undefined : `on ${palette.background}`]
+          [palette.background === undefined ? palette.foreground : undefined, palette.background === undefined ? undefined : `on ${palette.background}`]
             .filter(Boolean)
             .join(" "),
         ),
@@ -286,7 +305,7 @@ export const Button = observer(function Button({
       {renderContent(
         labelContent,
         {
-          color: disabledForeground,
+          color: palette.foreground,
           backgroundColor: palette.background,
         },
         middleRowKey,
@@ -294,7 +313,7 @@ export const Button = observer(function Button({
       {renderContent(
         Content.styled(
           middleRowText.text.slice(middleRowText.offset + labelContent.plain.length),
-          [palette.background === undefined ? disabledForeground : undefined, palette.background === undefined ? undefined : `on ${palette.background}`]
+          [palette.background === undefined ? palette.foreground : undefined, palette.background === undefined ? undefined : `on ${palette.background}`]
             .filter(Boolean)
             .join(" "),
         ),
