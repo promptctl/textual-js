@@ -13,6 +13,13 @@ export { Rule, type RuleProps } from "./rule-component.js";
 export { InvalidLineStyle, InvalidRuleOrientation, type RuleOrientation } from "./rule.js";
 export { ProgressBar, type ProgressBarProps } from "./progress-bar-component.js";
 export { Checkbox, type CheckboxProps } from "./checkbox-component.js";
+export { RadioButton, type RadioButtonProps } from "./radio-button-component.js";
+export {
+  RadioSet,
+  type RadioSetButtonSpec,
+  type RadioSetProps,
+} from "./radio-set-component.js";
+export { RadioSetChanged } from "./radio-set.js";
 export { ToggleChanged } from "./toggle.js";
 export {
   Sparkline,

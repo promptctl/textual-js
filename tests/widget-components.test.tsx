@@ -8,6 +8,9 @@ import {
   Button,
   Checkbox,
   ProgressBar,
+  RadioButton,
+  RadioSet,
+  RadioSetChanged,
   Static,
   SwitchChanged,
   Switch,
@@ -551,6 +554,144 @@ describe("Checkbox", () => {
 
     expect(ids).toContain("cb1");
     expect(ids).toContain("cb2");
+
+    session.unmount();
+  });
+});
+
+describe("RadioButton", () => {
+  it("renders the label and unselected indicator by default", async () => {
+    const session = await runTest(<RadioButton id="rb" label="Option" />);
+
+    const frame = session.lastFrame();
+    expect(frame).toContain("Option");
+    expect(frame).toContain("▐ ▌");
+
+    session.unmount();
+  });
+
+  it("renders the ● indicator when value is true", async () => {
+    const session = await runTest(<RadioButton id="rb" label="Option" value />);
+
+    expect(session.lastFrame()).toContain("▐●▌");
+
+    session.unmount();
+  });
+
+  it("applies the -on class when value is true", async () => {
+    const session = await runTest(<RadioButton id="rb" label="Option" value />);
+
+    const widget = session.app.getByCssId("rb");
+    expect(widget!.classes).toContain("-on");
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName RadioButton", async () => {
+    const session = await runTest(<RadioButton id="rb" label="Option" />);
+
+    const widget = session.app.getByCssId("rb");
+    expect(widget!.typeName).toBe("RadioButton");
+
+    session.unmount();
+  });
+
+  it("posts ToggleChanged on enter key toggle", async () => {
+    const values: boolean[] = [];
+    const session = await runTest(
+      <RadioButton id="rb" label="Option" />,
+      {
+        messageHook: (message) => {
+          if (message instanceof ToggleChanged) {
+            values.push(message.value);
+          }
+        },
+      },
+    );
+
+    const rb = session.app.getByCssId("rb");
+    session.app.focusWidget(rb!.nodeId);
+    await session.pilot.pause();
+
+    await session.pilot.press("enter");
+    expect(values).toEqual([true]);
+
+    session.unmount();
+  });
+});
+
+describe("RadioSet", () => {
+  it("renders all button labels in the rendered frame", async () => {
+    const session = await runTest(
+      <RadioSet id="rs" buttons={["Alpha", "Beta", "Gamma"]} />,
+    );
+
+    const frame = session.lastFrame();
+    expect(frame).toContain("Alpha");
+    expect(frame).toContain("Beta");
+    expect(frame).toContain("Gamma");
+
+    session.unmount();
+  });
+
+  it("renders the ● indicator for the pre-selected button", async () => {
+    const session = await runTest(
+      <RadioSet
+        id="rs"
+        buttons={[
+          { label: "A" },
+          { label: "B", value: true },
+          { label: "C" },
+        ]}
+      />,
+    );
+
+    expect(session.lastFrame()).toContain("▐●▌");
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName RadioSet", async () => {
+    const session = await runTest(<RadioSet id="rs" buttons={["A"]} />);
+
+    const widget = session.app.getByCssId("rs");
+    expect(widget!.typeName).toBe("RadioSet");
+
+    session.unmount();
+  });
+
+  it("is the single tab stop — child rows are not separate widgets", async () => {
+    const session = await runTest(
+      <RadioSet id="rs" buttons={["A", "B", "C"]} />,
+    );
+
+    const chain = session.app.getFocusChain();
+    const ids = chain.map((w) => w.id);
+
+    expect(ids).toContain("rs");
+
+    session.unmount();
+  });
+
+  it("posts RadioSetChanged when a new button is pressed", async () => {
+    const events: Array<{ index: number; label: string }> = [];
+    const session = await runTest(
+      <RadioSet id="rs" buttons={["A", "B", "C"]} />,
+      {
+        messageHook: (message) => {
+          if (message instanceof RadioSetChanged) {
+            events.push({ index: message.index, label: message.pressed.label.plain });
+          }
+        },
+      },
+    );
+
+    const rs = session.app.getByCssId("rs");
+    session.app.focusWidget(rs!.nodeId);
+    await session.pilot.pause();
+
+    await session.pilot.press("down");
+    expect(events).toEqual([{ index: 0, label: "A" }]);
 
     session.unmount();
   });

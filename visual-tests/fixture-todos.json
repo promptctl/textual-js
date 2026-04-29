@@ -390,30 +390,6 @@
     "reason": "Pre-seeded Python baseline for Stage 7 Pretty implementation"
   },
   {
-    "name": "radio_button_states",
-    "stage": "7",
-    "component": "RadioButton",
-    "reason": "Pre-seeded Python baseline for Stage 7 RadioButton implementation"
-  },
-  {
-    "name": "radio_set_default",
-    "stage": "7",
-    "component": "RadioSet",
-    "reason": "Pre-seeded Python baseline for Stage 7 RadioSet implementation"
-  },
-  {
-    "name": "radio_set_disabled",
-    "stage": "7",
-    "component": "RadioSet",
-    "reason": "Pre-seeded Python baseline for Stage 7 RadioSet implementation"
-  },
-  {
-    "name": "radio_set_selected",
-    "stage": "7",
-    "component": "RadioSet",
-    "reason": "Pre-seeded Python baseline for Stage 7 RadioSet implementation"
-  },
-  {
     "name": "rich_log_basic",
     "stage": "9",
     "component": "RichLog",
