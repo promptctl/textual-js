@@ -11,3 +11,4 @@ export { SwitchChanged } from "./switch.js";
 export { Footer, FooterKey, type FooterKeyProps, type FooterProps } from "./footer-component.js";
 export { Rule, type RuleProps } from "./rule-component.js";
 export { InvalidLineStyle, InvalidRuleOrientation, type RuleOrientation } from "./rule.js";
+export { ProgressBar, type ProgressBarProps } from "./progress-bar-component.js";
