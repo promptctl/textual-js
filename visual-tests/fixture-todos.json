@@ -479,25 +479,7 @@
     "component": "RichLog",
     "reason": "Pre-seeded Python baseline for Stage 9 RichLog implementation"
   },
-  {
-    "name": "rule_horizontal",
-    "stage": "7",
-    "component": "Rule",
-    "reason": "Pre-seeded Python baseline for Stage 7 Rule implementation"
-  },
-  {
-    "name": "rule_line_styles",
-    "stage": "7",
-    "component": "Rule",
-    "reason": "Pre-seeded Python baseline for Stage 7 Rule implementation"
-  },
-  {
-    "name": "rule_vertical",
-    "stage": "7",
-    "component": "Rule",
-    "reason": "Pre-seeded Python baseline for Stage 7 Rule implementation"
-  },
-  {
+{
     "name": "scroll_horizontal_overflow",
     "stage": "8",
     "component": "ScrollableContainer",
