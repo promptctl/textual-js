@@ -480,30 +480,6 @@
     "reason": "Pre-seeded Python baseline for Stage 8 SelectionList implementation"
   },
   {
-    "name": "sparkline_basic",
-    "stage": "9",
-    "component": "Sparkline",
-    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
-  },
-  {
-    "name": "sparkline_summary_max",
-    "stage": "9",
-    "component": "Sparkline",
-    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
-  },
-  {
-    "name": "sparkline_summary_min",
-    "stage": "9",
-    "component": "Sparkline",
-    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
-  },
-  {
-    "name": "sparkline_uneven",
-    "stage": "9",
-    "component": "Sparkline",
-    "reason": "Pre-seeded Python baseline for Stage 9 Sparkline implementation"
-  },
-  {
     "name": "tabbed_content_default",
     "stage": "8",
     "component": "TabbedContent",

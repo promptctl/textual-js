@@ -14,3 +14,13 @@ export { InvalidLineStyle, InvalidRuleOrientation, type RuleOrientation } from "
 export { ProgressBar, type ProgressBarProps } from "./progress-bar-component.js";
 export { Checkbox, type CheckboxProps } from "./checkbox-component.js";
 export { ToggleChanged } from "./toggle.js";
+export {
+  Sparkline,
+  type SparklineProps,
+  type SparklineSummaryName,
+} from "./sparkline-component.js";
+export {
+  type SummaryFunction,
+  summaryMax,
+  summaryMin,
+} from "./sparkline.js";
