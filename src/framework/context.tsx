@@ -472,22 +472,24 @@ export function useStyles(widget?: Widget): ResolvedStyles {
   return styles;
 }
 
+// [LAW:single-enforcer] One reactive path for active-binding consumers:
+// MobX-tracked reads of the canonical observable state (BindingDispatcher's
+// appBindings / appActions / keymap, framework.activeScreen, focusedNodeId).
+// Callers must be wrapped in `observer()` so the read inside `getActiveBindings()`
+// is tracked. Manual `bindings_updated_signal` subscription is intentionally
+// NOT used here — that path raced React's commit ordering (parent setAppBindings
+// publish vs. child subscription gated by lifecycleReady). The signal remains
+// for non-React consumers (probes, devtools).
 export function useBindings(widget?: Widget): ActiveBinding[] {
   const framework = useTextual();
-  const bindingWidget = widget ?? useCurrentWidget();
-  const [, setVersion] = useState(0);
+  // [LAW:dataflow-not-control-flow] Same hook order every call. The result
+  // of useCurrentWidget is read but only required when no explicit widget is
+  // provided; the runtime check produces a precise error when neither is set.
+  const ambientWidget = useContext(CurrentWidgetContext);
 
-  useLayoutEffect(() => {
-    framework.callAfterRefresh(() => {
-      setVersion((version) => version + 1);
-    });
-  }, [bindingWidget, framework]);
-
-  useLayoutEffect(() => {
-    return framework.signals.bindings_updated_signal.subscribe(bindingWidget, () => {
-      setVersion((version) => version + 1);
-    });
-  }, [bindingWidget, framework]);
+  if (widget === undefined && ambientWidget === null) {
+    throw new Error("useBindings must be used inside a widget scope (or pass an explicit widget)");
+  }
 
   return framework.getActiveBindings();
 }

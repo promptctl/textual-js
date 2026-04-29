@@ -129,7 +129,7 @@
     "name": "footer_with_bindings",
     "stage": "future",
     "component": "Footer",
-    "reason": "App-level user bindings (passed via TextualApp `bindings` prop) never reach the Footer's reactive subscription: `setAppBindings` fires its bindings_updated_signal in TextualApp's useLayoutEffect, which runs *after* the child Footer's useLayoutEffect has subscribed (parent layout effects fire after children) — but the child's signal subscriber is then cleaned up before any subsequent React commit propagates state. The Footer reads only the synchronous default-navigation bindings (no descriptions → filtered out), so chips never render. Fix is in framework binding propagation, not in Footer."
+    "reason": "Binding-chip race fixed in .11.1 (chips now render via MobX-tracked observer reads). Pixel parity still blocked on (a) dock-bottom layout — JS Footer renders at the top of the FixtureScreen flex column instead of bottom, and (b) bar background fill — Ink's whitespace-only colored Text emits no ANSI, so the FOOTER_BACKGROUND fill segment is invisible. Tracked under .11.2 and follow-up framework gaps."
   },
   {
     "name": "header_default",

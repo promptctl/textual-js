@@ -10,12 +10,11 @@ import { observer } from "mobx-react-lite";
 
 import {
   WidgetScope,
+  useBindings,
   useStyles,
-  useTextual,
   useWidget,
 } from "../framework/context.js";
 import type { ActiveBinding } from "../framework/app-framework.js";
-import type { Widget } from "../framework/widget.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
 const FOOTER_BACKGROUND = "#212B32";
@@ -82,30 +81,6 @@ function paletteDisplayWidth(): number {
   return FOOTER_PALETTE_SEPARATOR.length + PALETTE_KEY.length + PALETTE_LABEL.length;
 }
 
-// [LAW:single-enforcer] One subscription path that reliably picks up
-// post-mount binding declarations. The shared `useBindings` hook subscribes
-// inside a `useLayoutEffect` that runs *before* the parent's
-// `setAppBindings` layout effect has fired its signal, so the initial
-// publish is missed. This local hook closes that race by re-reading inside
-// `useEffect` (which runs after every layout effect in the tree, including
-// the parent's setAppBindings) and by re-fetching whenever the bindings
-// signal fires post-mount.
-function useFooterBindings(widget: Widget): ActiveBinding[] {
-  const framework = useTextual();
-  const [bindings, setBindings] = React.useState<ActiveBinding[]>(() =>
-    framework.getActiveBindings(),
-  );
-
-  React.useEffect(() => {
-    setBindings(framework.getActiveBindings());
-    return framework.signals.bindings_updated_signal.subscribe(widget, () => {
-      setBindings(framework.getActiveBindings());
-    });
-  }, [framework, widget]);
-
-  return bindings;
-}
-
 export const FooterKey = observer(function FooterKey({
   binding,
   compact = false,
@@ -159,7 +134,9 @@ export const Footer = observer(function Footer({
   // [LAW:single-enforcer] Style resolution stays the framework's job; we only
   // request the resolved values. The Footer never re-derives them.
   useStyles(widget.handle);
-  const allBindings = useFooterBindings(widget.handle);
+  // [LAW:single-enforcer] One reactive path: observer() tracks reads of the
+  // canonical observable binding state via useBindings → getActiveBindings.
+  const allBindings = useBindings(widget.handle);
   const bindings = allBindings.filter(
     (binding) => binding.description !== undefined && binding.description.length > 0,
   );
