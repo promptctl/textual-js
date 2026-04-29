@@ -51,7 +51,7 @@ import {
   type NotificationSeverity,
 } from "../services/notifications.js";
 import { Signal } from "../services/signal.js";
-import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
+import type { ActiveTheme, AnsiTheme, ThemeDefinition, ThemeManager } from "../services/theme.js";
 import { type TimerCallback, type TimerOptions } from "../services/timer.js";
 import {
   Worker,
@@ -155,6 +155,10 @@ import {
   CommandService,
   type CommandServiceDeps,
 } from "./command-service.js";
+import {
+  ThemeBroker,
+  type ThemeBrokerDeps,
+} from "./theme-broker.js";
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -470,7 +474,14 @@ export class TextualFramework {
   get notifications(): Notifications {
     return this.notificationService.notifications;
   }
-  readonly themeManager = new ThemeManager();
+  // [LAW:single-enforcer] Theme + display-policy state lives in
+  // `themeBroker` (extracted in 7w9.7). The framework holds only the service
+  // handle; getters expose themeManager/theme/animationLevel/etc. so existing
+  // consumers continue to work unchanged.
+  readonly themeBroker: ThemeBroker;
+  get themeManager(): ThemeManager {
+    return this.themeBroker.themeManager;
+  }
   readonly driver: AppDriver;
   readonly features: TextualFeatureState["features"];
   readonly devtools: TextualFeatureState["devtools"];
@@ -478,12 +489,19 @@ export class TextualFramework {
   focusedNodeId: string | null = null;
   isRunning = false;
   exitResult: unknown = undefined;
-  theme = "default";
+  // theme + animationLevel are owned by ThemeBroker (7w9.7); getters below
+  // surface them so existing framework.theme / framework.animationLevel
+  // consumers (e.g. tests/scrolling.test.ts) keep working unchanged.
+  get theme(): string {
+    return this.themeBroker.theme;
+  }
+  get animationLevel(): AnimationLevel {
+    return this.themeBroker.animationLevel;
+  }
   displayCount = 0;
   terminalSize = new Size(80, 24);
   private controlledTerminalSize: Size | null = null;
   captureUnhandledErrors = false;
-  animationLevel: AnimationLevel = "full";
   // [LAW:single-enforcer] All screen-stack/mode/installed-screen state is owned
   // by ScreenStackService. Framework getters/setters below are thin delegators.
   readonly screenStack: ScreenStackService;
@@ -528,15 +546,25 @@ export class TextualFramework {
   get activeCommandPalette(): CommandPalette | null {
     return this.commandService.activeCommandPalette;
   }
-  private appAutoFocus: string | null = null;
+  // appAutoFocus is owned by ThemeBroker; getter exposes it for FocusEngineDeps.
+  get appAutoFocus(): string | null {
+    return this.themeBroker.appAutoFocus;
+  }
   // [LAW:single-enforcer] showNotifications is owned by notificationService.
   // Surface a getter here so existing framework.showNotifications consumers
   // (TextualApp host) keep working unchanged.
   get showNotifications(): boolean {
     return this.notificationService.showNotifications;
   }
-  showTooltips = true;
-  tooltipDelay = 500;
+  // showTooltips + tooltipDelay are owned by ThemeBroker; getters expose them
+  // so TooltipServiceDeps and existing framework.showTooltips consumers
+  // continue to work unchanged.
+  get showTooltips(): boolean {
+    return this.themeBroker.showTooltips;
+  }
+  get tooltipDelay(): number {
+    return this.themeBroker.tooltipDelay;
+  }
   activeTooltip: ActiveTooltip | null = null;
   pointerShape: PointerShape = "default";
   pointerEngine!: PointerEngine;
@@ -801,6 +829,26 @@ export class TextualFramework {
     };
     this.commandService = new CommandService(commandServiceDeps);
 
+    // [LAW:single-enforcer] ThemeBroker receives only the cross-cutting hooks
+    // it needs (style recalc, theme_changed publish, run-state + focus probes
+    // for setAppAutoFocus, tooltip side-effects for setShowTooltips). It does
+    // NOT receive a back-reference to the framework.
+    const themeBrokerDeps: ThemeBrokerDeps = {
+      recalculateStyles: () => this.recalculateStyles(),
+      publishThemeChanged: (theme) => {
+        this.signals.theme_changed_signal.publish(theme);
+      },
+      isRunning: () => this.isRunning,
+      isAppBlurred: () => this.focusEngine.isAppBlurred,
+      getFocusedNodeId: () => this.focusedNodeId,
+      scheduleActiveScreenFocusResolution: (forceRefresh) => {
+        this.focusEngine.scheduleActiveScreenFocusResolution(forceRefresh);
+      },
+      hideTooltip: () => this.hideTooltip(),
+      refreshTooltipFromHover: () => this.refreshTooltipFromHover(),
+    };
+    this.themeBroker = new ThemeBroker(themeBrokerDeps);
+
     makeAutoObservable(
       this,
       {
@@ -808,6 +856,7 @@ export class TextualFramework {
         bindingDispatcher: false,
         notificationService: false,
         commandService: false,
+        themeBroker: false,
         layoutEngine: false,
         tooltipService: false,
         signalRegistry: false,
@@ -816,7 +865,6 @@ export class TextualFramework {
         features: false,
         devtools: false,
         workers: false,
-        themeManager: false,
         screenStack: false,
         pump: false,
         styleEngine: false,
@@ -848,33 +896,22 @@ export class TextualFramework {
     this.bindingDispatcher.setAppActions(actions);
   }
 
+  // [LAW:single-enforcer] Theme + display-policy entry points delegate to
+  // ThemeBroker (extracted in 7w9.7).
   setAppAutoFocus(selector: string | null | undefined): void {
-    this.appAutoFocus = selector ?? null;
-
-    if (this.isRunning && !this.focusEngine.isAppBlurred && this.focusedNodeId === null) {
-      this.focusEngine.scheduleActiveScreenFocusResolution(true);
-    }
+    this.themeBroker.setAppAutoFocus(selector);
   }
 
   setAnimationLevel(level: AnimationLevel): void {
-    // [LAW:single-enforcer] Animation policy is owned by the framework so
-    // scroll-capable widgets derive behavior from one runtime setting.
-    this.animationLevel = level;
+    this.themeBroker.setAnimationLevel(level);
   }
 
   setTooltipDelay(delayMs: number | null | undefined): void {
-    this.tooltipDelay = delayMs ?? 500;
+    this.themeBroker.setTooltipDelay(delayMs);
   }
 
   setShowTooltips(enabled: boolean | null | undefined): void {
-    this.showTooltips = enabled ?? true;
-
-    if (!this.showTooltips) {
-      this.hideTooltip();
-      return;
-    }
-
-    this.refreshTooltipFromHover();
+    this.themeBroker.setShowTooltips(enabled);
   }
 
   setShowNotifications(enabled: boolean | null | undefined): void {
@@ -1142,40 +1179,34 @@ export class TextualFramework {
     this.styleEngine.onCssChange();
   }
 
+  // [LAW:single-enforcer] Theme registration / activation delegates to
+  // ThemeBroker (extracted in 7w9.7).
   registerTheme(theme: ThemeDefinition): ActiveTheme {
-    return this.themeManager.register(theme);
+    return this.themeBroker.registerTheme(theme);
   }
 
   setTheme(name: string): ActiveTheme {
-    const nextTheme = this.themeManager.setActiveTheme(name);
-    this.theme = name;
-    this.recalculateStyles();
-    this.signals.theme_changed_signal.publish(nextTheme);
-    return nextTheme;
+    return this.themeBroker.setTheme(name);
+  }
+
+  setDarkMode(value: boolean): ActiveTheme {
+    return this.themeBroker.setDarkMode(value);
   }
 
   get activeTheme(): ActiveTheme {
-    return this.themeManager.activeTheme;
+    return this.themeBroker.activeTheme;
   }
 
   get dark(): boolean {
-    return this.themeManager.dark;
+    return this.themeBroker.dark;
   }
 
   set dark(value: boolean) {
     this.setDarkMode(value);
   }
 
-  setDarkMode(value: boolean): ActiveTheme {
-    const nextTheme = this.themeManager.setDarkMode(value);
-    this.theme = nextTheme.name;
-    this.recalculateStyles();
-    this.signals.theme_changed_signal.publish(nextTheme);
-    return nextTheme;
-  }
-
   get ansiTheme(): AnsiTheme {
-    return this.themeManager.ansiTheme;
+    return this.themeBroker.ansiTheme;
   }
 
   get ansi_theme(): AnsiTheme {
@@ -1183,11 +1214,11 @@ export class TextualFramework {
   }
 
   get ansiThemeDark(): AnsiTheme {
-    return this.themeManager.ansiThemeDark;
+    return this.themeBroker.ansiThemeDark;
   }
 
   set ansiThemeDark(theme: AnsiTheme) {
-    this.themeManager.setAnsiTheme(true, theme);
+    this.themeBroker.setAnsiThemeDark(theme);
   }
 
   get ansi_theme_dark(): AnsiTheme {
@@ -1199,11 +1230,11 @@ export class TextualFramework {
   }
 
   get ansiThemeLight(): AnsiTheme {
-    return this.themeManager.ansiThemeLight;
+    return this.themeBroker.ansiThemeLight;
   }
 
   set ansiThemeLight(theme: AnsiTheme) {
-    this.themeManager.setAnsiTheme(false, theme);
+    this.themeBroker.setAnsiThemeLight(theme);
   }
 
   get ansi_theme_light(): AnsiTheme {
