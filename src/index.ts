@@ -345,6 +345,7 @@ export {
 export {
   Button,
   ButtonPressed,
+  Checkbox,
   Footer,
   FooterKey,
   Input,
@@ -357,8 +358,10 @@ export {
   Static,
   Switch,
   SwitchChanged,
+  ToggleChanged,
   type ButtonProps,
   type ButtonVariant,
+  type CheckboxProps,
   type FooterKeyProps,
   type FooterProps,
   type InputProps,

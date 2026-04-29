@@ -6,10 +6,12 @@ import * as textual from "../src/index.js";
 import {
   ButtonPressed,
   Button,
+  Checkbox,
   ProgressBar,
   Static,
   SwitchChanged,
   Switch,
+  ToggleChanged,
   runTest,
 } from "../src/index.js";
 import { composeWidgetClasses } from "../src/widgets/component-pattern.js";
@@ -445,6 +447,110 @@ describe("ProgressBar", () => {
 
     const widget = session.app.getByCssId("pb");
     expect(widget!.classes).toContain("-complete");
+
+    session.unmount();
+  });
+});
+
+describe("Checkbox", () => {
+  it("renders the label and unchecked indicator by default", async () => {
+    const session = await runTest(<Checkbox id="cb" label="Accept" />);
+
+    const frame = session.lastFrame();
+    expect(frame).toContain("Accept");
+    expect(frame).toContain("▐ ▌");
+
+    session.unmount();
+  });
+
+  it("renders the X indicator when value is true", async () => {
+    const session = await runTest(<Checkbox id="cb" label="Accept" value />);
+
+    expect(session.lastFrame()).toContain("▐X▌");
+
+    session.unmount();
+  });
+
+  it("applies the -on class when value is true", async () => {
+    const session = await runTest(<Checkbox id="cb" label="Accept" value />);
+
+    const widget = session.app.getByCssId("cb");
+    expect(widget!.classes).toContain("-on");
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName Checkbox", async () => {
+    const session = await runTest(<Checkbox id="cb" label="Accept" />);
+
+    const widget = session.app.getByCssId("cb");
+    expect(widget!.typeName).toBe("Checkbox");
+
+    session.unmount();
+  });
+
+  it("posts ToggleChanged on enter key toggle", async () => {
+    const values: boolean[] = [];
+    const session = await runTest(
+      <Checkbox id="cb" label="Accept" />,
+      {
+        messageHook: (message) => {
+          if (message instanceof ToggleChanged) {
+            values.push(message.value);
+          }
+        },
+      },
+    );
+
+    const cb = session.app.getByCssId("cb");
+    session.app.focusWidget(cb!.nodeId);
+    await session.pilot.pause();
+
+    await session.pilot.press("enter");
+    expect(values).toEqual([true]);
+
+    await session.pilot.press("space");
+    expect(values).toEqual([true, false]);
+
+    session.unmount();
+  });
+
+  it("does not toggle when disabled", async () => {
+    const values: boolean[] = [];
+    const session = await runTest(
+      <Checkbox id="cb" label="Accept" disabled />,
+      {
+        messageHook: (message) => {
+          if (message instanceof ToggleChanged) {
+            values.push(message.value);
+          }
+        },
+      },
+    );
+
+    const cb = session.app.getByCssId("cb");
+    session.app.focusWidget(cb!.nodeId);
+    await session.pilot.pause();
+
+    await session.pilot.press("enter");
+    expect(values).toEqual([]);
+
+    session.unmount();
+  });
+
+  it("is focusable and appears in the focus chain", async () => {
+    const session = await runTest(
+      <>
+        <Checkbox id="cb1" label="One" />
+        <Checkbox id="cb2" label="Two" />
+      </>,
+    );
+
+    const chain = session.app.getFocusChain();
+    const ids = chain.map((w) => w.id);
+
+    expect(ids).toContain("cb1");
+    expect(ids).toContain("cb2");
 
     session.unmount();
   });

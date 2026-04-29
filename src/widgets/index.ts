@@ -12,3 +12,5 @@ export { Footer, FooterKey, type FooterKeyProps, type FooterProps } from "./foot
 export { Rule, type RuleProps } from "./rule-component.js";
 export { InvalidLineStyle, InvalidRuleOrientation, type RuleOrientation } from "./rule.js";
 export { ProgressBar, type ProgressBarProps } from "./progress-bar-component.js";
+export { Checkbox, type CheckboxProps } from "./checkbox-component.js";
+export { ToggleChanged } from "./toggle.js";
