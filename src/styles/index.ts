@@ -1,3 +1,11 @@
+export {
+  DISABLED_DIM_FACTOR,
+  DISABLED_DIM_TARGET,
+  dimColor,
+  mixColor,
+  parseHexColor,
+  toHexColor,
+} from "./disabled-dim.js";
 export { ResolvedStyles, type BorderValue, type ResolvedInkStyles, type ResolvedRuleMap } from "./resolved-styles.js";
 export { Styles, createStylesProxy } from "./styles.js";
 export { StylesCache } from "./styles-cache.js";
