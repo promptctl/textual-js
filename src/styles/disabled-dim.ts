@@ -8,14 +8,23 @@ export const DISABLED_DIM_TARGET = "#121212";
 // that does not supply an explicit factor.
 export const DISABLED_DIM_FACTOR = 0.5825;
 
-export function parseHexColor(color: string): [number, number, number] | null {
-  // [LAW:single-enforcer] CSS custom-property values arrive with the
-  // whitespace from `: value;` parsing intact; trim once here so every
-  // consumer of dimColor stays a one-liner.
-  const match = color.trim().toLowerCase().match(/^#([0-9a-f]{6})$/);
+export class HexColorParseError extends Error {
+  constructor(input: string) {
+    super(`Expected #RRGGBB hex color; got ${JSON.stringify(input)}`);
+    this.name = "HexColorParseError";
+  }
+}
+
+// [LAW:behavior-not-structure] Internal helper. Callers pass values that
+// are already known to be hex by the cascade; if they aren't, that is a
+// bug at the call site, not a runtime input-validation question. Throws
+// loudly rather than returning a sentinel that callers can silently
+// swallow with `?? fallback`.
+export function parseHexColor(color: string): [number, number, number] {
+  const match = color.toLowerCase().match(/^#([0-9a-f]{6})$/);
 
   if (match === null) {
-    return null;
+    throw new HexColorParseError(color);
   }
 
   return [
@@ -31,13 +40,9 @@ export function toHexColor(red: number, green: number, blue: number): string {
   return `#${channel(red)}${channel(green)}${channel(blue)}`;
 }
 
-export function mixColor(color: string, target: string, factor: number): string | undefined {
+export function mixColor(color: string, target: string, factor: number): string {
   const source = parseHexColor(color);
   const destination = parseHexColor(target);
-
-  if (source === null || destination === null) {
-    return undefined;
-  }
 
   return toHexColor(
     source[0] + (destination[0] - source[0]) * factor,
@@ -46,11 +51,16 @@ export function mixColor(color: string, target: string, factor: number): string 
   );
 }
 
-export function dimColor(
-  color: string | undefined,
-  factor: number = DISABLED_DIM_FACTOR,
-): string | undefined {
-  return color === undefined
-    ? undefined
-    : mixColor(color, DISABLED_DIM_TARGET, factor) ?? color;
+// Optionality (`undefined` passthrough) is preserved so callers with
+// optional palette entries don't have to write the same null-check at
+// every call site. Malformed-hex still throws — silence is reserved for
+// "no value to dim", never for "value present but unparseable".
+export function dimColor(color: string, factor?: number): string;
+export function dimColor(color: string | undefined, factor?: number): string | undefined;
+export function dimColor(color: string | undefined, factor: number = DISABLED_DIM_FACTOR): string | undefined {
+  return color === undefined ? undefined : mixColor(color, DISABLED_DIM_TARGET, factor);
+}
+
+export function isHexColor(value: string): boolean {
+  return /^#[0-9a-f]{6}$/i.test(value);
 }

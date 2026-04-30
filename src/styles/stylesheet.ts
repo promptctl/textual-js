@@ -1692,7 +1692,13 @@ export function parseTcss(source: string, options: ParseStylesheetOptions): Pars
         continue;
       }
 
-      const rawValue = csstree.generate(declarationNode.value);
+      // [LAW:single-enforcer] Trim CSS declaration values once at the parse
+      // boundary. csstree.generate emits the value AST with a leading space
+      // from the `:` token; downstream consumers (parseHexColor, parseSpacing,
+      // parseFractional, …) all defended individually, which both duplicates
+      // logic and silently masks malformed input. Trim here so internal
+      // helpers can assume clean input.
+      const rawValue = csstree.generate(declarationNode.value).trim();
       let value: unknown;
 
       try {
