@@ -60,14 +60,13 @@ const SWITCH_BG_DIM_FACTOR = 0.76;
 const SWITCH_FG_DIM_FACTOR = 0.3;
 
 function dimSwitchPalette(palette: SwitchPalette): SwitchPalette {
-  const dimmedBackground = dimColor(palette.background, SWITCH_BG_DIM_FACTOR) ?? palette.background;
-  const dimmedFocus = dimColor(palette.focusFill, SWITCH_BG_DIM_FACTOR) ?? palette.focusFill;
+  const dimmedBackground = dimColor(palette.background, SWITCH_BG_DIM_FACTOR);
   return {
     background: dimmedBackground,
-    focusFill: dimmedFocus,
-    border: mixColor(palette.border, dimmedBackground, SWITCH_FG_DIM_FACTOR) ?? palette.border,
-    accent: mixColor(palette.accent, dimmedBackground, SWITCH_FG_DIM_FACTOR) ?? palette.accent,
-    knob: mixColor(palette.knob, dimmedBackground, SWITCH_FG_DIM_FACTOR) ?? palette.knob,
+    focusFill: dimColor(palette.focusFill, SWITCH_BG_DIM_FACTOR),
+    border: mixColor(palette.border, dimmedBackground, SWITCH_FG_DIM_FACTOR),
+    accent: mixColor(palette.accent, dimmedBackground, SWITCH_FG_DIM_FACTOR),
+    knob: mixColor(palette.knob, dimmedBackground, SWITCH_FG_DIM_FACTOR),
   };
 }
 

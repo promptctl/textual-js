@@ -1,7 +1,9 @@
 export {
   DISABLED_DIM_FACTOR,
   DISABLED_DIM_TARGET,
+  HexColorParseError,
   dimColor,
+  isHexColor,
   mixColor,
   parseHexColor,
   toHexColor,

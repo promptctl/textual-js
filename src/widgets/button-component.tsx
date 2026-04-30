@@ -15,6 +15,7 @@ import {
   DISABLED_DIM_FACTOR,
   colorToInkValue,
   dimColor,
+  isHexColor,
   mixColor,
 } from "../styles/index.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
@@ -112,7 +113,11 @@ function dimButtonLabel(content: Content, background: string | undefined): Conte
       // [LAW:single-enforcer] Disabled-state dimming for authored label colors
       // is applied once at the button label seam so CSS colors and explicit
       // content spans follow the same opacity rule.
-      style: rewriteForegroundColor(span.style, (color) => mixColor(color, baseBackground, DISABLED_DIM_FACTOR)),
+      // Span styles can carry rgb()/hsl()/named colors — content text is a
+      // trust boundary. Dim when the color is hex; strip otherwise.
+      style: rewriteForegroundColor(span.style, (color) =>
+        isHexColor(color) ? mixColor(color, baseBackground, DISABLED_DIM_FACTOR) : undefined,
+      ),
     })),
   );
 }
@@ -120,9 +125,9 @@ function dimButtonLabel(content: Content, background: string | undefined): Conte
 function dimPalette(palette: ButtonPalette): ButtonPalette {
   return {
     background: dimColor(palette.background),
-    foreground: dimColor(palette.foreground) ?? palette.foreground,
-    top: dimColor(palette.top) ?? palette.top,
-    bottom: dimColor(palette.bottom) ?? palette.bottom,
+    foreground: dimColor(palette.foreground),
+    top: dimColor(palette.top),
+    bottom: dimColor(palette.bottom),
   };
 }
 
@@ -137,11 +142,9 @@ function readButtonPalette(
     : defaults.background;
   const foreground = colorToInkValue(styles.getRule("color") as never) ?? defaults.foreground;
   const top = (styles.customProperties.get("--button-top") as string | undefined)
-    ?? (background === defaults.background ? defaults.top : mixColor(background ?? "#272727", "#ffffff", 0.2))
-    ?? defaults.top;
+    ?? (background === defaults.background ? defaults.top : mixColor(background ?? "#272727", "#ffffff", 0.2));
   const bottom = (styles.customProperties.get("--button-bottom") as string | undefined)
-    ?? (background === defaults.background ? defaults.bottom : mixColor(background ?? "#272727", "#000000", 0.35))
-    ?? defaults.bottom;
+    ?? (background === defaults.background ? defaults.bottom : mixColor(background ?? "#272727", "#000000", 0.35));
 
   return { background, foreground, top, bottom };
 }
