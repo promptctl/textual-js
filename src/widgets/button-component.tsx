@@ -13,7 +13,7 @@ import {
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import {
   DISABLED_DIM_FACTOR,
-  colorToInkValue,
+  DISABLED_DIM_TARGET,
   dimColor,
   isHexColor,
   mixColor,
@@ -50,17 +50,25 @@ interface ButtonPalette {
   bottom: string;
 }
 
-const DEFAULT_BUTTON_PALETTES: Record<ButtonVariant, ButtonPalette> = {
+// [LAW:one-source-of-truth] DEFAULT_BUTTON_PALETTES.background is always a
+// hex string per variant (a `string`, not `string | undefined`). Narrowing
+// this type lets call sites that need a definite color use
+// `defaults.background` directly instead of `?? "#hex"` re-stating the
+// default value at the consumer.
+interface ButtonPaletteDefaults {
+  background: string;
+  foreground: string;
+  top: string;
+  bottom: string;
+}
+
+const DEFAULT_BUTTON_PALETTES: Record<ButtonVariant, ButtonPaletteDefaults> = {
   default: { background: "#272727", foreground: "#e0e0e0", top: "#2d2d2d", bottom: "#0d0d0d" },
   primary: { background: "#0178d4", foreground: "#ddedf9", top: "#6db2ff", bottom: "#004295" },
   success: { background: "#4ebf71", foreground: "#0a180e", top: "#7ae998", bottom: "#008139" },
   warning: { background: "#fea62b", foreground: "#211505", top: "#ffcf56", bottom: "#b86b00" },
   error: { background: "#b93c5b", foreground: "#f5e5e9", top: "#e76580", bottom: "#780028" },
 };
-
-function normalizePaintColor(value: string | undefined): string | undefined {
-  return value === undefined || value === "rgba(0,0,0,0)" ? undefined : value;
-}
 
 function readNumericBoxValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -104,7 +112,11 @@ function decorateButtonLabel(content: Content, styles: string[]): Content {
 }
 
 function dimButtonLabel(content: Content, background: string | undefined): Content {
-  const baseBackground = background ?? "#121212";
+  // When the button surface is transparent, dim the authored label toward
+  // the screen background pivot used elsewhere for disabled dimming.
+  // [LAW:one-source-of-truth] Pivot is shared from disabled-dim.ts; do not
+  // re-state the literal here.
+  const baseBackground = background ?? DISABLED_DIM_TARGET;
 
   return new Content(
     content.plain,
@@ -136,15 +148,31 @@ function readButtonPalette(
   variant: ButtonVariant,
 ): ButtonPalette {
   const defaults = DEFAULT_BUTTON_PALETTES[variant];
-  const hasBackgroundRule = styles.hasRule("background");
-  const background = hasBackgroundRule
-    ? normalizePaintColor(colorToInkValue(styles.getRule("background") as never))
-    : defaults.background;
-  const foreground = colorToInkValue(styles.getRule("color") as never) ?? defaults.foreground;
-  const top = (styles.customProperties.get("--button-top") as string | undefined)
-    ?? (background === defaults.background ? defaults.top : mixColor(background ?? "#272727", "#ffffff", 0.2));
-  const bottom = (styles.customProperties.get("--button-bottom") as string | undefined)
-    ?? (background === defaults.background ? defaults.bottom : mixColor(background ?? "#272727", "#000000", 0.35));
+  // [LAW:no-defensive-null-guards] DEFAULT_CSS guarantees `color`; getColor
+  // fails loud if the cascade doesn't deliver, instead of silently falling
+  // back to a hex literal duplicated from CSS.
+  const foreground = styles.getColor("color");
+  // background has three semantics that the consumer must distinguish:
+  //   - rule absent: render with the variant's default background
+  //   - rule = transparent (rgba(0,0,0,0)): render with no background fill
+  //   - rule = hex: render with that hex
+  // tryColor collapses absent and transparent into `undefined`; hasRule
+  // disambiguates them so `background: transparent` is honored.
+  const tryBackground = styles.tryColor("background");
+  const background = tryBackground !== undefined
+    ? tryBackground
+    : styles.hasRule("background")
+      ? undefined
+      : defaults.background;
+  // --button-top / --button-bottom are intentionally optional; when not set,
+  // derive from the variant default (matching background) or mix from a
+  // user-overridden background. The derivation lives at the consumer because
+  // it depends on whether background equals the variant default — the
+  // cascade can't express that comparison.
+  const top = styles.tryCustomColor("--button-top")
+    ?? (background === defaults.background ? defaults.top : mixColor(background ?? defaults.background, "#ffffff", 0.2));
+  const bottom = styles.tryCustomColor("--button-bottom")
+    ?? (background === defaults.background ? defaults.bottom : mixColor(background ?? defaults.background, "#000000", 0.35));
 
   return { background, foreground, top, bottom };
 }
@@ -210,6 +238,16 @@ export const Button = observer(function Button({
   });
 
   const styles = useStyles(widget.handle);
+
+  // [LAW:dataflow-not-control-flow] On the very first render the widget is
+  // not yet registered and `styles` is empty — the typed accessors below
+  // would throw. Gate the render on `lifecycleReady` so we read styles only
+  // when the framework guarantees the cascade has populated them. This
+  // mirrors `WidgetHost`'s child-render gate.
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
   // [LAW:dataflow-not-control-flow] The disabled-state palette is derived
   // unconditionally from the resolved palette; the data controls visual
   // dimming, not branching at every paint site.
@@ -218,7 +256,7 @@ export const Button = observer(function Button({
   const explicitWidth = readNumericBoxValue(styles.box.width);
   const minWidth = readNumericBoxValue(styles.box.minWidth) ?? 0;
   const height = readNumericBoxValue(styles.box.height) ?? 3;
-  const textAlign = (styles.getRule("text-align") as "left" | "center" | "right" | undefined) ?? "center";
+  const textAlign = styles.getEnum("text-align", ["left", "center", "right"] as const);
   const contentWidth = (explicitWidth ?? minWidth) || (resolved.firstLine.cellLength + 2);
   const normalizedLabel = normalizeButtonLabel(
     resolved.firstLine.truncate(Math.max(0, contentWidth - 2), { overflow: "crop" }),

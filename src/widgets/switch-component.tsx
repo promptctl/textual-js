@@ -8,7 +8,7 @@ import { runInAction } from "mobx";
 
 import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetResult } from "../framework/context.js";
-import { colorToInkValue, dimColor, mixColor } from "../styles/index.js";
+import { dimColor, mixColor } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { SwitchModel, SwitchChanged } from "./switch.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -18,6 +18,10 @@ export interface SwitchProps extends WidgetComponentProps {
   disabled?: boolean;
 }
 
+// [LAW:one-source-of-truth] DEFAULT_CSS is the single source of truth for
+// every style this widget reads. `--switch-border` is declared here in the
+// base rule so the un-focused border color cascades cleanly; the previous
+// `?? color ?? "#191919"` widget-side fallback is gone.
 const DEFAULT_CSS = `
   Switch {
     width: 10;
@@ -27,6 +31,7 @@ const DEFAULT_CSS = `
     --switch-accent: #242f38;
     --switch-knob: #e0e0e0;
     --switch-focus-fill: #000f18;
+    --switch-border: #191919;
   }
   Switch.-on {
     background: #1e1e1e;
@@ -148,17 +153,28 @@ export const Switch = observer(function Switch({
 
   widgetRef.current = widget;
   const styles = useStyles(widget.handle);
+
+  // [LAW:dataflow-not-control-flow] The cascade resolves during widget
+  // registration (in useLayoutEffect). On the very first render the widget
+  // is not yet registered and `styles` is empty — the typed accessors below
+  // would throw. Gate the render on `lifecycleReady` so we read styles only
+  // when the framework guarantees the cascade has populated them. This
+  // mirrors `WidgetHost`'s child-render gate.
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
   const width = readNumericBoxValue(styles.box.width) ?? 10;
   const innerWidth = Math.max(4, width - 2);
+  // [LAW:no-defensive-null-guards] Every property below is guaranteed by
+  // DEFAULT_CSS; the typed accessors throw if the cascade is broken instead
+  // of silently substituting a hex literal.
   const basePalette: SwitchPalette = {
-    background: colorToInkValue(styles.getRule("background") as never) ?? (model.value ? "#1e1e1e" : "#272727"),
-    border:
-      (styles.customProperties.get("--switch-border") as string | undefined)
-      ?? colorToInkValue(styles.getRule("color") as never)
-      ?? "#191919",
-    accent: (styles.customProperties.get("--switch-accent") as string | undefined) ?? (model.value ? "#a1a1a1" : "#2d2d2d"),
-    knob: (styles.customProperties.get("--switch-knob") as string | undefined) ?? "#e0e0e0",
-    focusFill: (styles.customProperties.get("--switch-focus-fill") as string | undefined) ?? "#000f18",
+    background: styles.getColor("background"),
+    border: styles.getCustomColor("--switch-border"),
+    accent: styles.getCustomColor("--switch-accent"),
+    knob: styles.getCustomColor("--switch-knob"),
+    focusFill: styles.getCustomColor("--switch-focus-fill"),
   };
   // [LAW:dataflow-not-control-flow] The disabled-state palette is derived once
   // from the resolved palette; dimming is a data transform, not a per-paint
