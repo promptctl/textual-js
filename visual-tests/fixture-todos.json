@@ -149,7 +149,7 @@
     "component": "HelpPanel",
     "reason": "Pre-seeded Python baseline for Stage 10 HelpPanel implementation"
   },
-{
+  {
     "name": "input_empty",
     "stage": "future",
     "component": "Input",
@@ -160,12 +160,6 @@
     "stage": "future",
     "component": "Input",
     "reason": "JS Input rendering diverges substantially from Python. Fixture .tsx exists; suppress until JS Input matches Python."
-  },
-  {
-    "name": "input_focused",
-    "stage": "future",
-    "component": "Input",
-    "reason": "JS Input does not visually respond to Tab focus; xterm screenshot watchdog times out. Fixture .tsx exists; suppress until JS Input shows focus state."
   },
   {
     "name": "input_invalid",
@@ -180,6 +174,12 @@
     "reason": "JS Input password obfuscation rendering diverges. Fixture .tsx exists; suppress until JS Input matches Python."
   },
   {
+    "name": "input_focused",
+    "stage": "future",
+    "component": "Input",
+    "reason": "Tab now routes to Input via the Ink key bridge, but the Input widget has no :focus visual styling, so the screen state is unchanged after focus and the xterm watchdog still times out. Distinct from the previous diagnosis (which blamed the bridge): Input rendering needs a focus indicator. Tracked under .14."
+  },
+  {
     "name": "input_placeholder_only",
     "stage": "future",
     "component": "Input",
@@ -190,12 +190,6 @@
     "stage": "future",
     "component": "Switch",
     "reason": "JS Switch does not dim when disabled. Fixture .tsx exists; suppress until JS Switch matches Python disabled rendering."
-  },
-  {
-    "name": "switch_focused",
-    "stage": "future",
-    "component": "Switch",
-    "reason": "JS Switch does not visually respond to Tab focus; xterm screenshot watchdog times out. Fixture .tsx exists; suppress until JS Switch shows focus state."
   },
   {
     "name": "key_panel_default",
@@ -401,7 +395,7 @@
     "component": "RichLog",
     "reason": "Pre-seeded Python baseline for Stage 9 RichLog implementation"
   },
-{
+  {
     "name": "scroll_horizontal_overflow",
     "stage": "8",
     "component": "ScrollableContainer",
