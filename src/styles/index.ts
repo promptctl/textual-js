@@ -8,7 +8,13 @@ export {
   parseHexColor,
   toHexColor,
 } from "./disabled-dim.js";
-export { ResolvedStyles, type BorderValue, type ResolvedInkStyles, type ResolvedRuleMap } from "./resolved-styles.js";
+export {
+  ResolvedStyles,
+  RuleResolutionError,
+  type BorderValue,
+  type ResolvedInkStyles,
+  type ResolvedRuleMap,
+} from "./resolved-styles.js";
 export { Styles, createStylesProxy } from "./styles.js";
 export { StylesCache } from "./styles-cache.js";
 export {
