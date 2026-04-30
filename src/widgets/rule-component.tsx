@@ -8,7 +8,6 @@ import { observer } from "mobx-react-lite";
 import { runInAction } from "mobx";
 
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
-import { colorToInkValue } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { RuleModel, type RuleOrientation } from "./rule.js";
 
@@ -78,8 +77,14 @@ export const Rule = observer(function Rule({
   });
 
   const styles = useStyles(widget.handle);
-  const color =
-    colorToInkValue(styles.getRule("color") as never) ?? DEFAULT_RULE_COLOR;
+
+  // [LAW:dataflow-not-control-flow] Gate on lifecycleReady so styles are
+  // populated by the cascade before the typed accessor reads them.
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
+  const color = styles.getColor("color");
   const isHorizontal = model.orientation === "horizontal";
   const character = isHorizontal
     ? HORIZONTAL_LINE_CHARS[model.lineStyle] ?? " "

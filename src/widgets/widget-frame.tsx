@@ -49,8 +49,13 @@ export function WidgetFrame({
   boxProps = {},
 }: WidgetFrameProps): React.JSX.Element {
   const outline = styles.getRule<BorderValue>("outline");
-  const titleAlign = (styles.getRule("border-title-align") as "left" | "center" | "right" | undefined) ?? "center";
-  const subtitleAlign = (styles.getRule("border-subtitle-align") as "left" | "center" | "right" | undefined) ?? "center";
+  // [LAW:no-defensive-null-guards] Border-title-align is genuinely optional —
+  // most widgets don't declare it. tryEnum returns undefined when absent;
+  // "center" is the documented default, kept at the consumer as the
+  // single rendering decision.
+  const alignChoices = ["left", "center", "right"] as const;
+  const titleAlign = styles.tryEnum("border-title-align", alignChoices) ?? "center";
+  const subtitleAlign = styles.tryEnum("border-subtitle-align", alignChoices) ?? "center";
   const width = readNumericBoxValue(styles.box.width) ?? (widget.screenRegion.width > 0 ? widget.screenRegion.width : undefined);
   const textProps = {
     color: typeof styles.box.borderColor === "string" ? styles.box.borderColor : undefined,
