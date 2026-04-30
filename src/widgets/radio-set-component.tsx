@@ -15,7 +15,6 @@ import { runInAction } from "mobx";
 
 import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetResult } from "../framework/context.js";
-import { colorToInkValue } from "../styles/index.js";
 import type { ContentInput } from "../content/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { ToggleButtonModel } from "./toggle.js";
@@ -143,7 +142,14 @@ export const RadioSet = observer(function RadioSet({
 
   widgetRef.current = widget;
   const styles = useStyles(widget.handle);
-  const foreground = colorToInkValue(styles.getRule("color") as never) ?? "#e0e0e0";
+
+  // [LAW:dataflow-not-control-flow] Gate on lifecycleReady so styles are
+  // populated by the cascade before the typed accessor reads them.
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
+  const foreground = styles.getColor("color");
 
   const rows: React.JSX.Element[] = [];
   for (let index = 0; index < model.length; index += 1) {

@@ -8,18 +8,21 @@ import { observer } from "mobx-react-lite";
 import { runInAction } from "mobx";
 
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
-import { colorToInkValue } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { ProgressBarModel } from "./progress-bar.js";
 
-const DEFAULT_BAR_COLOR = "#004578";
-const DEFAULT_BAR_BACKGROUND = "#3d3d3d";
 const FILLED_CHAR = "━";
 const EMPTY_CHAR = "─";
 const PULSE_GLYPHS = "──━━━━━──";
 
+// [LAW:one-source-of-truth] color (filled bar) and background (rail) live
+// in DEFAULT_CSS — the cascade is the only place these defaults appear.
 const DEFAULT_CSS = `
-  ProgressBar { height: 1; }
+  ProgressBar {
+    height: 1;
+    color: #004578;
+    background: #3d3d3d;
+  }
 `;
 
 export interface ProgressBarProps extends WidgetComponentProps {
@@ -87,9 +90,15 @@ export const ProgressBar = observer(function ProgressBar({
   });
 
   const styles = useStyles(widget.handle);
-  const filledColor = colorToInkValue(styles.getRule("color") as never) ?? DEFAULT_BAR_COLOR;
-  const railColor =
-    colorToInkValue(styles.getRule("background") as never) ?? DEFAULT_BAR_BACKGROUND;
+
+  // [LAW:dataflow-not-control-flow] Gate on lifecycleReady so styles are
+  // populated by the cascade before the typed accessor reads them.
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
+  const filledColor = styles.getColor("color");
+  const railColor = styles.getColor("background");
 
   const region = widget.handle.screenRegion;
   const totalWidth = Math.max(0, region.width);

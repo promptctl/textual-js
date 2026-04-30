@@ -7,7 +7,7 @@ import { Box, Text } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
-import { colorToInkValue, normalizeColor } from "../styles/index.js";
+import { normalizeColor } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import {
   renderSparklineGrid,
@@ -112,7 +112,10 @@ export const Sparkline = observer(function Sparkline({
   const grid: SparklineCell[][] =
     width === 0 ? [] : renderSparklineGrid(data, { width, height, summary });
 
-  const backgroundColor = colorToInkValue(styles.getRule("background") as never);
+  // [LAW:no-defensive-null-guards] Sparkline's DEFAULT_CSS does not set a
+  // background; tryColor expresses that the rule is genuinely optional and
+  // user CSS may set it to a hex.
+  const backgroundColor = styles.tryColor("background");
 
   return (
     <WidgetScope widget={widget.handle}>
