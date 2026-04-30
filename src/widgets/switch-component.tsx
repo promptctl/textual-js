@@ -8,7 +8,7 @@ import { runInAction } from "mobx";
 
 import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetResult } from "../framework/context.js";
-import { colorToInkValue } from "../styles/index.js";
+import { colorToInkValue, dimColor, mixColor } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { SwitchModel, SwitchChanged } from "./switch.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -40,6 +40,35 @@ const DEFAULT_CSS = `
 
 function readNumericBoxValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+interface SwitchPalette {
+  background: string;
+  border: string;
+  accent: string;
+  knob: string;
+  focusFill: string;
+}
+
+// Approximates Python Textual's two-layer disabled rendering: background
+// colors dim heavily toward the screen background (mimicking `tint`), then
+// foreground colors dim toward the dimmed background (mimicking
+// `text-opacity`). Single-factor dimming can't match this — the visual
+// gap between widget surface and inner segments depends on both layers.
+// Pixel-perfect parity (focusFill, exact channel tuning) is a follow-up.
+const SWITCH_BG_DIM_FACTOR = 0.76;
+const SWITCH_FG_DIM_FACTOR = 0.3;
+
+function dimSwitchPalette(palette: SwitchPalette): SwitchPalette {
+  const dimmedBackground = dimColor(palette.background, SWITCH_BG_DIM_FACTOR) ?? palette.background;
+  const dimmedFocus = dimColor(palette.focusFill, SWITCH_BG_DIM_FACTOR) ?? palette.focusFill;
+  return {
+    background: dimmedBackground,
+    focusFill: dimmedFocus,
+    border: mixColor(palette.border, dimmedBackground, SWITCH_FG_DIM_FACTOR) ?? palette.border,
+    accent: mixColor(palette.accent, dimmedBackground, SWITCH_FG_DIM_FACTOR) ?? palette.accent,
+    knob: mixColor(palette.knob, dimmedBackground, SWITCH_FG_DIM_FACTOR) ?? palette.knob,
+  };
 }
 
 function renderSwitchRow(
@@ -122,14 +151,22 @@ export const Switch = observer(function Switch({
   const styles = useStyles(widget.handle);
   const width = readNumericBoxValue(styles.box.width) ?? 10;
   const innerWidth = Math.max(4, width - 2);
-  const background = colorToInkValue(styles.getRule("background") as never) ?? (model.value ? "#1e1e1e" : "#272727");
-  const border =
-    (styles.customProperties.get("--switch-border") as string | undefined)
-    ?? colorToInkValue(styles.getRule("color") as never)
-    ?? "#191919";
-  const accent = (styles.customProperties.get("--switch-accent") as string | undefined) ?? (model.value ? "#a1a1a1" : "#2d2d2d");
-  const knob = (styles.customProperties.get("--switch-knob") as string | undefined) ?? "#e0e0e0";
-  const focusFill = (styles.customProperties.get("--switch-focus-fill") as string | undefined) ?? "#000f18";
+  const basePalette: SwitchPalette = {
+    background: colorToInkValue(styles.getRule("background") as never) ?? (model.value ? "#1e1e1e" : "#272727"),
+    border:
+      (styles.customProperties.get("--switch-border") as string | undefined)
+      ?? colorToInkValue(styles.getRule("color") as never)
+      ?? "#191919",
+    accent: (styles.customProperties.get("--switch-accent") as string | undefined) ?? (model.value ? "#a1a1a1" : "#2d2d2d"),
+    knob: (styles.customProperties.get("--switch-knob") as string | undefined) ?? "#e0e0e0",
+    focusFill: (styles.customProperties.get("--switch-focus-fill") as string | undefined) ?? "#000f18",
+  };
+  // [LAW:dataflow-not-control-flow] The disabled-state palette is derived once
+  // from the resolved palette; dimming is a data transform, not a per-paint
+  // branch. Render code below sees a single uniform palette.
+  const { background, border, accent, knob, focusFill } = widget.handle.isDisabledEffective
+    ? dimSwitchPalette(basePalette)
+    : basePalette;
   const quarter = Math.max(1, Math.floor(innerWidth / 4));
   const widths = [quarter, quarter, quarter, Math.max(1, innerWidth - quarter * 3)];
   const middleSegments = model.value

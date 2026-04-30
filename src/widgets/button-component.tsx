@@ -11,7 +11,12 @@ import {
   type ContentInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
-import { colorToInkValue } from "../styles/index.js";
+import {
+  DISABLED_DIM_FACTOR,
+  colorToInkValue,
+  dimColor,
+  mixColor,
+} from "../styles/index.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -51,40 +56,6 @@ const DEFAULT_BUTTON_PALETTES: Record<ButtonVariant, ButtonPalette> = {
   warning: { background: "#fea62b", foreground: "#211505", top: "#ffcf56", bottom: "#b86b00" },
   error: { background: "#b93c5b", foreground: "#f5e5e9", top: "#e76580", bottom: "#780028" },
 };
-
-function parseHexColor(color: string): [number, number, number] | null {
-  const match = color.toLowerCase().match(/^#([0-9a-f]{6})$/);
-
-  if (match === null) {
-    return null;
-  }
-
-  return [
-    Number.parseInt(match[1].slice(0, 2), 16),
-    Number.parseInt(match[1].slice(2, 4), 16),
-    Number.parseInt(match[1].slice(4, 6), 16),
-  ];
-}
-
-function toHexColor(red: number, green: number, blue: number): string {
-  const channel = (value: number): string => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
-  return `#${channel(red)}${channel(green)}${channel(blue)}`;
-}
-
-function mixColor(color: string, target: string, factor: number): string | undefined {
-  const source = parseHexColor(color);
-  const destination = parseHexColor(target);
-
-  if (source === null || destination === null) {
-    return undefined;
-  }
-
-  return toHexColor(
-    source[0] + (destination[0] - source[0]) * factor,
-    source[1] + (destination[1] - source[1]) * factor,
-    source[2] + (destination[2] - source[2]) * factor,
-  );
-}
 
 function normalizePaintColor(value: string | undefined): string | undefined {
   return value === undefined || value === "rgba(0,0,0,0)" ? undefined : value;
@@ -129,15 +100,6 @@ function normalizeButtonLabel(content: Content, preserveForeground: boolean): Co
 
 function decorateButtonLabel(content: Content, styles: string[]): Content {
   return styles.reduce((current, style) => current.stylize(style), content);
-}
-
-// [LAW:one-source-of-truth] All disabled-state dimming derives from this single
-// factor and pivot color so label, edge rows, and background stay in sync.
-const DISABLED_DIM_TARGET = "#121212";
-const DISABLED_DIM_FACTOR = 0.5825;
-
-function dimColor(color: string | undefined): string | undefined {
-  return color === undefined ? undefined : mixColor(color, DISABLED_DIM_TARGET, DISABLED_DIM_FACTOR) ?? color;
 }
 
 function dimButtonLabel(content: Content, background: string | undefined): Content {

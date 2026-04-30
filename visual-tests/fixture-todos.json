@@ -186,12 +186,6 @@
     "reason": "JS Input does not render a placeholder when value is empty. Fixture .tsx exists; suppress until JS Input matches Python."
   },
   {
-    "name": "switch_disabled",
-    "stage": "future",
-    "component": "Switch",
-    "reason": "JS Switch does not dim when disabled. Fixture .tsx exists; suppress until JS Switch matches Python disabled rendering."
-  },
-  {
     "name": "key_panel_default",
     "stage": "10",
     "component": "KeyPanel",
