@@ -18,6 +18,8 @@ import {
   type SimpleCommand,
   type SystemCommand,
   type NotifyOptions,
+  type BindingClash,
+  type BindingNamespace,
   type RegisterWidgetTypeOptions,
   type WidgetTypeMetadata,
 } from "../framework/app-framework.js";
@@ -222,8 +224,23 @@ export class App<Result = unknown> {
     return this.screenStack.getScreenStack();
   }
 
-  installScreen(screen: ScreenDescriptor | (() => React.ReactElement), name: string): void {
-    this.screenStack.installScreen(name, normalizeScreenFactory(screen));
+  // [LAW:one-source-of-truth] Single entry; accepts either (name, factory)
+  // — the framework-style/host call shape — or (screen, name) for Python
+  // Textual parity. The first-string-argument heuristic disambiguates.
+  installScreen(
+    screenOrName: ScreenDescriptor | (() => React.ReactElement) | string,
+    nameOrFactory: string | (() => React.ReactElement),
+  ): void {
+    if (typeof screenOrName === "string" && typeof nameOrFactory === "function") {
+      this.screenStack.installScreen(screenOrName, nameOrFactory);
+      return;
+    }
+
+    if (typeof nameOrFactory !== "string") {
+      throw new TypeError("installScreen requires a screen name");
+    }
+
+    this.screenStack.installScreen(nameOrFactory, normalizeScreenFactory(screenOrName));
   }
 
   // [LAW:locality-or-seam] Host-shaped install entry: takes (name, factory)
@@ -300,6 +317,10 @@ export class App<Result = unknown> {
       const entry = this.pushScreen(descriptor, options) as Screen;
       entry.waiters.push(resolve);
     });
+  }
+
+  dismissScreen(result?: unknown): Screen | null {
+    return this.popScreen(result);
   }
 
   popScreen(result?: unknown): Screen | null {
@@ -679,6 +700,10 @@ export class App<Result = unknown> {
     return this._framework.activeTooltip;
   }
 
+  set activeTooltip(value: ActiveTooltip | null) {
+    this._framework.activeTooltip = value;
+  }
+
   get tooltipDelay(): number {
     return this.themeBroker.tooltipDelay;
   }
@@ -784,6 +809,14 @@ export class App<Result = unknown> {
 
   get showNotifications(): boolean {
     return this.notificationService.showNotifications;
+  }
+
+  get activeScreen(): Screen | null {
+    return this.screenStack.activeScreen;
+  }
+
+  get activeCommandPalette(): CommandPalette | null {
+    return this.commandService.activeCommandPalette;
   }
 
   get activeScreenElement(): React.ReactElement | null {
@@ -1039,6 +1072,48 @@ export class App<Result = unknown> {
 
   getSystemCommandsForScreen(screen: Screen | null): SystemCommand[] {
     return this.commandService.getSystemCommands(screen);
+  }
+
+  handleBindingsClash(_clashes: BindingClash[], _namespace: BindingNamespace): void {
+    // Default no-op; apps may override (or tests may spy) to surface clashes.
+  }
+
+  handleAppBlur(): void {
+    this.lifecycle.handleAppBlur();
+  }
+
+  handleAppFocus(): void {
+    this.lifecycle.handleAppFocus();
+  }
+
+  dispatchMessage(message: Message): void {
+    this.messagePump.dispatchMessage(message);
+  }
+
+  setTerminalSize(size: Size): void {
+    this.lifecycle.setTerminalSize(size);
+  }
+
+  getActiveStylesheetsFor(typeName: string) {
+    return this._framework.getActiveStylesheetsFor(typeName);
+  }
+
+  // Snake-case theme aliases for Python-Textual API parity (mirrors framework's
+  // existing snake_case getters).
+  get ansi_theme() {
+    return this.themeBroker.ansiTheme;
+  }
+  get ansi_theme_dark() {
+    return this.themeBroker.ansiThemeDark;
+  }
+  set ansi_theme_dark(theme) {
+    this.themeBroker.setAnsiThemeDark(theme);
+  }
+  get ansi_theme_light() {
+    return this.themeBroker.ansiThemeLight;
+  }
+  set ansi_theme_light(theme) {
+    this.themeBroker.setAnsiThemeLight(theme);
   }
 
   private resolveCommandProviders(): Iterable<ProviderConstructor> | null | undefined {

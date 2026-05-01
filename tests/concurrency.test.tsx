@@ -40,12 +40,11 @@ describe("concurrency primitives", () => {
 
     try {
       const app = new App();
-      const framework = app.framework;
       let widget!: Widget;
       const ticks: number[] = [];
 
       const instance = render(
-        <TextualApp framework={framework}>
+        <TextualApp app={app}>
           <TimerHarness
             onReady={(value) => {
               widget = value;
@@ -89,11 +88,10 @@ describe("concurrency primitives", () => {
 
   it("schedules callbacks for next tick, later, and after refresh", async () => {
     const app = new App();
-      const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <Text>schedule</Text>
       </TextualApp>,
     );
@@ -131,14 +129,13 @@ describe("concurrency primitives", () => {
 
   it("routes callLater through the message queue and idle drain", async () => {
     const app = new App();
-      const framework = app.framework;
     const observed: string[] = [];
     const unsubscribe = app.subscribeToMessages((message) => {
       observed.push(message.constructor.name);
     });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <Text>later</Text>
       </TextualApp>,
     );
@@ -164,11 +161,10 @@ describe("concurrency primitives", () => {
 
   it("flushes callNext from the dispatcher before later queued callbacks", async () => {
     const app = new App();
-      const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Scheduler"
           handlers={{
@@ -256,11 +252,10 @@ describe("concurrency primitives", () => {
 
   it("runs callAfterRefresh inside the active message pump context", async () => {
     const app = new App();
-      const framework = app.framework;
-    let active: App["framework"] | null = null;
+    let active: App | null = null;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <Text>after-refresh-context</Text>
       </TextualApp>,
     );
@@ -268,28 +263,27 @@ describe("concurrency primitives", () => {
     await app.whenIdle();
 
     app.callAfterRefresh(() => {
-      active = getActiveMessagePump<App["framework"]>();
+      active = getActiveMessagePump<App>();
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(active).toBe(framework);
+    expect(active).toBe(app);
 
     instance.unmount();
     instance.cleanup();
   });
 
   it("rejects callFromThread when stopped or called from the app thread", async () => {
-    const stopped = new App().framework;
+    const stopped = new App();
 
     expect(() => stopped.callFromThread(() => "nope")).toThrow(RuntimeError);
 
     const app = new App();
-      const framework = app.framework;
     let samePumpError: unknown = null;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <Text>call-from-thread</Text>
       </TextualApp>,
     );

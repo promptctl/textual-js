@@ -56,21 +56,21 @@ function PilotTarget(): React.JSX.Element {
 PilotTarget.displayName = "PilotTarget";
 
 function NotificationOnMount(props: { message: string }): null {
-  const framework = useTextual();
+  const app = useTextual();
 
   useLayoutEffect(() => {
-    framework.notify(props.message);
-  }, [framework, props.message]);
+    app.notify(props.message);
+  }, [app, props.message]);
 
   return null;
 }
 
 function TooltipOnMount(props: { message: string }): null {
-  const framework = useTextual();
+  const app = useTextual();
 
   useLayoutEffect(() => {
     runInAction(() => {
-      framework.activeTooltip = {
+      app.activeTooltip = {
         sourceNodeId: "mount-tooltip",
         visual: visualize(props.message),
         x: 0,
@@ -78,7 +78,7 @@ function TooltipOnMount(props: { message: string }): null {
         visible: true,
       };
     });
-  }, [framework, props.message]);
+  }, [app, props.message]);
 
   return null;
 }
@@ -111,11 +111,11 @@ function FailingScreen(): React.JSX.Element {
 }
 
 function PushBrokenScreenOnMount(): React.JSX.Element {
-  const framework = useTextual();
+  const app = useTextual();
 
   useLayoutEffect(() => {
-    framework.pushScreen(<FailingScreen />, { name: "broken" });
-  }, [framework]);
+    app.pushScreen(<FailingScreen />, { name: "broken" });
+  }, [app]);
 
   return <Text>host</Text>;
 }
@@ -202,7 +202,7 @@ describe("testing harness", () => {
   it("exposes the app handle and presses multiple keys as discrete events", async () => {
     const session = await runTest(<CounterApp />);
 
-    expect(session.app.framework).toBe(session.framework);
+    expect(session.app).toBe(session.app);
     expect(String(session.pilot)).toBe("<Pilot app=App>");
 
     await session.pilot.press("x", "x");
@@ -358,7 +358,7 @@ describe("testing harness", () => {
   it("keeps mount-time tooltips disabled unless the transient opt-in is enabled", async () => {
     const defaultSession = await runTest(<TooltipOnMount message="mount tooltip" />);
 
-    expect(defaultSession.framework.showTooltips).toBe(false);
+    expect(defaultSession.app.showTooltips).toBe(false);
     expect(defaultSession.lastFrame()).not.toContain("mount tooltip");
     defaultSession.unmount();
 
@@ -366,7 +366,7 @@ describe("testing harness", () => {
       transients: { tooltips: true },
     });
 
-    expect(enabledSession.framework.showTooltips).toBe(true);
+    expect(enabledSession.app.showTooltips).toBe(true);
     enabledSession.unmount();
   });
 

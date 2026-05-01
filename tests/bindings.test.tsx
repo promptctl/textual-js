@@ -25,12 +25,12 @@ async function settleBindings(app: App): Promise<void> {
 }
 
 function BindingSignalProbe({ onUpdate }: { onUpdate: () => void }): React.JSX.Element {
-  const framework = useTextual();
+  const app = useTextual();
   const { handle } = useWidget({ typeName: "BindingSignalProbe" });
 
   useEffect(() => {
-    return framework.signals.bindings_updated_signal.subscribe(handle, onUpdate);
-  }, [framework, handle, onUpdate]);
+    return app.signals.bindings_updated_signal.subscribe(handle, onUpdate);
+  }, [app, handle, onUpdate]);
 
   return <Text>probe</Text>;
 }
@@ -114,12 +114,11 @@ describe("binding normalization", () => {
 describe("binding dispatch", () => {
   it("runs widget bindings before ancestor bindings before screen before app", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         bindings={[{ key: "ctrl+s", action: "save" }]}
         actions={{
           action_save: () => {
@@ -162,7 +161,7 @@ describe("binding dispatch", () => {
     expect(order).toEqual(["leaf"]);
 
     // Remove the leaf's binding and try again — the ancestor binding must fire.
-    const leafNode = framework.registry.getByCssId("leaf")!;
+    const leafNode = app.registry.getByCssId("leaf")!;
     leafNode.bindingsRef.current = [];
 
     app.postKey("s", { ctrl: true });
@@ -176,12 +175,11 @@ describe("binding dispatch", () => {
 
   it("fires the hard-coded ctrl+q priority binding before the key reaches widget handlers", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         actions={{
           action_quit: () => {
             order.push("app");
@@ -216,12 +214,11 @@ describe("binding dispatch", () => {
 
   it("respects checkAction gates: true enables, null disables, false hides", async () => {
     const app = new App();
-    const framework = app.framework;
     let callCount = 0;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         bindings={[{ key: "f2", action: "app.gated" }]}
         actions={{
           action_gated: () => {
@@ -256,9 +253,8 @@ describe("binding dispatch", () => {
     // not match this contract.
     let saveCallCount = 0;
     const app = new App();
-    const framework = app.framework;
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Leaf"
           focusable
@@ -288,12 +284,11 @@ describe("binding dispatch", () => {
 
   it("consumes disabled bindings instead of bubbling past them", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         bindings={[{ key: "f2", action: "fallback" }]}
         actions={{
           action_fallback: () => {
@@ -331,12 +326,11 @@ describe("binding dispatch", () => {
 
   it("lets SkipAction fall through to the next binding in the chain", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         bindings={[{ key: "f3", action: "fallback" }]}
         actions={{
           action_fallback: () => {
@@ -374,14 +368,13 @@ describe("binding dispatch", () => {
 
   it("lets SkipAction fall through after a keymap remap", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     app.setKeymap({ primary: "f6" });
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         bindings={[{ key: "f6", action: "fallback" }]}
         actions={{
           action_fallback: () => {
@@ -419,12 +412,11 @@ describe("binding dispatch", () => {
 
   it("replaces the full keymap, merges updates, and publishes bindings_updated_signal", async () => {
     const app = new App();
-    const framework = app.framework;
     const onUpdate = vi.fn();
     const order: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <BindingSignalProbe onUpdate={onUpdate} />
         <WidgetHost
           typeName="Leaf"
@@ -471,13 +463,12 @@ describe("binding dispatch", () => {
 
   it("applies pre-mount keymaps once the app starts", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     app.updateKeymap({ save: "f7" });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Leaf"
           focusable
@@ -508,11 +499,10 @@ describe("binding dispatch", () => {
 
   it("ignores unknown keymap ids and deactivates the original binding key after remap", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Leaf"
           focusable
@@ -547,13 +537,12 @@ describe("binding dispatch", () => {
 
   it("remaps shared binding ids on both parent and child bindings", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     app.setKeymap({ save: "f8" });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Container"
           bindings={[{ key: "ctrl+s", action: "save", id: "save" }]}
@@ -586,7 +575,7 @@ describe("binding dispatch", () => {
     app.postKey("f8");
     await app.whenIdle();
 
-    const leafNode = framework.registry.getByCssId("leaf")!;
+    const leafNode = app.registry.getByCssId("leaf")!;
     leafNode.bindingsRef.current = [];
 
     app.postKey("f8");
@@ -600,13 +589,12 @@ describe("binding dispatch", () => {
 
   it("remaps only the binding ids present in the keymap", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     app.setKeymap({ ancestor_save: "f9" });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Container"
           bindings={[{ key: "ctrl+s", action: "save", id: "ancestor_save" }]}
@@ -639,7 +627,7 @@ describe("binding dispatch", () => {
     app.postKey("s", { ctrl: true });
     await app.whenIdle();
 
-    const leafNode = framework.registry.getByCssId("leaf")!;
+    const leafNode = app.registry.getByCssId("leaf")!;
     leafNode.bindingsRef.current = [];
 
     app.postKey("s", { ctrl: true });
@@ -654,17 +642,16 @@ describe("binding dispatch", () => {
 
   it("reports per-namespace key clashes only once for the active chain", async () => {
     const app = new App();
-    const framework = app.framework;
     const clashes: Array<{ clashes: BindingClash[]; namespace: BindingNamespace }> = [];
     const clashSpy = vi
-      .spyOn(framework, "handleBindingsClash")
+      .spyOn(app, "handleBindingsClash")
       .mockImplementation((nextClashes, namespace) => {
         clashes.push({ clashes: nextClashes, namespace });
       });
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         bindings={[
           { key: "f1", action: "alpha", id: "alpha" },
           { key: "f2", action: "beta", id: "beta" },
@@ -698,12 +685,11 @@ describe("binding dispatch", () => {
 
   it("fires the hard-coded ctrl+c quit binding when nothing lower handles it", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         actions={{
           action_quit: () => {
             order.push("quit");
@@ -729,12 +715,11 @@ describe("binding dispatch", () => {
 
   it("routes the hard-coded ctrl+p binding to action_command_palette", async () => {
     const app = new App();
-    const framework = app.framework;
     const order: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         actions={{
           action_command_palette: () => {
             order.push("palette");
@@ -760,10 +745,9 @@ describe("binding dispatch", () => {
 
   it("keeps the hard-coded ctrl+p binding as a safe no-op by default", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Leaf" focusable autoFocus>
           <Text>leaf</Text>
         </WidgetHost>
@@ -783,11 +767,10 @@ describe("binding dispatch", () => {
 
   it("resolves namespace.action targets independent of the caller", () => {
     const app = new App();
-    const framework = app.framework;
     const log: string[] = [];
 
-    framework.setAppBindings([]);
-    framework.setAppActions({
+    app.setAppBindings([]);
+    app.setAppActions({
       action_alpha: () => {
         log.push("app.alpha");
       },

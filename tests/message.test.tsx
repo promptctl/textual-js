@@ -50,11 +50,10 @@ describe("message dispatch", () => {
 
   it("resolves widget handlers and bubbles through the registered tree", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Parent"
           handlers={{
@@ -79,7 +78,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const child = framework.registry.list().find((entry) => entry.typeName === "Child");
+    const child = app.registry.list().find((entry) => entry.typeName === "Child");
     expect(child).toBeDefined();
 
     app.postMessage(child!.nodeId, new Ping());
@@ -96,11 +95,10 @@ describe("message dispatch", () => {
 
   it("coalesces replaceable queued messages", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: number[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Widget"
           handlers={{
@@ -116,7 +114,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
+    const widget = app.registry.list()[0];
 
     app.postMessage(widget.nodeId, new ReplaceablePing());
     app.postMessage(widget.nodeId, new ReplaceablePing());
@@ -134,11 +132,10 @@ describe("message dispatch", () => {
 
   it("coalesces built-in queue messages to their latest value", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Widget"
           handlers={{
@@ -160,7 +157,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
+    const widget = app.registry.list()[0];
     received.length = 0;
 
     app.postMessage(widget.nodeId, new Resize(10, 5));
@@ -182,11 +179,10 @@ describe("message dispatch", () => {
 
   it("dispatches compose, mount, and unmount lifecycle messages", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="LifecycleWidget"
           handlers={{
@@ -219,11 +215,10 @@ describe("message dispatch", () => {
 
   it("runs an idle pass after startup drains the initial lifecycle queue", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="IdleWidget"
           handlers={{
@@ -250,11 +245,10 @@ describe("message dispatch", () => {
 
   it("tracks sender and message metadata", async () => {
     const app = new App();
-    const framework = app.framework;
     const senders: unknown[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="MetadataWidget"
           handlers={{
@@ -270,7 +264,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
+    const widget = app.registry.list()[0];
     const ping = new Ping();
 
     expect(typeof ping.time).toBe("number");
@@ -287,7 +281,6 @@ describe("message dispatch", () => {
 
   it("publishes messages to subscribers even when noDispatch short-circuits handlers", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
     const observed: string[] = [];
     const unsubscribe = app.subscribeToMessages((message) => {
@@ -295,7 +288,7 @@ describe("message dispatch", () => {
     });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="SilentWidget"
           handlers={{
@@ -311,7 +304,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
+    const widget = app.registry.list()[0];
     app.postMessage(widget.nodeId, new SilentPing());
     await app.whenIdle();
 
@@ -325,11 +318,10 @@ describe("message dispatch", () => {
 
   it("stops remaining local handlers after preventDefault while still bubbling", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Parent"
           handlers={{
@@ -358,7 +350,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const child = framework.registry.list().find((entry) => entry.typeName === "Child");
+    const child = app.registry.list().find((entry) => entry.typeName === "Child");
     expect(child).toBeDefined();
 
     app.postMessage(child!.nodeId, new Ping());
@@ -372,11 +364,10 @@ describe("message dispatch", () => {
 
   it("runs selector-filtered on handlers before convention handlers and avoids double-dispatch", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Parent"
           handlers={{
@@ -411,14 +402,13 @@ describe("message dispatch", () => {
 
   it("deduplicates overlapping on registrations for inherited message types", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
     const handler = on(Ping, on(ChildPing, () => {
       received.push("handled");
     }));
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Widget"
           handlers={{
@@ -432,7 +422,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
+    const widget = app.registry.list()[0];
     app.postMessage(widget.nodeId, new ChildPing());
     await app.whenIdle();
 
@@ -444,11 +434,10 @@ describe("message dispatch", () => {
 
   it("runs derived and base decorated prototype handlers in order", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Widget"
           handlers={new DecoratedDerivedHandlers(received)}
@@ -460,7 +449,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.list()[0];
+    const widget = app.registry.list()[0];
     app.postMessage(widget.nodeId, new Ping());
     await app.whenIdle();
 
@@ -472,11 +461,10 @@ describe("message dispatch", () => {
 
   it("drains reentrant postMessage calls in queue order without recursive dispatch", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Parent"
           handlers={{
@@ -493,7 +481,7 @@ describe("message dispatch", () => {
             handlers={{
               onPing: () => {
                 received.push("child:ping");
-                const child = framework.registry.list().find((entry) => entry.typeName === "Child");
+                const child = app.registry.list().find((entry) => entry.typeName === "Child");
 
                 if (child !== undefined) {
                   app.postMessage(child.nodeId, new NestedPing());
@@ -512,7 +500,7 @@ describe("message dispatch", () => {
 
     await app.whenIdle();
 
-    const child = framework.registry.list().find((entry) => entry.typeName === "Child")!;
+    const child = app.registry.list().find((entry) => entry.typeName === "Child")!;
     app.postMessage(child.nodeId, new Ping());
     await app.whenIdle();
 

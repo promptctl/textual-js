@@ -137,7 +137,7 @@ describe("footer active bindings", () => {
         </WidgetHost>
         <Footer />
       </>,
-      { appProps: { framework: new App().framework } },
+      { appProps: { app: new App() } },
     );
 
     expect(session.lastFrame()).toContain("f1 First");

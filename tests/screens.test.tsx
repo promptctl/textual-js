@@ -55,9 +55,9 @@ function ScreenWithCss(): React.JSX.Element {
 
 let nextDetachedNodeId = 1;
 
-function createDetachedNode(framework: App["framework"], typeName = "DetachedNode"): Widget {
+function createDetachedNode(app: App, typeName = "DetachedNode"): Widget {
   const node = new Widget({
-    framework,
+    app,
     nodeId: `detached-node-${nextDetachedNodeId++}`,
     parentId: null,
     classes: [],
@@ -71,16 +71,16 @@ function createDetachedNode(framework: App["framework"], typeName = "DetachedNod
     loading: false,
   });
 
-  framework.registerWidget(node);
+  app.registerWidget(node);
   return node;
 }
 
 function createDetachedWorker<TResult>(
-  framework: App["framework"],
+  app: App,
   work: () => Promise<TResult> | TResult,
 ): Worker<TResult> {
   const node = new Widget({
-    framework,
+    app,
     nodeId: `detached-worker-${nextDetachedNodeId++}`,
     parentId: null,
     classes: [],
@@ -102,7 +102,7 @@ function createDetachedWorker<TResult>(
     "detached worker",
     false,
     (targetId, message) => {
-      framework.postMessage(targetId, message);
+      app.postMessage(targetId, message);
     },
     () => {},
   );
@@ -117,18 +117,16 @@ async function settleScreen(app: App): Promise<void> {
 describe("screen stack", () => {
   it("exposes the implicit default screen as the initial stack surface", () => {
     const app = new App();
-    const framework = app.framework;
 
     expect(app.getScreenStack().map((screen) => screen.id)).toEqual(["_default"]);
     expect(app.screen?.id).toBe("_default");
-    expect(framework.activeScreenElement).toBeNull();
+    expect(app.activeScreenElement).toBeNull();
   });
 
   it("installs named screens, reuses cached elements, and enforces expected types", () => {
     const app = new App();
-    const framework = app.framework;
 
-    framework.installScreen("dialog", () => <DialogScreen />);
+    app.installScreen("dialog", () => <DialogScreen />);
 
     expect(app.isScreenInstalled("dialog")).toBe(true);
 
@@ -144,7 +142,6 @@ describe("screen stack", () => {
 
   it("renders pushed screens instead of the default children and emits suspend/resume messages", async () => {
     const app = new App();
-    const framework = app.framework;
     const events: string[] = [];
 
     const unsubscribe = app.subscribeToMessages((message) => {
@@ -156,7 +153,7 @@ describe("screen stack", () => {
     });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -185,10 +182,9 @@ describe("screen stack", () => {
 
   it("refuses to pop the last screen", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -203,11 +199,10 @@ describe("screen stack", () => {
 
   it("delivers push results to the supplied callback when popped", async () => {
     const app = new App();
-    const framework = app.framework;
     const results: unknown[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -229,10 +224,9 @@ describe("screen stack", () => {
 
   it("stores the covered screen's savedFocusNodeId snapshot when another screen is pushed", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <>
           <WidgetHost typeName="Label" id="default-first" focusable>
             <Text>first</Text>
@@ -246,8 +240,8 @@ describe("screen stack", () => {
 
     await settleScreen(app);
 
-    const defaultSecond = framework.registry.getByCssId("default-second")!;
-    framework.focusWidget(defaultSecond.nodeId);
+    const defaultSecond = app.registry.getByCssId("default-second")!;
+    app.focusWidget(defaultSecond.nodeId);
     await settleScreen(app);
 
     const covered = app.screen!;
@@ -262,11 +256,10 @@ describe("screen stack", () => {
 
   it("reuses the same installed screen element across repeated pushes by name", async () => {
     const app = new App();
-    const framework = app.framework;
-    framework.installScreen("dialog", () => <DialogScreen />);
+    app.installScreen("dialog", () => <DialogScreen />);
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -289,11 +282,10 @@ describe("screen stack", () => {
 
   it("supports pushScreenWait inside a worker and rejects it outside one", async () => {
     const app = new App();
-    const framework = app.framework;
-    framework.installScreen("dialog", () => <DialogScreen />);
+    app.installScreen("dialog", () => <DialogScreen />);
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -302,11 +294,11 @@ describe("screen stack", () => {
 
     expect(() => app.pushScreenWait("dialog")).toThrow(NoActiveWorker);
 
-    const worker = createDetachedWorker(framework, async () => app.pushScreenWait("dialog"));
+    const worker = createDetachedWorker(app, async () => app.pushScreenWait("dialog"));
     const waiting = worker.start();
     await settleScreen(app);
 
-    framework.dismissScreen("done");
+    app.dismissScreen("done");
     await settleScreen(app);
 
     await expect(waiting).resolves.toBe("done");
@@ -317,7 +309,6 @@ describe("screen stack", () => {
 
   it("loads static screen CSS and CSS_PATH with precedence over app CSS", async () => {
     const app = new App();
-    const framework = app.framework;
     const tempDir = mkdtempSync(join(tmpdir(), "textual-js-screen-css-"));
     const cssPath = join(tempDir, "screen.tcss");
     writeFileSync(cssPath, "#screen-css-target { color: white; }");
@@ -325,7 +316,7 @@ describe("screen stack", () => {
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           #screen-css-target {
             background: green;
@@ -341,7 +332,7 @@ describe("screen stack", () => {
     app.pushScreen(<ScreenWithCss />, { name: "css-screen" });
     await settleScreen(app);
 
-    const target = framework.registry.getByCssId("screen-css-target")!;
+    const target = app.registry.getByCssId("screen-css-target")!;
     expect(target.resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
     expect(target.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
 
@@ -349,7 +340,7 @@ describe("screen stack", () => {
     await settleScreen(app);
 
     expect(
-      framework.getActiveStylesheetsFor("Label").some((stylesheet) => stylesheet.source.includes("#screen-css-target")),
+      app.getActiveStylesheetsFor("Label").some((stylesheet) => stylesheet.source.includes("#screen-css-target")),
     ).toBe(true);
 
     instance.unmount();
@@ -358,12 +349,11 @@ describe("screen stack", () => {
 
   it("runs built-in dismiss actions and resolves callbacks and waiters exactly once", async () => {
     const app = new App();
-    const framework = app.framework;
-    framework.installScreen("dialog", () => <DialogScreen />);
+    app.installScreen("dialog", () => <DialogScreen />);
     const callbackResults: unknown[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -380,7 +370,7 @@ describe("screen stack", () => {
 
     expect(callbackResults).toEqual([true]);
 
-    const worker = createDetachedWorker(framework, async () => app.pushScreenWait("dialog"));
+    const worker = createDetachedWorker(app, async () => app.pushScreenWait("dialog"));
     const waiting = worker.start();
     await settleScreen(app);
 
@@ -395,10 +385,9 @@ describe("screen stack", () => {
 
   it("switchScreen replaces the top of the stack without changing depth", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -424,11 +413,10 @@ describe("screen stack", () => {
 describe("screen modes", () => {
   it("maintains independent screen stacks per mode", async () => {
     const app = new App();
-    const framework = app.framework;
     app.addMode("secondary", () => <DialogScreen />);
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultScreen />
       </TextualApp>,
     );
@@ -460,13 +448,12 @@ describe("screen modes", () => {
 
   it("publishes mode names and active screen entries through app-level signals", async () => {
     const app = new App();
-    const framework = app.framework;
     app.addMode("secondary", () => <DialogScreen />);
-    const subscriber = createDetachedNode(framework, "SignalSubscriber");
+    const subscriber = createDetachedNode(app, "SignalSubscriber");
     const modes: string[] = [];
-    const screens: Array<App["framework"]["activeScreen"]> = [];
+    const screens: Array<App["activeScreen"]> = [];
 
-    framework.startup();
+    app.startup();
     const unsubscribeMode = app.signals.mode_change_signal.subscribe(subscriber, (mode) => {
       modes.push(mode);
     });
@@ -484,12 +471,11 @@ describe("screen modes", () => {
 
     unsubscribeMode();
     unsubscribeScreen();
-    framework.shutdown();
+    app.shutdown();
   });
 
   it("rejects unknown modes, duplicate modes, and removal of the active mode", () => {
     const app = new App();
-    const framework = app.framework;
 
     expect(() => app.switchMode("ghost")).toThrow(UnknownModeError);
 

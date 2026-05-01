@@ -19,10 +19,9 @@ import {
 describe("widget disabled state", () => {
   it("marks :disabled on the widget and cascades to descendants", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Container" id="container" disabled>
           <WidgetHost typeName="Leaf" id="leaf">
             <Text>leaf</Text>
@@ -47,11 +46,10 @@ describe("widget disabled state", () => {
 
   it("suppresses mouse and key input at disabled widgets but allows scroll", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Leaf"
           id="leaf"
@@ -97,7 +95,6 @@ describe("widget disabled state", () => {
 
   it("clears focus when a focused descendant becomes disabled by an ancestor", async () => {
     const app = new App();
-    const framework = app.framework;
     let setDisabled!: (value: boolean) => void;
 
     function Harness(): React.JSX.Element {
@@ -114,7 +111,7 @@ describe("widget disabled state", () => {
     }
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <Harness />
       </TextualApp>,
     );
@@ -176,11 +173,10 @@ describe("widget disabled state", () => {
 describe("widget loading state", () => {
   it("marks :loading on the widget and suppresses all user input", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Leaf"
           id="leaf"
@@ -264,10 +260,9 @@ describe("widget loading state", () => {
 describe("focus chain gating", () => {
   it("excludes disabled and loading widgets from the focus chain", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Label" id="a" focusable>
           <Text>a</Text>
         </WidgetHost>
@@ -300,11 +295,11 @@ describe("focus chain gating", () => {
 });
 
 function createTestWidget(
-  framework: App["framework"],
+  app: App,
   options: Partial<ConstructorParameters<typeof Widget>[0]> = {},
 ): Widget {
   return new Widget({
-    framework,
+    app,
     nodeId: options.nodeId ?? `widget-${Math.random()}`,
     parentId: options.parentId ?? null,
     id: options.id,
@@ -324,8 +319,7 @@ function createTestWidget(
 describe("widget scroll shell", () => {
   it("clamps scroll offsets and supports page/end helpers", () => {
     const app = new App();
-    const framework = app.framework;
-    const widget = createTestWidget(framework);
+    const widget = createTestWidget(app);
 
     widget.updateScreenRegion(new Region(0, 0, 8, 3));
     widget.setVirtualSize(new Size(20, 10));
@@ -351,8 +345,7 @@ describe("widget scroll shell", () => {
 
   it("scrolls a target region into view with the minimum delta", () => {
     const app = new App();
-    const framework = app.framework;
-    const widget = createTestWidget(framework);
+    const widget = createTestWidget(app);
 
     widget.updateScreenRegion(new Region(0, 0, 8, 3));
     widget.setVirtualSize(20, 10);
@@ -364,12 +357,11 @@ describe("widget scroll shell", () => {
 
   it("resolves widget-based visibility against the viewport seam", () => {
     const app = new App();
-    const framework = app.framework;
-    const parent = createTestWidget(framework, { nodeId: "parent", id: "parent" });
-    const child = createTestWidget(framework, { nodeId: "child", id: "child", parentId: "parent" });
+    const parent = createTestWidget(app, { nodeId: "parent", id: "parent" });
+    const child = createTestWidget(app, { nodeId: "child", id: "child", parentId: "parent" });
 
-    framework.registerWidget(parent);
-    framework.registerWidget(child);
+    app.registerWidget(parent);
+    app.registerWidget(child);
     parent.updateScreenRegion(new Region(10, 5, 8, 3));
     parent.setVirtualSize(20, 10);
     child.updateScreenRegion(new Region(18, 11, 2, 1));

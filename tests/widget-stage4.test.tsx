@@ -15,7 +15,6 @@ import {
   TextualApp,
   Widget,
   WidgetHost,
-  Widget,
   find_first_enabled,
   find_last_enabled,
   find_next_enabled,
@@ -25,11 +24,11 @@ import {
 } from "../src/index.js";
 
 function createNode(
-  framework: App["framework"],
+  app: App,
   options: Partial<ConstructorParameters<typeof Widget>[0]> = {},
 ): Widget {
   return new Widget({
-    framework,
+    app,
     nodeId: options.nodeId ?? `node-${Math.random()}`,
     parentId: options.parentId ?? null,
     id: options.id,
@@ -50,12 +49,11 @@ function createNode(
 describe("public Widget base surface", () => {
   it("requires a framework on construction and validates class names", () => {
     const app = new App();
-    const framework = app.framework;
     class Parent extends Widget {}
     class Child extends Widget {}
 
-    const child = new Child({ framework, id: "child" });
-    const parent = new Parent({ framework, id: "parent" });
+    const child = new Child({ app, id: "child" });
+    const parent = new Parent({ app, id: "parent" });
 
     expect(parent.is_mounted).toBe(false);
     expect(parent.is_attached).toBe(false);
@@ -68,20 +66,19 @@ describe("public Widget base surface", () => {
     expect(() => new Widget({} as never)).toThrow();
 
     class lowercase extends Widget {}
-    expect(() => new lowercase({ framework })).toThrow(BadWidgetName);
+    expect(() => new lowercase({ app })).toThrow(BadWidgetName);
   });
 
   it("mounts, moves, removes, sorts, and looks up direct children", () => {
     const app = new App();
-    const framework = app.framework;
-    const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
-    const first = createNode(framework, { nodeId: "first", id: "first", typeName: "Leaf" });
-    const second = createNode(framework, { nodeId: "second", id: "second", typeName: "Leaf" });
-    const third = createNode(framework, { nodeId: "third", id: "third", typeName: "Other" });
+    const parent = createNode(app, { nodeId: "parent", id: "parent", typeName: "Parent" });
+    const first = createNode(app, { nodeId: "first", id: "first", typeName: "Leaf" });
+    const second = createNode(app, { nodeId: "second", id: "second", typeName: "Leaf" });
+    const third = createNode(app, { nodeId: "third", id: "third", typeName: "Other" });
 
     expect(() => parent.mount(first)).toThrow(MountError);
 
-    framework.registerWidget(parent);
+    app.registerWidget(parent);
     parent.mount(first, second);
     parent.mount(third, { before: "#second" });
 
@@ -105,38 +102,36 @@ describe("public Widget base surface", () => {
 
   it("mount_all accepts iterables and preserves mount placement/error contracts", () => {
     const app = new App();
-    const framework = app.framework;
-    const mountedParent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
-    const detachedParent = createNode(framework, { nodeId: "detached", id: "detached", typeName: "Parent" });
-    const existing = createNode(framework, { nodeId: "existing", id: "existing", typeName: "Leaf" });
-    const first = createNode(framework, { nodeId: "first", id: "first", typeName: "Leaf" });
-    const second = createNode(framework, { nodeId: "second", id: "second", typeName: "Leaf" });
+    const mountedParent = createNode(app, { nodeId: "parent", id: "parent", typeName: "Parent" });
+    const detachedParent = createNode(app, { nodeId: "detached", id: "detached", typeName: "Parent" });
+    const existing = createNode(app, { nodeId: "existing", id: "existing", typeName: "Leaf" });
+    const first = createNode(app, { nodeId: "first", id: "first", typeName: "Leaf" });
+    const second = createNode(app, { nodeId: "second", id: "second", typeName: "Leaf" });
 
     function* widgets(): Iterable<Widget> {
       yield first;
       yield second;
     }
 
-    framework.registerWidget(mountedParent);
+    app.registerWidget(mountedParent);
     mountedParent.mount(existing);
 
     expect(mountedParent.mount_all(widgets(), { before: "#existing" })).toEqual([first, second]);
     expect(mountedParent.children.toArray().map((widget) => widget.id)).toEqual(["first", "second", "existing"]);
-    expect(() => detachedParent.mount_all([createNode(framework, { nodeId: "late", id: "late" })])).toThrow(MountError);
+    expect(() => detachedParent.mount_all([createNode(app, { nodeId: "late", id: "late" })])).toThrow(MountError);
     expect(() => mountedParent.mount_all([], { before: 0, after: 0 })).toThrow(MountError);
   });
 
   it("resolves _find_mount_point for indices, selectors, widget references, and spec error cases", () => {
     const app = new App();
-    const framework = app.framework;
-    const parent = createNode(framework, { nodeId: "parent", id: "parent", typeName: "Parent" });
-    const alpha = createNode(framework, { nodeId: "alpha", id: "alpha", typeName: "Alpha" });
-    const beta = createNode(framework, { nodeId: "beta", id: "beta", typeName: "Beta" });
-    const duplicateA = createNode(framework, { nodeId: "duplicate-a", id: "duplicate-a", typeName: "Duplicate" });
-    const duplicateB = createNode(framework, { nodeId: "duplicate-b", id: "duplicate-b", typeName: "Duplicate" });
-    const orphan = createNode(framework, { nodeId: "orphan", id: "orphan", typeName: "Leaf" });
+    const parent = createNode(app, { nodeId: "parent", id: "parent", typeName: "Parent" });
+    const alpha = createNode(app, { nodeId: "alpha", id: "alpha", typeName: "Alpha" });
+    const beta = createNode(app, { nodeId: "beta", id: "beta", typeName: "Beta" });
+    const duplicateA = createNode(app, { nodeId: "duplicate-a", id: "duplicate-a", typeName: "Duplicate" });
+    const duplicateB = createNode(app, { nodeId: "duplicate-b", id: "duplicate-b", typeName: "Duplicate" });
+    const orphan = createNode(app, { nodeId: "orphan", id: "orphan", typeName: "Leaf" });
 
-    framework.registerWidget(parent);
+    app.registerWidget(parent);
     parent.mount(alpha, beta, duplicateA, duplicateB);
 
     expect(parent._find_mount_point(2)).toEqual([parent, 2]);
@@ -157,13 +152,12 @@ describe("public Widget base surface", () => {
     }
 
     const app = new App();
-    const framework = app.framework;
-    const parent = createNode(framework, { nodeId: "parent", id: "parent" });
-    const first = createNode(framework, { nodeId: "first", id: "first", parentId: "parent", typeName: "Leaf" });
-    const second = createNode(framework, { nodeId: "second", id: "second", parentId: "parent", typeName: "Leaf" });
-    framework.registerWidget(parent);
-    framework.registerWidget(first);
-    framework.registerWidget(second);
+    const parent = createNode(app, { nodeId: "parent", id: "parent" });
+    const first = createNode(app, { nodeId: "first", id: "first", parentId: "parent", typeName: "Leaf" });
+    const second = createNode(app, { nodeId: "second", id: "second", parentId: "parent", typeName: "Leaf" });
+    app.registerWidget(parent);
+    app.registerWidget(first);
+    app.registerWidget(second);
 
     expect(first.first_child).toBe(true);
     expect(first.first_of_type).toBe(true);
@@ -178,7 +172,7 @@ describe("public Widget base surface", () => {
     expect(second.hasClass("-loading")).toBe(true);
     expect(second._cover_widget).not.toBeNull();
 
-    const rendered = new RenderWidget({ framework });
+    const rendered = new RenderWidget({ app });
     expect(rendered.render_str("[bold]x[/]").plain).toBe("x");
     expect(rendered.get_content_width()).toBe(5);
     expect(rendered.get_content_height()).toBe(2);
@@ -194,9 +188,8 @@ describe("Stage 4 focus and visibility policy", () => {
     }
 
     const app = new App();
-    const framework = app.framework;
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Container" canFocusChildren={false}>
           <WidgetHost typeName="Input" id="blocked" focusable>
             <Text>blocked</Text>
@@ -222,12 +215,11 @@ describe("Stage 4 focus and visibility policy", () => {
 
   it("reassigns focus when the focused widget is removed", () => {
     const app = new App();
-    const framework = app.framework;
-    const first = createNode(framework, { nodeId: "first", id: "first", focusable: true });
-    const second = createNode(framework, { nodeId: "second", id: "second", focusable: true });
+    const first = createNode(app, { nodeId: "first", id: "first", focusable: true });
+    const second = createNode(app, { nodeId: "second", id: "second", focusable: true });
 
-    framework.registerWidget(first);
-    framework.registerWidget(second);
+    app.registerWidget(first);
+    app.registerWidget(second);
     app.focusWidget(first.nodeId);
     first.remove();
 
@@ -236,9 +228,8 @@ describe("Stage 4 focus and visibility policy", () => {
 
   it("emits Show and Hide when visible changes", async () => {
     const app = new App();
-    const framework = app.framework;
     const events: string[] = [];
-    const widget = createNode(framework, {
+    const widget = createNode(app, {
       nodeId: "visible",
       id: "visible",
       handlersRef: {
@@ -253,7 +244,7 @@ describe("Stage 4 focus and visibility policy", () => {
       if (message instanceof Hide) events.push("broadcast-hide");
     });
 
-    framework.registerWidget(widget);
+    app.registerWidget(widget);
     widget.visible = false;
     await app.whenIdle();
     widget.visible = true;
@@ -280,7 +271,7 @@ describe("Stage 4 focus and visibility policy", () => {
       { size: new Size(20, 5) },
     );
 
-    session.framework.dispatchPointerMove(19, 4);
+    session.app.dispatchPointerMove(19, 4);
     await session.app.whenIdle();
 
     expect(received).toEqual(["move"]);
@@ -289,9 +280,8 @@ describe("Stage 4 focus and visibility policy", () => {
 
   it("traps focus to a subtree only when focus is already inside it and restores the full chain on release", async () => {
     const app = new App();
-    const framework = app.framework;
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Dialog" id="dialog">
           <WidgetHost typeName="Input" id="dialog-first" focusable>
             <Text>dialog first</Text>

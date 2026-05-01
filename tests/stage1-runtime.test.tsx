@@ -85,12 +85,11 @@ describe("Stage 1 runtime seams", () => {
 
     expect(depths).toEqual([1, 2, 1]);
     expect(app.batchUpdateCount).toBe(0);
-    expect(app.framework.batchUpdateCount).toBe(0);
+    expect(app.batchUpdateCount).toBe(0);
   });
 
   it("suppresses prevented message types, including callNext callbacks scheduled inside the scope", async () => {
     const app = new App();
-    const framework = app.framework;
     let widget!: Widget;
     const received: string[] = [];
     const unsubscribe = app.subscribeToMessages((message) => {
@@ -100,7 +99,7 @@ describe("Stage 1 runtime seams", () => {
     });
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <HandleHarness
           onReady={(value) => {
             widget = value;
@@ -132,12 +131,11 @@ describe("Stage 1 runtime seams", () => {
 
   it("uses exact message types for scoped and long-lived suppression", async () => {
     const app = new App();
-    const framework = app.framework;
     let widget!: Widget;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <HandleHarness
           onReady={(value) => {
             widget = value;
@@ -180,11 +178,10 @@ describe("Stage 1 runtime seams", () => {
 
   it("dispatches key_<name> handlers directly and resolves aliases", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Keyboard"
           focusable
@@ -217,10 +214,9 @@ describe("Stage 1 runtime seams", () => {
 
   it("rejects duplicate direct key handlers across aliases and private/public methods", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const aliasInstance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="AliasConflict"
           focusable
@@ -241,9 +237,9 @@ describe("Stage 1 runtime seams", () => {
     aliasInstance.unmount();
     aliasInstance.cleanup();
 
-    const secondFramework = new App().framework;
+    const secondFramework = new App();
     const privateInstance = render(
-      <TextualApp framework={secondFramework}>
+      <TextualApp app={secondFramework}>
         <WidgetHost
           typeName="PrivateConflict"
           focusable
@@ -267,11 +263,10 @@ describe("Stage 1 runtime seams", () => {
 
   it("routes Paste messages, including empty-string pastes", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="PasteTarget"
           handlers={{
@@ -286,7 +281,7 @@ describe("Stage 1 runtime seams", () => {
     );
 
     await app.whenIdle();
-    const widget = framework.registry.list()[0]!;
+    const widget = app.registry.list()[0]!;
 
     app.postMessage(widget.nodeId, new Paste(""));
     app.postMessage(widget.nodeId, new Paste("hello"));
@@ -300,11 +295,10 @@ describe("Stage 1 runtime seams", () => {
 
   it("supports namespaced message handler resolution", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Namespaced"
           handlers={{
@@ -319,7 +313,7 @@ describe("Stage 1 runtime seams", () => {
     );
 
     await app.whenIdle();
-    const widget = framework.registry.list()[0]!;
+    const widget = app.registry.list()[0]!;
     app.postMessage(widget.nodeId, new NamespacedPing());
     await app.whenIdle();
 
@@ -336,9 +330,9 @@ describe("Stage 1 runtime seams", () => {
   });
 
   it("accepts valid @on attribute selector declarations", () => {
-    const pane = new App().framework;
+    const pane = new App();
     const widget = new Widget({
-      framework: pane,
+      app: pane,
       nodeId: "pane",
       parentId: null,
       id: "one",
@@ -359,11 +353,10 @@ describe("Stage 1 runtime seams", () => {
 
   it("matches positional @on selectors against the declared selector attribute", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Leaf" id="save">
           <Text>leaf</Text>
         </WidgetHost>
@@ -383,7 +376,7 @@ describe("Stage 1 runtime seams", () => {
     await app.whenIdle();
 
     const leaf = app.getByCssId("save")!;
-    const observer = framework.registry.list().find((entry) => entry.typeName === "Observer")!;
+    const observer = app.registry.list().find((entry) => entry.typeName === "Observer")!;
 
     app.postMessage(observer.nodeId, new ControlPing(leaf));
     await app.whenIdle();
@@ -396,10 +389,9 @@ describe("Stage 1 runtime seams", () => {
 
   it("throws when selector-matched message attributes are not registered widgets", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           typeName="Observer"
           handlers={{
@@ -412,7 +404,7 @@ describe("Stage 1 runtime seams", () => {
     );
 
     await app.whenIdle();
-    const observer = framework.registry.list()[0]!;
+    const observer = app.registry.list()[0]!;
     app.postMessage(observer.nodeId, new ControlPing("not-widget" as unknown as Widget));
 
     await expect(app.whenIdle()).rejects.toThrow(/not a widget/);
@@ -440,9 +432,8 @@ describe("Stage 1 runtime seams", () => {
 
   it("throws DuplicateIds for duplicate widget ids", async () => {
     const app = new App();
-    const framework = app.framework;
     const first = new Widget({
-      framework,
+      app,
       nodeId: "first",
       parentId: null,
       id: "dupe",
@@ -458,7 +449,7 @@ describe("Stage 1 runtime seams", () => {
       tooltip: null,
     });
     const second = new Widget({
-      framework,
+      app,
       nodeId: "second",
       parentId: null,
       id: "dupe",
@@ -474,14 +465,13 @@ describe("Stage 1 runtime seams", () => {
       tooltip: null,
     });
 
-    framework.registerWidget(first);
+    app.registerWidget(first);
 
-    expect(() => framework.registerWidget(second)).toThrow(DuplicateIds);
+    expect(() => app.registerWidget(second)).toThrow(DuplicateIds);
   });
 
   it("cleans up signal subscriptions when a widget unmounts", async () => {
     const app = new App();
-    const framework = app.framework;
     let publisher!: Widget;
     let subscriber!: Widget;
     let setMounted!: (mounted: boolean) => void;
@@ -514,7 +504,7 @@ describe("Stage 1 runtime seams", () => {
     }
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <SignalHarness />
       </TextualApp>,
     );
@@ -544,12 +534,11 @@ describe("Stage 1 runtime seams", () => {
 
   it("returned signal cleanup removes only its own subscription", async () => {
     const app = new App();
-    const framework = app.framework;
     let publisher!: Widget;
     let subscriber!: Widget;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <HandleHarness
           id="publisher"
           onReady={(value) => {
@@ -586,9 +575,8 @@ describe("Stage 1 runtime seams", () => {
 
   it("rejects signal subscriptions from unmounted widgets", () => {
     const app = new App();
-    const framework = app.framework;
     const publisher = new Widget({
-      framework,
+      app,
       nodeId: "publisher",
       parentId: null,
       classes: [],
@@ -603,7 +591,7 @@ describe("Stage 1 runtime seams", () => {
       tooltip: null,
     });
     const subscriber = new Widget({
-      framework,
+      app,
       nodeId: "subscriber",
       parentId: null,
       classes: [],
@@ -618,7 +606,7 @@ describe("Stage 1 runtime seams", () => {
       tooltip: null,
     });
 
-    framework.registerWidget(publisher);
+    app.registerWidget(publisher);
     const signal = publisher.createSignal<string>();
 
     expect(() => signal.subscribe(subscriber, () => undefined)).toThrow(SignalError);
