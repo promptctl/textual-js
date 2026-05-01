@@ -42,15 +42,14 @@ async function main(): Promise<void> {
   }
   const Component = fixtureModule.default;
   const appProps = fixtureModule.appProps ?? {};
-  // [LAW:one-source-of-truth] App owns its framework; the runner constructs
-  // an App so the fixture-facing TextualApp receives a single canonical
-  // runtime authority rather than minting its own.
+  // [LAW:one-source-of-truth] App is the single canonical runtime authority;
+  // the runner constructs one and hands it to TextualApp.
   const app = new App();
 
   render(
     React.createElement(
       TextualApp,
-      { ...appProps, framework: app.framework },
+      { ...appProps, app },
       React.createElement(Component),
     ),
   );

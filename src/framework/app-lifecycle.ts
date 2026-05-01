@@ -13,7 +13,7 @@
 // renderer, tests) continue to work unchanged until 7w9.10 deletes the
 // framework class.
 // [LAW:one-way-deps] The orchestrator depends only on the narrow
-// AppLifecycleDeps interface; it does NOT import TextualFramework. The deps
+// AppLifecycleDeps interface; it does NOT import AppRuntime. The deps
 // surface is intentionally wide because lifecycle composes most other
 // services — but every callback is a single capability-shaped action, not a
 // generic back-reference.
@@ -29,12 +29,12 @@ import type { Message } from "../events/message.js";
 import { Size } from "../geometry/index.js";
 import type { Widget } from "./widget.js";
 import type { FocusAddress } from "./focus-engine.js";
-import type { AppDriver } from "./app-framework.js";
+import type { AppDriver } from "./_app-runtime.js";
 
 export class SuspendNotSupported extends Error {}
 
 // [LAW:one-way-deps] Narrow capability interface the orchestrator requires
-// from its host (typically TextualFramework). The orchestrator never imports
+// from its host (typically AppRuntime). The orchestrator never imports
 // the host class — only this shape. Each entry is a single capability-shaped
 // action; the orchestrator never stores a back-reference to a service.
 export interface AppLifecycleDeps {

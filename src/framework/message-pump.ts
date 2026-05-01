@@ -2,12 +2,12 @@
 // message queue, prevention/disable gating, deferred-callback ordering, and
 // dispatch loop. Cross-cutting concerns (handler resolution, key bindings,
 // focus-aware default targets) are invoked through a narrow injected deps
-// interface — the pump never reaches back into TextualFramework directly.
+// interface — the pump never reaches back into AppRuntime directly.
 // [LAW:one-source-of-truth] queue/closedQueues/unmountingQueues/
 // disabledMessageTypes/activePrevention/nextCallbacks/drainPromise live in
 // exactly one place: this service. Framework methods are thin delegators.
 // [LAW:one-way-deps] The pump depends only on a narrow MessagePumpDeps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -79,7 +79,7 @@ export function clonePreventionSnapshot(
 }
 
 // [LAW:one-way-deps] Narrow capability interface the pump requires from its
-// host (typically TextualFramework). The pump never imports the host class.
+// host (typically AppRuntime). The pump never imports the host class.
 export interface MessagePumpDeps {
   getWidget(nodeId: string): Widget | undefined;
   listWidgets(): Widget[];

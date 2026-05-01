@@ -4,13 +4,13 @@
 // foreign-thread marshaling. The framework orchestrator triggers cross-cutting
 // effects (timer dispatch, worker bookkeeping, error reporting) through a
 // narrow injected deps interface — the manager never reaches back into
-// TextualFramework directly.
+// AppRuntime directly.
 // [LAW:one-source-of-truth] The named timer registry, the app worker-owner
 // record, and the captured app thread id live in exactly one place: this
 // manager. Framework lifecycle hooks (shutdown, suspend, unmount) call the
 // manager rather than holding parallel state.
 // [LAW:one-way-deps] The manager depends only on a narrow
-// AsyncResourceManagerDeps interface; it does NOT import TextualFramework.
+// AsyncResourceManagerDeps interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -33,7 +33,7 @@ import { RuntimeError, getActiveMessagePump } from "../services/concurrency.js";
 import type { Message } from "../events/message.js";
 
 // [LAW:one-way-deps] Narrow capability interface the manager requires from its
-// host (typically TextualFramework). The manager never imports the host class.
+// host (typically AppRuntime). The manager never imports the host class.
 export interface AsyncResourceManagerDeps {
   workers: WorkerManager;
   isNodeMounted(node: Widget): boolean;

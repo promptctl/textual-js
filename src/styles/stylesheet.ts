@@ -13,12 +13,12 @@ import {
   type ParsedSelector,
   type SelectorMatchHost,
 } from "./selectors.js";
-import type { WidgetTypeMetadata } from "../framework/app-framework.js";
+import type { WidgetTypeMetadata } from "../framework/_app-runtime.js";
 import type { Widget } from "../framework/widget.js";
 import type { Size } from "../geometry/size.js";
 
 // [LAW:one-way-deps] Narrow capability interface the cascade resolver requires
-// from its host (typically TextualFramework). The resolver never imports the
+// from its host (typically AppRuntime). The resolver never imports the
 // host class. Extends SelectorMatchHost because resolveStylesForWidget forwards
 // through matchesSelector(host, …) and must therefore satisfy its needs.
 export interface StyleResolutionHost extends SelectorMatchHost {

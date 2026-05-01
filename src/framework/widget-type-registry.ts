@@ -6,7 +6,7 @@
 // live in exactly one place: this service. Framework methods are thin
 // delegators that read through it.
 // [LAW:one-way-deps] The service depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -15,7 +15,7 @@ import { autoObservable } from "./auto-observable.js";
 import { makeBindings, type Binding, type BindingDeclaration } from "../bindings/index.js";
 import type { ParsedStylesheet } from "../styles/index.js";
 import { normalizeCssSource, parseStylesheetOrThrow } from "./style-engine.js";
-import type { RegisterWidgetTypeOptions, WidgetTypeMetadata } from "./app-framework.js";
+import type { RegisterWidgetTypeOptions, WidgetTypeMetadata } from "./_app-runtime.js";
 
 interface WidgetTypeState {
   typeName: string;
@@ -35,7 +35,7 @@ interface WidgetTypeState {
 }
 
 // [LAW:one-way-deps] Narrow capability interface the registry requires from
-// its host (typically TextualFramework). The registry never imports the host
+// its host (typically AppRuntime). The registry never imports the host
 // class — only this shape.
 export interface WidgetTypeRegistryDeps {
   isRunning(): boolean;

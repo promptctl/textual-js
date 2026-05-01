@@ -1,5 +1,11 @@
 # True North Architecture Refactor
 
+## Status (2026-05-01)
+
+**Phase 7 ("Extract internal services beneath App") — CLOSED.** Epic `textual-true-north-7w9`.
+
+Phase 7 split the `TextualFramework` god-object into ten cohesive internal services (signal registry, binding dispatcher, command service, theme broker, notification service, lifecycle orchestrator, style engine, focus engine, pointer engine, async-resource manager, layout engine, tooltip service, message pump, screen-stack service, widget-type registry) and rewired `App` to compose them directly. The final ticket (`7w9.10`) eliminated the `TextualFramework` class as a public concept — the class is renamed to `AppRuntime`, lives only in `src/framework/_app-runtime.ts`, is not exported from any barrel, and is held privately by `App` as `_runtime`. `Widget`, `DOMQuery`, the React context, the test harness, and every consumer now drive `App` directly: `widget.app`, `useTextual()` returns `App`, `session.app` (the legacy `session.framework` is gone), and `app.X` exposes every method previously reached via `app.framework.X`. `grep -r "TextualFramework" src/ tests/` returns zero. All four verification gates pass.
+
 ## Status (2026-04-28)
 
 **Phase 1 ("Declare the Runtime Truth") — CLOSED.** Epic `textual-true-north-thu`.
