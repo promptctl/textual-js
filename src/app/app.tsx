@@ -25,11 +25,13 @@ import type { EnvironmentMap } from "../services/environment.js";
 import type { WidgetActions, WidgetRegistry } from "../framework/widget-registry.js";
 import type { Widget } from "../framework/widget.js";
 import { CommandPalette, type CommandPaletteOptions, type ProviderConstructor } from "../commands/index.js";
-import type { Message } from "../events/message.js";
+import type { Message, MessageConstructor } from "../events/message.js";
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationContent, type NotificationSeverity } from "../services/notifications.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
 import { Worker, WorkerManager, getCurrentWorker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
+import type { Signal } from "../services/signal.js";
+import type { TimerCallback, TimerOptions } from "../services/timer.js";
 import { NoMatches } from "../framework/dom-query.js";
 import { runTestRoot, type RunTestOptions, type TestSession } from "../testing/run-test.js";
 import { matchesSelector, parseSelectorList } from "../styles/index.js";
@@ -131,7 +133,7 @@ export class App<Result = unknown> {
   private readonly messagePump: MessagePump;
   private readonly screenStack: ScreenStackService;
   private readonly widgetTypeRegistry: WidgetTypeRegistry;
-  private readonly registry: WidgetRegistry;
+  private readonly _registry: WidgetRegistry;
   readonly workers: WorkerManager;
 
   // [LAW:one-source-of-truth] Click-chain time threshold is a public runtime
@@ -166,7 +168,7 @@ export class App<Result = unknown> {
     this.messagePump = framework.pump;
     this.screenStack = framework.screenStack;
     this.widgetTypeRegistry = framework.widgetTypeRegistry;
-    this.registry = framework.registry;
+    this._registry = framework.registry;
     this.workers = framework.workers;
 
     this.appOptions = {
@@ -843,6 +845,183 @@ export class App<Result = unknown> {
 
   set animationLevel(level: AnimationLevel) {
     this.themeBroker.setAnimationLevel(level);
+  }
+
+  // ---- Internal runtime surface (consumed by Widget, DOMQuery, tests) -----
+  // [LAW:single-enforcer] Each method below is a single-line delegator to the
+  // internal service that owns the operation. App is the only way for runtime
+  // collaborators (widgets, DOMQuery, the test pilot) to reach into services;
+  // they never import services directly.
+
+  get registry(): WidgetRegistry {
+    return this._registry;
+  }
+
+  get hoveredNodeId(): string | null {
+    return this.pointerEngine.hoveredNodeId;
+  }
+
+  isNodeMounted(widget: Widget): boolean {
+    return this._registry.get(widget.nodeId) === widget;
+  }
+
+  refreshStyles(changed: boolean): void {
+    this._registry.touch();
+    this.styleEngine.refreshStyles(changed);
+  }
+
+  recalculateStyles(): void {
+    this._framework.recalculateStyles();
+  }
+
+  registerWidget(widget: Widget): void {
+    this._framework.registerWidget(widget);
+  }
+
+  notifyWillUnmount(widget: Widget): void {
+    this._framework.notifyWillUnmount(widget);
+  }
+
+  unregisterWidget(nodeId: string): void {
+    this._framework.unregisterWidget(nodeId);
+  }
+
+  resolveWidgetTypeName(typeConstraint: string | Function): string {
+    return this.widgetTypeRegistry.resolveWidgetTypeName(typeConstraint);
+  }
+
+  widgetMatchesType(typeName: string, expectedTypeName: string): boolean {
+    return this.widgetTypeRegistry.widgetMatchesType(typeName, expectedTypeName);
+  }
+
+  parseSelectors(selectorText: string) {
+    return this._framework.parseSelectors(selectorText);
+  }
+
+  matchesSelector(widget: Widget, selector: unknown): boolean {
+    return this._framework.matchesSelector(widget, selector as never);
+  }
+
+  clearFocusWithin(container: Widget): void {
+    this.focusEngine.clearFocusWithin(container);
+  }
+
+  trapFocus(widget: Widget, enabled = true): void {
+    this.focusEngine.trapFocus(widget, enabled);
+  }
+
+  handleWidgetTooltipChange(widget: Widget): void {
+    this.tooltipService.handleWidgetTooltipChange(widget);
+  }
+
+  registerLayoutReader(nodeId: string, reader: () => void): () => void {
+    return this.layoutEngine.registerLayoutReader(nodeId, reader);
+  }
+
+  preventMessages<T>(targetId: string | null, messageTypes: MessageConstructor[], callback: () => T): T {
+    return this.messagePump.preventMessages(targetId, messageTypes, callback);
+  }
+
+  disableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
+    this.messagePump.disableMessages(targetId, messageTypes);
+  }
+
+  enableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
+    this.messagePump.enableMessages(targetId, messageTypes);
+  }
+
+  getMessageQueueSize(targetId: string | null): number {
+    return this.messagePump.getMessageQueueSize(targetId);
+  }
+
+  runNodeWorker<TResult>(
+    node: Widget,
+    work: WorkerCallable<TResult>,
+    options: WorkerOptions = {},
+  ): Worker<TResult> {
+    return this.asyncResources.runWorker(node, work, options);
+  }
+
+  runAppWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
+    return this.asyncResources.runAppWorker(work, options);
+  }
+
+  setTimer(node: Widget, name: string, delayMs: number, callback: TimerCallback): void {
+    this.asyncResources.setTimer(node, name, delayMs, callback);
+  }
+
+  setInterval(
+    node: Widget,
+    name: string,
+    intervalMs: number,
+    callback: TimerCallback,
+    options: TimerOptions = {},
+  ): void {
+    this.asyncResources.setInterval(node, name, intervalMs, callback, options);
+  }
+
+  clearTimer(node: Widget, name: string): void {
+    this.asyncResources.clearTimer(node, name);
+  }
+
+  pauseTimer(node: Widget, name: string): void {
+    this.asyncResources.pauseTimer(node, name);
+  }
+
+  resumeTimer(node: Widget, name: string): void {
+    this.asyncResources.resumeTimer(node, name);
+  }
+
+  resetTimer(node: Widget, name: string): void {
+    this.asyncResources.resetTimer(node, name);
+  }
+
+  createSignal<TValue>(owner: Widget, description = ""): Signal<TValue> {
+    return this.signalRegistry.createSignal<TValue>(owner, description);
+  }
+
+  dismissNotification(identity: string): void {
+    this.notificationService.dismissNotification(identity);
+  }
+
+  dispatchPointerDown(screenX: number, screenY: number): void {
+    this.pointerEngine.dispatchPointerDown(screenX, screenY);
+  }
+
+  dispatchPointerUp(screenX: number, screenY: number): void {
+    this.pointerEngine.dispatchPointerUp(screenX, screenY);
+  }
+
+  dispatchPointerMove(screenX: number, screenY: number): void {
+    this.pointerEngine.dispatchPointerMove(screenX, screenY);
+  }
+
+  hitTest(screenX: number, screenY: number): Widget | undefined {
+    return this.pointerEngine.hitTest(screenX, screenY);
+  }
+
+  postResize(width: number, height: number): void {
+    this.lifecycle.postResize(width, height);
+  }
+
+  reportUnhandledError(error: unknown): void {
+    this.lifecycle.reportUnhandledError(error);
+  }
+
+  throwPendingError(): void {
+    this.lifecycle.throwPendingError();
+  }
+
+  setCaptureUnhandledErrors(enabled: boolean): void {
+    this.lifecycle.setCaptureUnhandledErrors(enabled);
+  }
+
+  setControlledTerminalSize(size: Size | null): void {
+    this.lifecycle.setControlledTerminalSize(size);
+  }
+
+  getSystemCommandsForScreen(screen: Screen | null): SystemCommand[] {
+    return this.commandService.getSystemCommands(screen);
   }
 
   private resolveCommandProviders(): Iterable<ProviderConstructor> | null | undefined {
