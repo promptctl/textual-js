@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable, runInAction } from "mobx";
+import { observable, runInAction } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 
 import type { Widget } from "../framework/widget.js";
 
@@ -51,7 +52,7 @@ export class Signal<TValue> {
       : (callback) => owner.framework.callLater(callback);
     this.description = owner === null ? description : isNodeMountedOrDescription as string;
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         subscribers: false,
@@ -59,7 +60,7 @@ export class Signal<TValue> {
         isNodeMounted: false,
         scheduleCallback: false,
         toString: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

@@ -13,7 +13,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 export type AfterRefreshCallback = () => void;
 export type LayoutReader = () => void;
@@ -39,14 +39,14 @@ export class LayoutEngine {
 
   constructor(deps: LayoutEngineDeps) {
     this.deps = deps;
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         afterRefreshCallbacks: false,
         layoutReaders: false,
         afterRefreshRequester: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

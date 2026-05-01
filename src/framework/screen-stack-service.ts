@@ -12,7 +12,7 @@
 import "./mobx-config.js";
 
 import React from "react";
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import { makeBindings, type BindingDeclaration } from "../bindings/index.js";
 import type { ParsedStylesheet } from "../styles/index.js";
@@ -105,7 +105,7 @@ export class ScreenStackService {
     // default stack.
     this.modeStacks.set(DEFAULT_MODE, [createImplicitEntry()]);
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         // Maps are observed by mutation marker (screenStackVersion) only.
@@ -113,7 +113,7 @@ export class ScreenStackService {
         modeFactories: false,
         installedScreens: false,
         deps: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

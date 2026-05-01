@@ -10,7 +10,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import { makeBindings, type Binding, type BindingDeclaration } from "../bindings/index.js";
 import type { ParsedStylesheet } from "../styles/index.js";
@@ -54,14 +54,14 @@ export class WidgetTypeRegistry {
   constructor(deps: WidgetTypeRegistryDeps) {
     this.deps = deps;
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         widgetTypes: false,
         widgetTypeMetadata: false,
         widgetTypeTokens: false,
         deps: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

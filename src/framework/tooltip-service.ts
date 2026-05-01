@@ -11,7 +11,8 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable, runInAction } from "mobx";
+import { runInAction } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import { measureVisual, visualize, type Visual, type VisualInput } from "../content/index.js";
 import type { Widget } from "./widget.js";
@@ -35,12 +36,12 @@ export class TooltipService {
 
   constructor(deps: TooltipServiceDeps) {
     this.deps = deps;
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         tooltipTimer: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

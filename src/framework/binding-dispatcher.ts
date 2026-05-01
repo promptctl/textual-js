@@ -11,7 +11,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import {
   SkipAction,
@@ -88,14 +88,14 @@ export class BindingDispatcher {
     this.appNavigationBindings = appNavigationBindings;
     this.appBindings = makeBindings(appNavigationBindings);
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         bindingClashSignatures: false,
         appNavigationBindings: false,
         lastActionDispatchResult: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

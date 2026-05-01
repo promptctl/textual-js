@@ -15,7 +15,7 @@
 import "./mobx-config.js";
 
 import { threadId } from "node:worker_threads";
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import type { Widget } from "./widget.js";
 import { Timer } from "../events/events.js";
@@ -59,14 +59,14 @@ export class AsyncResourceManager {
 
   constructor(deps: AsyncResourceManagerDeps) {
     this.deps = deps;
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         timers: false,
         appThreadId: false,
         appWorkerOwner: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

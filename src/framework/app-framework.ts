@@ -1,7 +1,9 @@
 import "./mobx-config.js";
 
 import React from "react";
-import { makeAutoObservable, runInAction } from "mobx";
+import { runInAction } from "mobx";
+
+import { autoObservable } from "./auto-observable.js";
 
 import {
   AppBlur,
@@ -849,7 +851,7 @@ export class TextualFramework {
     };
     this.themeBroker = new ThemeBroker(themeBrokerDeps);
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         widgetTypeRegistry: false,
@@ -871,7 +873,7 @@ export class TextualFramework {
         handleBindingsClash: false,
         focusEngine: false,
         pointerEngine: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

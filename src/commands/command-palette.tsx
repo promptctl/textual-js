@@ -4,7 +4,8 @@
 import React from "react";
 import uFuzzy from "@leeoniya/ufuzzy";
 import { Box, Text } from "ink";
-import { makeAutoObservable, runInAction } from "mobx";
+import { runInAction } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 import { observer } from "mobx-react-lite";
 
 import { renderVisual, visualize, type Visual } from "../content/index.js";
@@ -113,7 +114,7 @@ export class CommandPalette {
       provider.context = context;
     }
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         providers: false,
@@ -123,7 +124,7 @@ export class CommandPalette {
         noMatchesTimer: false,
         confirmation: false,
         context: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

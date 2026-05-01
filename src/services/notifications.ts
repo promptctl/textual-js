@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable } from "mobx";
+import { observable } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 
 import type { Content } from "../content/index.js";
 
@@ -56,12 +57,12 @@ export class Notifications implements Iterable<Notification> {
   private readonly expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         entries: false,
         expiryTimers: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }
