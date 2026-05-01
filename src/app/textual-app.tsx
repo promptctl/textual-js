@@ -1,7 +1,20 @@
 // [LAW:single-enforcer] TextualApp is a thin host-bridge component: it wires
 // React/Ink's runtime (mount, keyboard, stdout resize, render tick) to the
-// framework that App owns, and synchronizes App's configuration props into
-// framework state. It is **not** the runtime authority — App is.
+// App that owns the runtime, and synchronizes App's configuration props into
+// service state. It is **not** the runtime authority — App is.
+//
+// Configuration writes (setUserStylesheet, setKeymap, setTheme, etc.) route
+// through the `app` prop when supplied. Tests still construct
+// <TextualApp framework={framework}> without an App; that legacy path uses
+// `frameworkAsSink(framework)` so the same setter sequence reaches the
+// framework directly. Both paths land on the same underlying services.
+//
+// AppShell and the overlays (TooltipOverlay, ToastOverlay) currently read
+// runtime observables off the framework via the React context. That access
+// is legacy: it preserves the bare-framework rendering path tests rely on
+// until 7w9.10 deletes the framework class. App's getters delegate to the
+// same observables, so the read values are identical regardless of which
+// reference is used.
 //
 // What TextualApp does:
 //   1. Identity capture — `useState(() => framework)` locks the framework
@@ -60,8 +73,14 @@ import type { WidgetActions } from "../framework/widget-registry.js";
 import type { ProviderConstructor } from "../commands/index.js";
 import type { Notification } from "../services/notifications.js";
 import { Color } from "../styles/color.js";
+import type { App } from "./app.js";
 
 export interface TextualAppProps extends PropsWithChildren {
+  // [LAW:one-source-of-truth] App is the runtime authority. The host adapter
+  // accepts an App reference and routes runtime reads/writes through it.
+  // The legacy `framework` prop remains for tests that still construct a
+  // TextualApp around a bare framework; new callers pass `app`.
+  app?: App;
   framework: TextualFramework;
   onReady?: (framework: TextualFramework) => void;
   css?: string;
@@ -296,7 +315,55 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
   );
 });
 
+// [LAW:one-source-of-truth] Configuration sink: App-level configuration
+// flows through this surface. When an App is supplied, every setter routes
+// through app.X; otherwise the legacy bare-framework path (used by tests
+// constructing <TextualApp framework={...}> directly) writes to the
+// framework. Both paths land on the same underlying services, so the
+// runtime sees one canonical sequence either way.
+interface RuntimeConfigSink {
+  setUserStylesheet(source: string): void;
+  setCssPath(path: string | readonly string[]): void;
+  setTheme(name: string): unknown;
+  setAppBindings(declarations: Iterable<BindingDeclaration>): void;
+  setKeymap(next: KeymapInput): void;
+  setAppActions(actions: WidgetActions | undefined): void;
+  setAppCommandProviders(providers: Iterable<ProviderConstructor> | null | undefined): void;
+  setSystemCommandResolver(resolver: SystemCommandResolver | undefined): void;
+  isScreenInstalled(name: string): boolean;
+  installScreenFactory(name: string, factory: () => React.ReactElement): void;
+  addMode(name: string, factory: () => React.ReactElement): void;
+  setAppAutoFocus(selector: string | null | undefined): void;
+  setTooltipDelay(delayMs: number | null | undefined): void;
+  setShowTooltips(enabled: boolean | null | undefined): void;
+  getScreen(name: string): React.ReactElement;
+}
+
+// [LAW:locality-or-seam] Adapt the legacy bare-framework path so it
+// implements the same sink shape as App. Internal-only — disappears once
+// framework deletion (7w9.10) lands and bare-framework rendering is gone.
+function frameworkAsSink(framework: TextualFramework): RuntimeConfigSink {
+  return {
+    setUserStylesheet: (source) => framework.setUserStylesheet(source),
+    setCssPath: (path) => framework.setCssPath(path),
+    setTheme: (name) => framework.setTheme(name),
+    setAppBindings: (declarations) => framework.setAppBindings(declarations),
+    setKeymap: (next) => framework.setKeymap(next),
+    setAppActions: (actions) => framework.setAppActions(actions),
+    setAppCommandProviders: (providers) => framework.setAppCommandProviders(providers),
+    setSystemCommandResolver: (resolver) => framework.setSystemCommandResolver(resolver),
+    isScreenInstalled: (name) => framework.isScreenInstalled(name),
+    installScreenFactory: (name, factory) => framework.installScreen(name, factory),
+    addMode: (name, factory) => framework.addMode(name, factory),
+    setAppAutoFocus: (selector) => framework.setAppAutoFocus(selector),
+    setTooltipDelay: (delayMs) => framework.setTooltipDelay(delayMs),
+    setShowTooltips: (enabled) => framework.setShowTooltips(enabled),
+    getScreen: (name) => framework.getScreen(name),
+  };
+}
+
 export const TextualApp = observer(function TextualApp({
+  app,
   children,
   framework,
   onReady,
@@ -320,75 +387,78 @@ export const TextualApp = observer(function TextualApp({
   // framework prop must not silently swap the runtime under our feet.
   const [ownedFramework] = useState(() => framework);
 
+  // [LAW:single-enforcer] Configuration setters flow through App when one
+  // is supplied — App is the authority. Legacy bare-framework rendering
+  // (older tests) falls back to writing framework directly; both paths
+  // share the same underlying services, so the runtime sees one ordered
+  // configuration sequence either way.
+  const [sink] = useState<RuntimeConfigSink>(() => app ?? frameworkAsSink(ownedFramework));
+
   useLayoutEffect(() => {
     onReady?.(ownedFramework);
   }, [onReady, ownedFramework]);
 
-  // [LAW:one-source-of-truth] App.appOptions is the canonical configuration
-  // source. The block of effects below pushes each option into framework
-  // state. The framework's value is *derived* from App's options; consumers
-  // should never write to framework state through any other path.
   useLayoutEffect(() => {
-    ownedFramework.setUserStylesheet(css ?? stylesheet ?? "");
-  }, [css, ownedFramework, stylesheet]);
+    sink.setUserStylesheet(css ?? stylesheet ?? "");
+  }, [css, sink, stylesheet]);
 
   useLayoutEffect(() => {
     if (cssPath !== undefined) {
-      ownedFramework.setCssPath(cssPath);
+      sink.setCssPath(cssPath);
     }
-  }, [cssPath, ownedFramework]);
+  }, [cssPath, sink]);
 
   useLayoutEffect(() => {
-    ownedFramework.setTheme(theme ?? "default");
-  }, [ownedFramework, theme]);
+    sink.setTheme(theme ?? "default");
+  }, [sink, theme]);
 
   useLayoutEffect(() => {
-    ownedFramework.setAppBindings(bindings ?? []);
-  }, [bindings, ownedFramework]);
+    sink.setAppBindings(bindings ?? []);
+  }, [bindings, sink]);
 
   useLayoutEffect(() => {
     if (keymap !== undefined) {
-      ownedFramework.setKeymap(keymap);
+      sink.setKeymap(keymap);
     }
-  }, [keymap, ownedFramework]);
+  }, [keymap, sink]);
 
   useLayoutEffect(() => {
-    ownedFramework.setAppActions(actions);
-  }, [actions, ownedFramework]);
+    sink.setAppActions(actions);
+  }, [actions, sink]);
 
   useLayoutEffect(() => {
-    ownedFramework.setAppCommandProviders(commandProviders);
-  }, [commandProviders, ownedFramework]);
+    sink.setAppCommandProviders(commandProviders);
+  }, [commandProviders, sink]);
 
   useLayoutEffect(() => {
-    ownedFramework.setSystemCommandResolver(getSystemCommands);
-  }, [getSystemCommands, ownedFramework]);
+    sink.setSystemCommandResolver(getSystemCommands);
+  }, [getSystemCommands, sink]);
 
   useLayoutEffect(() => {
     for (const [name, screen] of Object.entries(screens ?? {})) {
-      if (!ownedFramework.isScreenInstalled(name)) {
-        ownedFramework.installScreen(name, normalizeScreenFactory(screen, ownedFramework));
+      if (!sink.isScreenInstalled(name)) {
+        sink.installScreenFactory(name, normalizeScreenFactory(screen, sink));
       }
     }
-  }, [ownedFramework, screens]);
+  }, [sink, screens]);
 
   useLayoutEffect(() => {
     for (const [name, screen] of Object.entries(modes ?? {})) {
-      ownedFramework.addMode(name, normalizeScreenFactory(screen, ownedFramework));
+      sink.addMode(name, normalizeScreenFactory(screen, sink));
     }
-  }, [modes, ownedFramework]);
+  }, [modes, sink]);
 
   useLayoutEffect(() => {
-    ownedFramework.setAppAutoFocus(autoFocus);
-  }, [autoFocus, ownedFramework]);
+    sink.setAppAutoFocus(autoFocus);
+  }, [autoFocus, sink]);
 
   useLayoutEffect(() => {
-    ownedFramework.setTooltipDelay(tooltipDelay);
-  }, [ownedFramework, tooltipDelay]);
+    sink.setTooltipDelay(tooltipDelay);
+  }, [sink, tooltipDelay]);
 
   useLayoutEffect(() => {
-    ownedFramework.setShowTooltips(showTooltips);
-  }, [ownedFramework, showTooltips]);
+    sink.setShowTooltips(showTooltips);
+  }, [sink, showTooltips]);
 
   return (
     <TextualProvider framework={ownedFramework}>
@@ -399,10 +469,10 @@ export const TextualApp = observer(function TextualApp({
 
 function normalizeScreenFactory(
   screen: ScreenDescriptor | (() => React.ReactElement) | string,
-  framework: TextualFramework,
+  sink: { getScreen(name: string): React.ReactElement },
 ): () => React.ReactElement {
   if (typeof screen === "string") {
-    return () => framework.getScreen(screen);
+    return () => sink.getScreen(screen);
   }
 
   if (React.isValidElement(screen)) {

@@ -119,7 +119,7 @@ describe("screen stack", () => {
     const app = new App();
     const framework = app.framework;
 
-    expect(app.screenStack.map((screen) => screen.id)).toEqual(["_default"]);
+    expect(app.getScreenStack().map((screen) => screen.id)).toEqual(["_default"]);
     expect(app.screen?.id).toBe("_default");
     expect(framework.activeScreenElement).toBeNull();
   });
