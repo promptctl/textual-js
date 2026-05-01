@@ -147,7 +147,7 @@ export class CommandPalette {
       worker.cancel();
     }
 
-    await this.requireFramework().workers.waitForComplete(this.ownedWorkers);
+    await this.requireApp().workers.waitForComplete(this.ownedWorkers);
 
     for (const provider of this.providers) {
       await provider.shutdown();
@@ -159,7 +159,7 @@ export class CommandPalette {
   }
 
   runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    const worker = this.requireFramework().runAppWorker(work, {
+    const worker = this.requireApp().runAppWorker(work, {
       ...options,
       start: options.start ?? true,
       group: options.group ?? "command-palette",
@@ -315,14 +315,16 @@ export class CommandPalette {
 
   static isOpen(app: unknown): boolean {
     const isObject = typeof app === "object" && app !== null;
-    const framework = isObject && "framework" in app
-      ? (app as { framework: { activeScreen?: { name: string | null } | null } }).framework
-      : (app as { activeScreen?: { name: string | null } | null });
-    const activeScreen = framework.activeScreen;
+    // [LAW:one-source-of-truth] Accept both shapes during migration: App exposes
+    // .screen (alias for activeScreen); legacy callers passing a framework-like
+    // object surface .activeScreen directly.
+    const candidate = isObject && "screen" in app
+      ? (app as { screen?: { name: string | null } | null }).screen
+      : isObject && "activeScreen" in app
+      ? (app as { activeScreen?: { name: string | null } | null }).activeScreen
+      : null;
 
-    // [LAW:one-source-of-truth] Palette visibility is derived from the active
-    // screen entry name so future launchers and observers read one shared marker.
-    return activeScreen?.name === CommandPalette.SCREEN_NAME;
+    return candidate?.name === CommandPalette.SCREEN_NAME;
   }
 
   static is_open(app: unknown): boolean {
@@ -338,14 +340,14 @@ export class CommandPalette {
     }
   }
 
-  private requireFramework() {
+  private requireApp() {
     const context = this.context;
 
     if (context === null) {
       throw new Error("Command palette worker support requires a provider context");
     }
 
-    return context.app.framework;
+    return context.app;
   }
 }
 
@@ -356,21 +358,21 @@ export interface CommandPaletteScreenProps {
 export const CommandPaletteScreen = observer(function CommandPaletteScreen({
   palette,
 }: CommandPaletteScreenProps): React.JSX.Element {
-  const framework = useTextual();
+  const app = useTextual();
   const widget = useWidget({
     typeName: "CommandPalette",
     focusable: true,
     autoFocus: true,
     handlers: {
       onKey: (message) => {
-        handlePaletteKey(framework, palette, message as Key);
+        handlePaletteKey(app, palette, message as Key);
       },
       onClick: (message) => {
         message.stop();
         const insidePalette = isLocalClickInsideWidget(message as Click, widget.handle);
 
         if (!insidePalette) {
-          void framework.closeActiveCommandPalette(false);
+          void app.closeActiveCommandPalette(false);
         }
       },
     },
@@ -380,7 +382,7 @@ export const CommandPaletteScreen = observer(function CommandPaletteScreen({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(70, framework.terminalSize.width)}>
+      <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(70, app.terminalSize.width)}>
         <Text>{`> ${palette.query}`}</Text>
         {visibleResults.map((result, index) => (
           <Box key={`${result.text}:${index}`}>
@@ -395,14 +397,14 @@ export const CommandPaletteScreen = observer(function CommandPaletteScreen({
 });
 
 function handlePaletteKey(
-  framework: ProviderContext["app"]["framework"],
+  app: ProviderContext["app"],
   palette: CommandPalette,
   message: Key,
 ): void {
   message.stop();
 
   if (message.key === "escape") {
-    void framework.closeActiveCommandPalette(false);
+    void app.closeActiveCommandPalette(false);
     return;
   }
 
@@ -410,7 +412,7 @@ function handlePaletteKey(
     const highlighted = palette.moveHighlight(1);
 
     if (highlighted !== null && palette.highlightedIndex !== null) {
-      framework.postAppMessage(new CommandPalette.OptionHighlighted(highlighted, palette.highlightedIndex));
+      app.postAppMessage(new CommandPalette.OptionHighlighted(highlighted, palette.highlightedIndex));
     }
 
     return;
@@ -420,7 +422,7 @@ function handlePaletteKey(
     const selection = palette.selectHighlighted();
 
     if (selection.selected) {
-      void framework.closeActiveCommandPalette(true, selection.command ?? undefined);
+      void app.closeActiveCommandPalette(true, selection.command ?? undefined);
     }
 
     return;

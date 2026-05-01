@@ -2,7 +2,7 @@ import { computed, type IComputedValue } from "mobx";
 
 import { parseTcss } from "../styles/stylesheet.js";
 import { parseSelectorList, type ParsedSelector } from "../styles/selectors.js";
-import type { TextualFramework } from "./app-framework.js";
+import type { App } from "../app/app.js";
 import type { Widget } from "./widget.js";
 
 export class NoMatches extends Error {}
@@ -20,7 +20,7 @@ export function matchesQueryTypeConstraint(widget: Widget, typeConstraint: Query
     return true;
   }
 
-  const resolvedTypeName = widget.framework.resolveWidgetTypeName(typeConstraint as string | Function);
+  const resolvedTypeName = widget.app.resolveWidgetTypeName(typeConstraint as string | Function);
   return widget.matchesType(resolvedTypeName);
 }
 
@@ -39,7 +39,7 @@ export class DOMQuery implements Iterable<Widget> {
   private readonly resultsComputed: IComputedValue<Widget[]>;
 
   constructor(
-    private readonly framework: TextualFramework,
+    private readonly app: App,
     private readonly root: Widget,
     private readonly mode: "descendants" | "children",
     filters: ParsedSelector[][] = [],
@@ -110,11 +110,11 @@ export class DOMQuery implements Iterable<Widget> {
   }
 
   filter(selectorText: string): DOMQuery {
-    return new DOMQuery(this.framework, this.root, this.mode, [...this.selectorFilters, DOMQuery.parseSelectors(selectorText)], this.selectorExcludes);
+    return new DOMQuery(this.app, this.root, this.mode, [...this.selectorFilters, DOMQuery.parseSelectors(selectorText)], this.selectorExcludes);
   }
 
   exclude(selectorText: string): DOMQuery {
-    return new DOMQuery(this.framework, this.root, this.mode, this.selectorFilters, [...this.selectorExcludes, DOMQuery.parseSelectors(selectorText)]);
+    return new DOMQuery(this.app, this.root, this.mode, this.selectorFilters, [...this.selectorExcludes, DOMQuery.parseSelectors(selectorText)]);
   }
 
   results(typeConstraint?: QueryTypeConstraint): Widget[] {
@@ -176,21 +176,21 @@ export class DOMQuery implements Iterable<Widget> {
   }
 
   refresh(): this {
-    this.framework.refreshStyles(true);
+    this.app.refreshStyles(true);
     return this;
   }
 
   focus(): Widget | null {
     const focusable = this.results().find((widget) => widget.focusable);
-    this.framework.focusWidget(focusable?.nodeId ?? null);
+    this.app.focusWidget(focusable?.nodeId ?? null);
     return focusable ?? null;
   }
 
   blur(): this {
     const matchedNodeIds = new Set(this.results().map((widget) => widget.nodeId));
 
-    if (this.framework.focusedNodeId !== null && matchedNodeIds.has(this.framework.focusedNodeId)) {
-      this.framework.focusWidget(null);
+    if (this.app.focusedNodeId !== null && matchedNodeIds.has(this.app.focusedNodeId)) {
+      this.app.focusWidget(null);
     }
 
     return this;
@@ -199,16 +199,16 @@ export class DOMQuery implements Iterable<Widget> {
   private computeResults(): Widget[] {
     // [LAW:one-source-of-truth] DOMQuery invalidates from the registry version,
     // the same mutation signal used by mount, unmount, and identity updates.
-    void this.framework.registry.version;
+    void this.app.registry.version;
     const candidates =
-      this.mode === "children" ? this.framework.registry.getChildren(this.root.nodeId) : this.framework.registry.getDescendants(this.root.nodeId);
+      this.mode === "children" ? this.app.registry.getChildren(this.root.nodeId) : this.app.registry.getDescendants(this.root.nodeId);
 
     return candidates.filter((candidate) => {
       const passesFilters = this.selectorFilters.every((selectorGroup) =>
-        selectorGroup.some((selector) => this.framework.matchesSelector(candidate, selector)),
+        selectorGroup.some((selector) => this.app.matchesSelector(candidate, selector)),
       );
       const excluded = this.selectorExcludes.some((selectorGroup) =>
-        selectorGroup.some((selector) => this.framework.matchesSelector(candidate, selector)),
+        selectorGroup.some((selector) => this.app.matchesSelector(candidate, selector)),
       );
       return passesFilters && !excluded;
     });

@@ -15,7 +15,8 @@ import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
 import { Content, type VisualInput } from "../content/index.js";
-import { TextualFramework, type ActiveBinding } from "./app-framework.js";
+import { type ActiveBinding } from "./app-framework.js";
+import type { App } from "../app/app.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { Widget } from "./widget.js";
 import type { ResolvedStyles } from "../styles/resolved-styles.js";
@@ -28,7 +29,7 @@ import {
 } from "../bindings/index.js";
 import { Region } from "../geometry/region.js";
 
-const TextualFrameworkContext = createContext<TextualFramework | null>(null);
+const AppContext = createContext<App | null>(null);
 const ParentWidgetContext = createContext<string | null>(null);
 const CurrentWidgetContext = createContext<Widget | null>(null);
 
@@ -39,25 +40,25 @@ function createWidgetId(): string {
 }
 
 export interface TextualProviderProps extends PropsWithChildren {
-  framework: TextualFramework;
+  app: App;
 }
 
-export function TextualProvider({ framework, children }: TextualProviderProps): React.JSX.Element {
+export function TextualProvider({ app, children }: TextualProviderProps): React.JSX.Element {
   return (
-    <TextualFrameworkContext.Provider value={framework}>
+    <AppContext.Provider value={app}>
       <ParentWidgetContext.Provider value={null}>{children}</ParentWidgetContext.Provider>
-    </TextualFrameworkContext.Provider>
+    </AppContext.Provider>
   );
 }
 
-export function useTextual(): TextualFramework {
-  const framework = useContext(TextualFrameworkContext);
+export function useTextual(): App {
+  const app = useContext(AppContext);
 
-  if (framework === null) {
+  if (app === null) {
     throw new Error("useTextual must be used inside <TextualApp />");
   }
 
-  return framework;
+  return app;
 }
 
 export interface UseWidgetOptions {
@@ -110,7 +111,7 @@ function normalizeClasses(classes: UseWidgetOptions["classes"]): string[] {
 }
 
 export function useWidget(options: UseWidgetOptions): UseWidgetResult {
-  const framework = useTextual();
+  const app = useTextual();
   const parentId = useContext(ParentWidgetContext);
   const handlersRef = useRef(options.handlers) as MutableRefObject<WidgetHandlers | undefined>;
   const actionsRef = useRef(options.actions) as MutableRefObject<WidgetActions | undefined>;
@@ -118,7 +119,7 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const [lifecycleReady, setLifecycleReady] = useState(false);
   const widgetRef = useRef<Widget>(
     new Widget({
-      framework,
+      app,
       nodeId: createWidgetId(),
       parentId,
       id: options.id,
@@ -144,7 +145,7 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   const classesKey = classes.join(" ");
 
   useLayoutEffect(() => {
-    framework.registerWidgetType(options.typeName, {
+    app.registerWidgetType(options.typeName, {
       defaultCss: options.defaultCss,
       scopedCss: options.scopedCss,
       baseTypeNames: options.baseTypeNames,
@@ -157,7 +158,7 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       borderSubtitle: options.borderSubtitle,
       typeToken: options.typeToken,
     });
-    const typeMetadata = framework.getWidgetTypeMetadata(options.typeName);
+    const typeMetadata = app.getWidgetTypeMetadata(options.typeName);
     bindingsRef.current = typeMetadata.bindings;
     widgetRef.current.parentId = parentId;
     widgetRef.current.markLifecyclePending();
@@ -170,17 +171,17 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
       widgetRef.current.borderSubtitle =
         nextBorderSubtitle === null ? null : Content.fromText(nextBorderSubtitle).firstLine;
     });
-    framework.registerWidget(widgetRef.current);
+    app.registerWidget(widgetRef.current);
     setLifecycleReady(true);
 
     return () => {
       setLifecycleReady(false);
-      framework.notifyWillUnmount(widgetRef.current);
-      framework.unregisterWidget(widgetRef.current.nodeId);
+      app.notifyWillUnmount(widgetRef.current);
+      app.unregisterWidget(widgetRef.current.nodeId);
     };
   }, [
     classesKey,
-    framework,
+    app,
     options.defaultCss,
     options.scopedCss,
     options.typeName,
@@ -213,13 +214,13 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
 
   return {
     nodeId: widgetRef.current.nodeId,
-    isFocused: framework.focusedNodeId === widgetRef.current.nodeId,
+    isFocused: app.focusedNodeId === widgetRef.current.nodeId,
     lifecycleReady,
     focus: () => {
-      framework.focusWidget(widgetRef.current.nodeId);
+      app.focusWidget(widgetRef.current.nodeId);
     },
     postMessage: (message: Message) => {
-      return framework.postMessage(widgetRef.current.nodeId, message);
+      return app.postMessage(widgetRef.current.nodeId, message);
     },
     handle: widgetRef.current,
   };
@@ -406,7 +407,7 @@ export const WidgetScope = observer(function WidgetScope({ widget, children }: W
     };
 
     reader();
-    return widget.framework.registerLayoutReader(widget.nodeId, reader);
+    return widget.app.registerLayoutReader(widget.nodeId, reader);
   }, [widget]);
 
   return (
@@ -481,7 +482,7 @@ export function useStyles(widget?: Widget): ResolvedStyles {
 // publish vs. child subscription gated by lifecycleReady). The signal remains
 // for non-React consumers (probes, devtools).
 export function useBindings(widget?: Widget): ActiveBinding[] {
-  const framework = useTextual();
+  const app = useTextual();
   // [LAW:dataflow-not-control-flow] Same hook order every call. The result
   // of useCurrentWidget is read but only required when no explicit widget is
   // provided; the runtime check produces a precise error when neither is set.
@@ -491,7 +492,7 @@ export function useBindings(widget?: Widget): ActiveBinding[] {
     throw new Error("useBindings must be used inside a widget scope (or pass an explicit widget)");
   }
 
-  return framework.getActiveBindings();
+  return app.getActiveBindings();
 }
 
 export function useWorker<TResult>(

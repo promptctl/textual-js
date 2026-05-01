@@ -92,8 +92,7 @@ export class DiscoveryHit {
 export type DiscoveryHitLike = DiscoveryHit | DiscoveryHitInit;
 
 // [LAW:one-type-per-behavior] Every field names exactly one type. Providers
-// always receive the public `App`; the framework is reachable as `app.framework`
-// for providers that need the internal runtime surface.
+// always receive the public `App` — the only runtime authority.
 export interface ProviderContext {
   app: App;
   screen: Screen | null;
@@ -105,10 +104,6 @@ export abstract class Provider {
 
   get app(): ProviderContext["app"] {
     return this.requireContext().app;
-  }
-
-  get framework() {
-    return this.requireContext().app.framework;
   }
 
   get screen(): Screen | null {
@@ -215,7 +210,7 @@ export class SystemCommandsProvider extends Provider {
     // [LAW:single-enforcer] System command discovery resolves through the
     // framework's systemCommandResolver, which App wires to its own
     // getSystemCommands override. One authoritative list reaches the palette.
-    return Array.from(this.app.framework.getSystemCommands(this.screen));
+    return Array.from(this.app.getSystemCommandsForScreen(this.screen));
   }
 }
 

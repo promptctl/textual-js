@@ -747,7 +747,7 @@ export class TextualFramework {
       reportUnhandledError: (error) => this.reportUnhandledError(error),
       callLater: (callback) => this.callLater(callback),
       isRunning: () => this.isRunning,
-      isOwnPump: (pump) => pump === this || (pump instanceof Widget && pump.framework === this),
+      isOwnPump: (pump) => pump === this || (pump instanceof Widget && pump.app.framework === this),
     };
     this.asyncResources = new AsyncResourceManager(asyncResourceDeps);
 

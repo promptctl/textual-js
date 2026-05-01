@@ -18,6 +18,8 @@ import {
   type SimpleCommand,
   type SystemCommand,
   type NotifyOptions,
+  type RegisterWidgetTypeOptions,
+  type WidgetTypeMetadata,
 } from "../framework/app-framework.js";
 import { DEFAULT_MODE, normalizePushArgs } from "../framework/screen-stack-service.js";
 import { ModeChanged, ScreenResume, ScreenSuspend } from "../events/events.js";
@@ -425,7 +427,6 @@ export class App<Result = unknown> {
     return (
       <TextualApp
         app={this}
-        framework={this._framework}
         css={this.appOptions.css}
         cssPath={this.appOptions.cssPath}
         stylesheet={this.appOptions.stylesheet}
@@ -797,6 +798,14 @@ export class App<Result = unknown> {
     return this.commandService.openCommandPalette(options);
   }
 
+  closeActiveCommandPalette(optionSelected: boolean, command?: () => void): Promise<void> {
+    return this.commandService.closeActiveCommandPalette(optionSelected, command);
+  }
+
+  postAppMessage(message: Message): void {
+    this.messagePump.postAppMessage(message);
+  }
+
   // [LAW:single-enforcer] App is the boundary for async resource ownership.
   // Deferred and threaded callbacks enter through App so timer scope, idle
   // accounting, and shutdown draining share one authority.
@@ -892,6 +901,14 @@ export class App<Result = unknown> {
 
   widgetMatchesType(typeName: string, expectedTypeName: string): boolean {
     return this.widgetTypeRegistry.widgetMatchesType(typeName, expectedTypeName);
+  }
+
+  registerWidgetType(typeName: string, options?: RegisterWidgetTypeOptions): void {
+    this.widgetTypeRegistry.registerWidgetType(typeName, options ?? {});
+  }
+
+  getWidgetTypeMetadata(typeName: string): WidgetTypeMetadata {
+    return this.widgetTypeRegistry.getWidgetTypeMetadata(typeName);
   }
 
   parseSelectors(selectorText: string) {
@@ -1052,7 +1069,6 @@ export class App<Result = unknown> {
     const session = await runTestRoot(this.render(), this, options);
 
     return {
-      framework: session.framework,
       pilot: session.pilot,
       cleanup: session.cleanup,
       unmount: session.unmount,
