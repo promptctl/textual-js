@@ -20,7 +20,7 @@
 //   1. Identity capture — `useState(() => framework)` locks the framework
 //      reference for this React subtree so a parent re-render with a
 //      different prop doesn't swap runtimes mid-flight.
-//   2. Host bridges — Ink → framework: keyboard (`useInput → postKey`),
+//   2. Host bridges — Ink → framework: keyboard (`useStdin → postKey`),
 //      stdout dimensions (`syncHostTerminalSize`), React mount/unmount
 //      (`startup` / `shutdown`), refresh requester
 //      (`attachAfterRefreshRequester`), per-render paint tick
@@ -53,8 +53,9 @@
 // React-side projection point that wires the two together. There is no
 // alternate path from props to framework state and no second renderer.
 
-import React, { useLayoutEffect, useState, type PropsWithChildren } from "react";
-import { Box, useInput, useStdout, type Key as InkKey } from "ink";
+import { Buffer } from "node:buffer";
+import React, { useEffect, useLayoutEffect, useState, type PropsWithChildren } from "react";
+import { Box, useStdin, useStdout } from "ink";
 import { observer } from "mobx-react-lite";
 import { Padding } from "rich-js";
 
@@ -207,44 +208,253 @@ function renderToastTitle(notification: Notification): React.JSX.Element | null 
   );
 }
 
-// [LAW:one-source-of-truth] Map Ink's `Key` flags onto the framework's
-// canonical key names. Special keys (tab, arrows, etc.) arrive from Ink with
-// `input === ""` and the matching boolean set; the framework's
-// `normalizeKeyName` only understands the canonical name.
-const INK_FLAG_KEY_ORDER: Array<{ flag: keyof InkKey; name: string }> = [
-  { flag: "tab", name: "tab" },
-  { flag: "escape", name: "escape" },
-  { flag: "return", name: "enter" },
-  { flag: "backspace", name: "backspace" },
-  { flag: "delete", name: "delete" },
-  { flag: "upArrow", name: "up" },
-  { flag: "downArrow", name: "down" },
-  { flag: "leftArrow", name: "left" },
-  { flag: "rightArrow", name: "right" },
-  { flag: "pageUp", name: "pageup" },
-  { flag: "pageDown", name: "pagedown" },
-];
+type ParsedTerminalKey = {
+  name: string;
+  ctrl: boolean;
+  meta: boolean;
+  shift: boolean;
+  option: boolean;
+  sequence: string;
+  raw: string | undefined;
+  code?: string;
+};
 
-function resolveInkKeyName(input: string, key: InkKey): string {
-  // [LAW:dataflow-not-control-flow] The flag table drives selection; the
-  // function always walks the table and returns the first match (or input).
-  const named = INK_FLAG_KEY_ORDER.find((entry) => key[entry.flag] === true);
-  return named === undefined ? input : named.name;
+type HostKey = {
+  input: string;
+  ctrl: boolean;
+  shift: boolean;
+  meta: boolean;
+};
+
+const META_KEY_CODE = /^(?:\x1b)([a-zA-Z0-9])$/;
+const FUNCTION_KEY_CODE = /^(?:\x1b+)(O|N|\[|\[\[)(?:(\d+)(?:;(\d+))?([~^$])|(?:1;)?(\d+)?([a-zA-Z]))/;
+
+// [LAW:one-source-of-truth] Terminal escape-sequence names are canonicalized
+// here before the framework's binding and Key-message grammar sees them.
+const TERMINAL_CODE_TO_KEY_NAME = new Map<string, string>([
+  ["OP", "f1"],
+  ["OQ", "f2"],
+  ["OR", "f3"],
+  ["OS", "f4"],
+  ["[11~", "f1"],
+  ["[12~", "f2"],
+  ["[13~", "f3"],
+  ["[14~", "f4"],
+  ["[[A", "f1"],
+  ["[[B", "f2"],
+  ["[[C", "f3"],
+  ["[[D", "f4"],
+  ["[[E", "f5"],
+  ["[15~", "f5"],
+  ["[17~", "f6"],
+  ["[18~", "f7"],
+  ["[19~", "f8"],
+  ["[20~", "f9"],
+  ["[21~", "f10"],
+  ["[23~", "f11"],
+  ["[24~", "f12"],
+  ["[A", "up"],
+  ["[B", "down"],
+  ["[C", "right"],
+  ["[D", "left"],
+  ["[E", "clear"],
+  ["[F", "end"],
+  ["[H", "home"],
+  ["OA", "up"],
+  ["OB", "down"],
+  ["OC", "right"],
+  ["OD", "left"],
+  ["OE", "clear"],
+  ["OF", "end"],
+  ["OH", "home"],
+  ["[1~", "home"],
+  ["[2~", "insert"],
+  ["[3~", "delete"],
+  ["[4~", "end"],
+  ["[5~", "pageup"],
+  ["[6~", "pagedown"],
+  ["[[5~", "pageup"],
+  ["[[6~", "pagedown"],
+  ["[7~", "home"],
+  ["[8~", "end"],
+  ["[a", "up"],
+  ["[b", "down"],
+  ["[c", "right"],
+  ["[d", "left"],
+  ["[e", "clear"],
+  ["[2$", "insert"],
+  ["[3$", "delete"],
+  ["[5$", "pageup"],
+  ["[6$", "pagedown"],
+  ["[7$", "home"],
+  ["[8$", "end"],
+  ["Oa", "up"],
+  ["Ob", "down"],
+  ["Oc", "right"],
+  ["Od", "left"],
+  ["Oe", "clear"],
+  ["[2^", "insert"],
+  ["[3^", "delete"],
+  ["[5^", "pageup"],
+  ["[6^", "pagedown"],
+  ["[7^", "home"],
+  ["[8^", "end"],
+  ["[Z", "tab"],
+]);
+
+const SHIFT_KEY_CODES = new Set(["[a", "[b", "[c", "[d", "[e", "[2$", "[3$", "[5$", "[6$", "[7$", "[8$", "[Z"]);
+const CTRL_KEY_CODES = new Set(["Oa", "Ob", "Oc", "Od", "Oe", "[2^", "[3^", "[5^", "[6^", "[7^", "[8^"]);
+const NON_CHARACTER_KEY_NAMES = new Set([...TERMINAL_CODE_TO_KEY_NAME.values(), "backspace", "return", "enter", "tab", "escape", "delete"]);
+const CANONICAL_HOST_KEY_NAMES = new Map<string, string>([
+  ["return", "enter"],
+  ["enter", "enter"],
+]);
+
+function parseTerminalKeypress(rawInput: Buffer | string = ""): ParsedTerminalKey {
+  const source = normalizeRawKeypressInput(rawInput);
+  let parts: RegExpExecArray | null;
+  const key: ParsedTerminalKey = {
+    name: "",
+    ctrl: false,
+    meta: false,
+    shift: false,
+    option: false,
+    sequence: source,
+    raw: source,
+  };
+
+  key.sequence = key.sequence || source || key.name;
+
+  if (source === "\r") {
+    key.raw = undefined;
+    key.name = "return";
+  } else if (source === "\n") {
+    key.name = "enter";
+  } else if (source === "\t") {
+    key.name = "tab";
+  } else if (source === "\b" || source === "\x1b\b") {
+    key.name = "backspace";
+    key.meta = source.charAt(0) === "\x1b";
+  } else if (source === "\x7f" || source === "\x1b\x7f") {
+    key.name = "delete";
+    key.meta = source.charAt(0) === "\x1b";
+  } else if (source === "\x1b" || source === "\x1b\x1b") {
+    key.name = "escape";
+    key.meta = source.length === 2;
+  } else if (source === " " || source === "\x1b ") {
+    key.name = "space";
+    key.meta = source.length === 2;
+  } else if (source.length === 1 && source <= "\x1a") {
+    key.name = String.fromCharCode(source.charCodeAt(0) + "a".charCodeAt(0) - 1);
+    key.ctrl = true;
+  } else if (source.length === 1 && source >= "0" && source <= "9") {
+    key.name = "number";
+  } else if (source.length === 1 && source >= "a" && source <= "z") {
+    key.name = source;
+  } else if (source.length === 1 && source >= "A" && source <= "Z") {
+    key.name = source.toLowerCase();
+    key.shift = true;
+  } else if ((parts = META_KEY_CODE.exec(source)) !== null) {
+    key.name = parts[1]!.toLowerCase();
+    key.meta = true;
+    key.shift = /^[A-Z]$/.test(parts[1]!);
+  } else if ((parts = FUNCTION_KEY_CODE.exec(source)) !== null) {
+    const segments = [...source];
+    const code = [parts[1], parts[2], parts[4], parts[6]].filter(Boolean).join("");
+    const modifier = Number(parts[3] ?? parts[5] ?? 1) - 1;
+
+    key.option = segments[0] === "\x1b" && segments[1] === "\x1b";
+    key.ctrl = Boolean(modifier & 4);
+    key.meta = Boolean(modifier & 10);
+    key.shift = Boolean(modifier & 1);
+    key.code = code;
+    key.name = TERMINAL_CODE_TO_KEY_NAME.get(code) ?? "";
+    key.shift = SHIFT_KEY_CODES.has(code) || key.shift;
+    key.ctrl = CTRL_KEY_CODES.has(code) || key.ctrl;
+  }
+
+  return key;
+}
+
+function normalizeRawKeypressInput(rawInput: Buffer | string): string {
+  if (Buffer.isBuffer(rawInput)) {
+    const bytes = Buffer.from(rawInput);
+
+    if (bytes[0] !== undefined && bytes[0] > 127 && bytes[1] === undefined) {
+      bytes[0] -= 128;
+      return `\x1b${String(bytes)}`;
+    }
+
+    return String(bytes);
+  }
+
+  return String(rawInput);
+}
+
+function resolveHostKey(rawInput: Buffer | string): HostKey {
+  const keypress = parseTerminalKeypress(rawInput);
+  const canonicalName = CANONICAL_HOST_KEY_NAMES.get(keypress.name) ?? keypress.name;
+  const namedInput = canonicalName === "space" ? keypress.sequence : canonicalName;
+  const baseInput = keypress.ctrl ? keypress.name : keypress.sequence;
+  const input = NON_CHARACTER_KEY_NAMES.has(keypress.name) ? namedInput : stripLeadingMetaEscape(baseInput);
+
+  // [LAW:dataflow-not-control-flow] Modifier composition receives one HostKey
+  // shape for printable characters and named keys; empty parsed names naturally
+  // preserve the raw sequence for the later paste-handling ticket.
+  return {
+    input,
+    ctrl: keypress.ctrl,
+    shift: keypress.shift || isShiftedSingleCharacter(input),
+    meta: keypress.meta || keypress.option,
+  };
+}
+
+function stripLeadingMetaEscape(input: string): string {
+  return input.startsWith("\x1b") ? input.slice(1) : input;
+}
+
+function isShiftedSingleCharacter(input: string): boolean {
+  return input.length === 1 && /[A-Z]/.test(input);
+}
+
+function shouldDispatchHostKey(key: HostKey, exitOnCtrlC: boolean): boolean {
+  return !(key.input === "c" && key.ctrl && exitOnCtrlC);
 }
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const app = useTextual();
+  const { setRawMode, internal_eventEmitter, internal_exitOnCtrlC } = useStdin();
   const { stdout } = useStdout();
   const [, requestAfterRefresh] = useState(0);
 
   // [LAW:single-enforcer] Host → app keyboard bridge.
-  useInput((input, key) => {
-    app.postKey(resolveInkKeyName(input, key), {
-      ctrl: key.ctrl,
-      shift: key.shift,
-      meta: key.meta,
-    });
-  });
+  useEffect(() => {
+    setRawMode(true);
+
+    return () => {
+      setRawMode(false);
+    };
+  }, [setRawMode]);
+
+  useEffect(() => {
+    const handleData = (data: Buffer | string): void => {
+      const key = resolveHostKey(data);
+
+      if (shouldDispatchHostKey(key, internal_exitOnCtrlC)) {
+        app.postKey(key.input, {
+          ctrl: key.ctrl,
+          shift: key.shift,
+          meta: key.meta,
+        });
+      }
+    };
+
+    internal_eventEmitter.on("input", handleData);
+
+    return () => {
+      internal_eventEmitter.removeListener("input", handleData);
+    };
+  }, [app, internal_eventEmitter, internal_exitOnCtrlC]);
 
   // [LAW:single-enforcer] Host → app terminal-size bridge.
   useLayoutEffect(() => {
