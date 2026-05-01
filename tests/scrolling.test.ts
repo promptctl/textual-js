@@ -99,9 +99,9 @@ describe("scrollbar-gutter CSS property", () => {
 });
 
 describe("scroll animation level infrastructure", () => {
-  function createScrollWidget(framework: App["framework"]): Widget {
+  function createScrollWidget(app: App): Widget {
     const widget = new Widget({
-      framework,
+      app,
       nodeId: "scroll-target",
       parentId: null,
       classes: [],
@@ -123,7 +123,7 @@ describe("scroll animation level infrastructure", () => {
 
   it("records animated scroll targets for full and basic levels", () => {
     const app = new App();
-    const widget = createScrollWidget(app.framework);
+    const widget = createScrollWidget(app);
 
     app.animationLevel = "full";
     widget.scrollTo(12, 7, { animate: true, duration: 250 });
@@ -140,7 +140,7 @@ describe("scroll animation level infrastructure", () => {
 
   it("suppresses animated scroll metadata when animation level is none", () => {
     const app = new App();
-    const widget = createScrollWidget(app.framework);
+    const widget = createScrollWidget(app);
 
     app.animationLevel = "none";
     widget.scrollTo(12, 7, { animate: true, duration: 250 });

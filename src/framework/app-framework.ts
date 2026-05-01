@@ -747,7 +747,10 @@ export class TextualFramework {
       reportUnhandledError: (error) => this.reportUnhandledError(error),
       callLater: (callback) => this.callLater(callback),
       isRunning: () => this.isRunning,
-      isOwnPump: (pump) => pump === this || (pump instanceof Widget && pump.app.framework === this),
+      isOwnPump: (pump) =>
+        pump === this ||
+        pump === this.publicApp ||
+        (pump instanceof Widget && pump.app.framework === this),
     };
     this.asyncResources = new AsyncResourceManager(asyncResourceDeps);
 
@@ -757,7 +760,11 @@ export class TextualFramework {
     const layoutEngineDeps: LayoutEngineDeps = {
       callLater: (callback) => this.callLater(callback),
       runWithHostPump: (callback) => {
-        runWithActiveMessagePump(this, callback);
+        // [LAW:single-enforcer] Active message pump for after-refresh callbacks
+        // is the public App when wired (so callFromThread / activePump checks
+        // see one runtime authority). Falls back to the framework before App
+        // has registered itself, which is the bare-framework rendering path.
+        runWithActiveMessagePump(this.publicApp ?? this, callback);
       },
       incrementDisplayCount: () => {
         this.lifecycle.incrementDisplayCount();
@@ -816,7 +823,14 @@ export class TextualFramework {
         this.signals.bindings_updated_signal.publish(undefined);
       },
       reportBindingsClash: (clashes, namespace) => {
-        this.handleBindingsClash(clashes, namespace);
+        // [LAW:single-enforcer] Clash reporting routes through the public App
+        // when wired, so app-level overrides (and test spies) see every clash.
+        const app = this.publicApp as { handleBindingsClash?: (c: BindingClash[], n: BindingNamespace) => void } | null;
+        if (app?.handleBindingsClash !== undefined) {
+          app.handleBindingsClash(clashes, namespace);
+        } else {
+          this.handleBindingsClash(clashes, namespace);
+        }
       },
     };
     this.bindingDispatcher = new BindingDispatcher(bindingDispatcherDeps, APP_NAVIGATION_BINDINGS);
@@ -1257,7 +1271,10 @@ export class TextualFramework {
     this.commandService.setSystemCommandResolver(resolver);
   }
 
+  publicApp: object | null = null;
+
   setPublicApp(app: unknown): void {
+    this.publicApp = (app ?? null) as object | null;
     this.commandService.setPublicApp(app);
   }
 

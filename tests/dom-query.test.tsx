@@ -76,7 +76,7 @@ describe("DOM query API", () => {
     const app = new App();
 
     const instance = render(
-      <TextualApp framework={app.framework}>
+      <TextualApp app={app}>
         <QueryContainer id="root">
           <QueryContainer id="first" classes="alpha">
             <QueryLabel id="one" classes="item status" text="one" />
@@ -124,7 +124,7 @@ describe("DOM query API", () => {
     const app = new App();
 
     const instance = render(
-      <TextualApp framework={app.framework}>
+      <TextualApp app={app}>
         <QueryContainer id="root">
           <QueryContainer id="first" classes="alpha">
             <QueryLabel id="one" classes="item" text="one" />
@@ -188,7 +188,7 @@ describe("DOM query API", () => {
     const app = new App();
 
     const instance = render(
-      <TextualApp framework={app.framework}>
+      <TextualApp app={app}>
         <TypedBase id="typed-root">
           <QueryContainer id="typed-container">
             <TypedDerived id="typed-child" />

@@ -52,12 +52,11 @@ function WorkerHarness(props: {
 describe("workers", () => {
   it("tracks lifecycle, progress, current worker context, and manager cleanup", async () => {
     const app = new App();
-    const framework = app.framework;
     const states: string[] = [];
     let widget!: Widget;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WorkerHarness
           onReady={(value) => {
             widget = value;
@@ -96,12 +95,11 @@ describe("workers", () => {
 
   it("maps aborts to cancellation and reports failures distinctly", async () => {
     const app = new App();
-    const framework = app.framework;
     const states: string[] = [];
     let widget!: Widget;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WorkerHarness
           onReady={(value) => {
             widget = value;
@@ -144,11 +142,10 @@ describe("workers", () => {
 
   it("cancels widget-owned workers on unmount", async () => {
     const app = new App();
-    const framework = app.framework;
     let widget!: Widget;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WorkerHarness
           onReady={(value) => {
             widget = value;
@@ -177,7 +174,6 @@ describe("workers", () => {
 
   it("supports run_worker aliases, pending start, callable inputs, and manager surfaces", async () => {
     const app = new App();
-    const framework = app.framework;
     const pendingWorker = app.runWorker(async () => "pending", { start: false, name: "pending" });
 
     expect(pendingWorker.state).toBe("pending");
@@ -205,7 +201,6 @@ describe("workers", () => {
 
   it("runs sync and async thread workers on a worker thread", async () => {
     const app = new App();
-    const framework = app.framework;
     const syncThreadWorker = app.runWorker(() => {
       return require("node:worker_threads").threadId as number;
     }, { thread: true, name: "sync-thread" });
@@ -219,7 +214,7 @@ describe("workers", () => {
   });
 
   it("defaults exitOnError to true but suppresses app error forwarding when disabled", async () => {
-    const defaultFramework = new App().framework;
+    const defaultFramework = new App();
     defaultFramework.setCaptureUnhandledErrors(true);
     const defaultWorker = defaultFramework.runAppWorker(async () => {
       throw new Error("default failure");
@@ -228,7 +223,7 @@ describe("workers", () => {
     await expect(defaultWorker.wait()).rejects.toBeInstanceOf(WorkerFailed);
     await expect(defaultFramework.whenIdle()).rejects.toBeInstanceOf(WorkerFailed);
 
-    const suppressedFramework = new App().framework;
+    const suppressedFramework = new App();
     suppressedFramework.setCaptureUnhandledErrors(true);
     const suppressedWorker = suppressedFramework.runAppWorker(async () => {
       throw new Error("suppressed failure");
@@ -240,10 +235,10 @@ describe("workers", () => {
 
   it("implements work decorator launch, thread sync methods, declaration errors, and exclusivity", async () => {
     class DecoratedWorkerHost {
-      constructor(readonly framework: App["framework"]) {}
+      constructor(readonly app: App) {}
 
       runWorker(callable: never, options = {}) {
-        return this.framework.runAppWorker(callable, options);
+        return this.app.runAppWorker(callable, options);
       }
 
       async asyncTask(value: string): Promise<string> {
@@ -292,8 +287,7 @@ describe("workers", () => {
     }).toThrow(WorkerDeclarationError);
 
     const app = new App();
-    const framework = app.framework;
-    const host = new DecoratedWorkerHost(framework);
+    const host = new DecoratedWorkerHost(app);
 
     await expect((host.asyncTask("ok") as unknown as { wait: () => Promise<unknown> }).wait()).resolves.toBe("async:ok");
     await expect((host.syncTask("ok") as unknown as { wait: () => Promise<unknown> }).wait()).resolves.toBe("sync:ok");
@@ -307,7 +301,6 @@ describe("workers", () => {
 
   it("allows nested workers and surfaces self-wait deadlocks as worker failures", async () => {
     const app = new App();
-    const framework = app.framework;
     const results: string[] = [];
 
     const parent = app.runWorker(async () => {

@@ -103,14 +103,13 @@ describe("notifications and themes", () => {
 
   it("funnels widget notifications into the app store, posts Notify, and reapplies theme CSS variables", async () => {
     const app = new App();
-    const framework = app.framework;
     let widget!: Widget;
     const observedThemes: string[] = [];
     const notifyMessages: Notification[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           #notification-harness {
             background: var(--theme-primary);
@@ -156,7 +155,7 @@ describe("notifications and themes", () => {
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse(app.activeTheme.primary));
     expect(observedThemes).toEqual(["dark"]);
 
-    framework.dismissNotification(app.notifications.list()[0]!.identity);
+    app.dismissNotification(app.notifications.list()[0]!.identity);
     expect(app.notifications.length).toBe(1);
 
     app.clearNotifications();
@@ -170,10 +169,9 @@ describe("notifications and themes", () => {
 
   it("exposes app notification, worker, feature, and app-level signal surfaces", () => {
     const app = new App({ env: { TEXTUAL: "devtools, debug" } });
-    const framework = app.framework;
     const notification = app.notify("public", { timeout: 0 });
 
-    expect(app.workers).toBe(framework.workers);
+    expect(app.workers).toBe(app.workers);
     expect(app.features.has("devtools")).toBe(true);
     expect(app.devtools).not.toBeNull();
     expect(app.debug).toBe(true);
@@ -187,7 +185,6 @@ describe("notifications and themes", () => {
 
   it("stores theme palette values as Color and exposes derived CSS variables", () => {
     const app = new App();
-    const framework = app.framework;
     const activeTheme = app.registerTheme({
       name: "custom-color-theme",
       dark: false,
@@ -222,10 +219,9 @@ describe("notifications and themes", () => {
 
     try {
       const app = new App();
-    const framework = app.framework;
 
       const instance = render(
-        <TextualApp framework={framework}>
+        <TextualApp app={app}>
           <Text>body</Text>
         </TextualApp>,
       );

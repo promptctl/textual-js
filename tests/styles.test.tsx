@@ -111,11 +111,10 @@ const DerivedStyledLabel = observer(function DerivedStyledLabel(props: {
 describe("styles and useStyles", () => {
   it("resolves DEFAULT_CSS and user CSS into Ink-compatible props with cascade ordering", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           .accent {
             background: yellow !important;
@@ -147,7 +146,7 @@ describe("styles and useStyles", () => {
     await app.whenIdle();
     await Promise.resolve();
 
-    const styled = framework.registry.getByCssId("styled") as Widget;
+    const styled = app.registry.getByCssId("styled") as Widget;
 
     expect(styled.resolvedStyles.getRule("background")).toEqual(Color.parse("yellow"));
     expect(styled.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
@@ -165,12 +164,11 @@ describe("styles and useStyles", () => {
 
   it("recalculates styles on class mutation, resolves inherited custom properties, and rerenders useStyles consumers", async () => {
     const app = new App();
-    const framework = app.framework;
     const renders: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           StyledRoot StyledLabel {
             background: var(--accent);
@@ -197,7 +195,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const dynamic = framework.registry.getByCssId("dynamic") as Widget;
+    const dynamic = app.registry.getByCssId("dynamic") as Widget;
 
     expect(dynamic.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
     expect(instance.lastFrame()).toContain("dynamic:");
@@ -216,10 +214,9 @@ describe("styles and useStyles", () => {
 
   it("applies DEFAULT_CSS class selectors to the widget itself", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <StyledLabel
           id="self-scoped"
           classes="active"
@@ -235,7 +232,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("self-scoped") as Widget;
+    const widget = app.registry.getByCssId("self-scoped") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("orange"));
 
@@ -245,17 +242,16 @@ describe("styles and useStyles", () => {
 
   it("treats widget.styles as a first-class Styles surface and supports class assignment properties", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <StyledLabel id="styles-surface" label="styles" />
       </TextualApp>,
     );
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("styles-surface") as Widget;
+    const widget = app.registry.getByCssId("styles-surface") as Widget;
     const inlineStyles = widget.styles as Styles;
 
     inlineStyles.set_rule("background", "red");
@@ -280,11 +276,10 @@ describe("styles and useStyles", () => {
 
   it("lets user CSS beat DEFAULT_CSS important declarations and walks inherited initial defaults", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           DerivedStyledLabel {
             color: initial;
@@ -310,7 +305,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const derived = framework.registry.getByCssId("derived-default") as Widget;
+    const derived = app.registry.getByCssId("derived-default") as Widget;
 
     expect(derived.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
     expect(derived.resolvedStyles.getRule("background")).toEqual(Color.parse("green"));
@@ -321,10 +316,9 @@ describe("styles and useStyles", () => {
 
   it("scopes DEFAULT_CSS by first selector token instead of raw prefix text", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost
           id="button-scope"
           typeName="Button"
@@ -346,7 +340,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("button-scope") as Widget;
+    const widget = app.registry.getByCssId("button-scope") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toBeUndefined();
     expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
@@ -357,11 +351,10 @@ describe("styles and useStyles", () => {
 
   it("applies nested selectors and lets inline styles override the cascade", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           StyledRoot {
             StyledLabel {
@@ -382,7 +375,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("inline") as Widget;
+    const widget = app.registry.getByCssId("inline") as Widget;
 
     expect(widget.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
 
@@ -397,11 +390,10 @@ describe("styles and useStyles", () => {
 
   it("resolves important shorthand declarations against more specific longhands", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           StyledLabel {
             border: round green !important;
@@ -426,7 +418,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("cascade") as Widget;
+    const widget = app.registry.getByCssId("cascade") as Widget;
 
     expect(widget.resolvedStyles.getRule("border-left")).toEqual({ style: "round", color: Color.parse("green") });
     expect(widget.resolvedStyles.box.borderColor).toBe(normalizeColor("green"));
@@ -443,11 +435,10 @@ describe("styles and useStyles", () => {
 
   it("resolves initial through DEFAULT_CSS and carries custom properties through inline overrides", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           StyledRoot StyledLabel {
             background: var(--accent);
@@ -474,8 +465,8 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const root = framework.registry.getByCssId("styled-root") as Widget;
-    const child = framework.registry.getByCssId("initial") as Widget;
+    const root = app.registry.getByCssId("styled-root") as Widget;
+    const child = app.registry.getByCssId("initial") as Widget;
 
     expect(child.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
     expect(child.resolvedStyles.getRule("background")).toEqual(Color.parse("tomato"));
@@ -491,11 +482,10 @@ describe("styles and useStyles", () => {
 
   it("recomputes pseudo-class selectors from canonical registry state", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           StyledRoot > StyledLabel:first-child {
             background: red;
@@ -519,8 +509,8 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const first = framework.registry.getByCssId("first-pseudo") as Widget;
-    const last = framework.registry.getByCssId("last-pseudo") as Widget;
+    const first = app.registry.getByCssId("first-pseudo") as Widget;
+    const last = app.registry.getByCssId("last-pseudo") as Widget;
 
     expect(first.resolvedStyles.getRule("background")).toEqual(Color.parse("red"));
     expect(last.resolvedStyles.getRule("color")).toEqual(Color.parse("blue"));
@@ -532,12 +522,11 @@ describe("styles and useStyles", () => {
 
   it("hides visibility-hidden output while routing input to visible widgets", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           #hidden {
             visibility: hidden;
@@ -571,7 +560,7 @@ describe("styles and useStyles", () => {
     expect(instance.lastFrame()).toContain("visible");
     expect(instance.lastFrame()).not.toContain("hidden");
 
-    framework.postKey("x");
+    app.postKey("x");
     await app.whenIdle();
 
     expect(received).toEqual(["visible"]);
@@ -582,11 +571,10 @@ describe("styles and useStyles", () => {
 
   it("resolves viewport units against terminal size instead of parent percentages", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           #viewport {
             width: 50vw;
@@ -598,10 +586,10 @@ describe("styles and useStyles", () => {
       </TextualApp>,
     );
 
-    framework.setTerminalSize(new Size(200, 80));
+    app.setTerminalSize(new Size(200, 80));
     await app.whenIdle();
 
-    const viewport = framework.registry.getByCssId("viewport") as Widget;
+    const viewport = app.registry.getByCssId("viewport") as Widget;
 
     expect(viewport.resolvedStyles.box.width).toBe(100);
     expect(viewport.resolvedStyles.box.height).toBe(20);
@@ -612,11 +600,10 @@ describe("styles and useStyles", () => {
 
   it("translates the Stage 2 resolved value model to Ink props", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           #bridge {
             margin-top: 2;
@@ -636,7 +623,7 @@ describe("styles and useStyles", () => {
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("bridge") as Widget;
+    const widget = app.registry.getByCssId("bridge") as Widget;
 
     expect(widget.resolvedStyles.box.marginTop).toBe(2);
     expect(widget.resolvedStyles.box.paddingLeft).toBe(3);
@@ -659,17 +646,16 @@ describe("styles and useStyles", () => {
 
   it("normalizes programmatic style assignments through the public styles surface", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <StyledLabel id="programmatic" label="programmatic" />
       </TextualApp>,
     );
 
     await app.whenIdle();
 
-    const widget = framework.registry.getByCssId("programmatic") as Widget;
+    const widget = app.registry.getByCssId("programmatic") as Widget;
     widget.styles.width = "25%";
     widget.styles.grid_columns = [new Scalar(1, Unit.FRACTION, Unit.PERCENT), new Scalar(50, Unit.PERCENT, Unit.PERCENT)];
     await app.whenIdle();
@@ -687,12 +673,11 @@ describe("styles and useStyles", () => {
 
   it("rejects conflicting DEFAULT_CSS declarations for the same widget type", () => {
     const app = new App();
-    const framework = app.framework;
 
-    framework.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: red; }");
+    app.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: red; }");
 
     expect(() => {
-      framework.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: blue; }");
+      app.registerWidgetType("ConflictedLabel", "ConflictedLabel { color: blue; }");
     }).toThrow(/conflicting DEFAULT_CSS/);
   });
 });

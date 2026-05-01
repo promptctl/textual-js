@@ -59,12 +59,11 @@ async function settleFocus(app: App): Promise<void> {
 describe("focus manager", () => {
   it("tracks :focus pseudo-class and emits Focus/Blur on transitions", async () => {
     const app = new App();
-    const framework = app.framework;
     const received: string[] = [];
 
     const instance = render(
       <TextualApp
-        framework={framework}
+        app={app}
         stylesheet={`
           Label:focus { color: red; }
           Label:blur { color: blue; }
@@ -108,10 +107,9 @@ describe("focus manager", () => {
 
   it("cycles focus through the focus chain with focusNext and focusPrevious", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <FocusHarness />
       </TextualApp>,
     );
@@ -135,10 +133,9 @@ describe("focus manager", () => {
 
   it("supports selector-filtered focus navigation and clears focus when no candidate matches", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <WidgetHost typeName="Input" id="first-input" focusable>
           <Text>first input</Text>
         </WidgetHost>
@@ -185,15 +182,15 @@ describe("focus manager", () => {
 
     session.app.focusWidget(null);
 
-    session.framework.dispatchPointerUp(leaf.screenRegion.x, leaf.screenRegion.y);
+    session.app.dispatchPointerUp(leaf.screenRegion.x, leaf.screenRegion.y);
     await session.app.whenIdle();
     expect(session.app.focusedNodeId).toBeNull();
 
-    session.framework.dispatchPointerDown(child.screenRegion.x, child.screenRegion.y);
+    session.app.dispatchPointerDown(child.screenRegion.x, child.screenRegion.y);
     await session.app.whenIdle();
     expect(session.app.focusedNodeId).toBe(parent.nodeId);
 
-    session.framework.dispatchPointerDown(leaf.screenRegion.x, leaf.screenRegion.y);
+    session.app.dispatchPointerDown(leaf.screenRegion.x, leaf.screenRegion.y);
     await session.app.whenIdle();
     expect(session.app.focusedNodeId).toBe(leaf.nodeId);
 
@@ -220,11 +217,10 @@ describe("focus manager", () => {
 
   it("restores focus to the previous screen after pop and mode return", async () => {
     const app = new App();
-    const framework = app.framework;
     app.addMode("secondary", () => <DialogRestoreScreen />);
 
     const instance = render(
-      <TextualApp framework={framework}>
+      <TextualApp app={app}>
         <DefaultRestoreScreen />
       </TextualApp>,
     );
@@ -267,10 +263,9 @@ describe("focus manager", () => {
 
   it("applies app and screen auto-focus selectors with screen precedence", async () => {
     const app = new App();
-    const framework = app.framework;
 
     const instance = render(
-      <TextualApp framework={framework} autoFocus="Label">
+      <TextualApp app={app} autoFocus="Label">
         <DefaultRestoreScreen />
       </TextualApp>,
     );
