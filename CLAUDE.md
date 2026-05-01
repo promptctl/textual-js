@@ -77,6 +77,35 @@ A stage is **not complete** until every widget it covers has paired `.py` + `.ts
 
 Backfilling missing `.tsx` pairs for already-shipped widgets is in-scope work, not optional cleanup. Any agent picking up the next ticket must check fixture parity for prior stages before declaring them done and advancing.
 
+### Diagnosing visual diffs: read the Python baseline JSON first
+
+Every Python fixture has a paired `visual-tests/snapshots/python/<name>.json` that records the **exact** fg/bg/style of every cell. This is the cheap ground truth. Before postulating any rendering-pipeline cause (xterm truecolor, Ink color emission, terminfo quirks, scroll/erase behavior), open this file and confirm what color/character/style is actually expected — it disproves whole classes of speculation in seconds and almost always points at a typo or missing constant in the JS widget source.
+
+Examples of cheap inspections:
+
+```bash
+# What unique fg/bg pairs does the Python baseline use?
+python3 -c "
+import json
+data = json.load(open('visual-tests/snapshots/python/footer_with_bindings.json'))
+seen = set()
+for row in data['rows']:
+    for cell in row:
+        seen.add((cell.get('foreground'), cell.get('background')))
+for fg, bg in sorted(seen, key=str):
+    print(f'fg={fg} bg={bg}')
+"
+
+# What text does the bottom row contain?
+python3 -c "
+import json
+data = json.load(open('visual-tests/snapshots/python/footer_with_bindings.json'))
+print(repr(''.join(c['text'] for c in data['rows'][-1])))
+"
+```
+
+When writing a fixture-todos diagnosis, include specific `file:line` pointers and the verified expected vs actual color/character. Vague "JS X does not Y" entries rot fast and invite symptom-blaming on the next investigation.
+
 ## Key Directories
 
 | Directory | Purpose |
