@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable, runInAction } from "mobx";
+import { observable, runInAction } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import type { Binding, BindingDeclaration } from "../bindings/index.js";
 import { Content, type ContentInput, type VisualInput } from "../content/index.js";
@@ -287,7 +288,7 @@ export class Widget {
     });
 
     if (new.target === Widget) {
-      makeAutoObservable(
+      autoObservable(
         this,
         {
           framework: false,

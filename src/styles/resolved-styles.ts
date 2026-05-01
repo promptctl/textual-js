@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable } from "mobx";
+import { observable } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 import type { BoxProps, TextProps } from "ink";
 import { Color } from "./color.js";
 import { HexColorParseError, isHexColor } from "./disabled-dim.js";
@@ -61,7 +62,7 @@ export class ResolvedStyles {
   private readonly listeners = new Set<() => void>();
 
   constructor() {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         rules: false,
@@ -77,7 +78,7 @@ export class ResolvedStyles {
         tryEnum: false,
         listeners: false,
         subscribe: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

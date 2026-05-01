@@ -13,7 +13,7 @@ import "./mobx-config.js";
 
 import React from "react";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import { parseTcss, type ParsedStylesheet } from "../styles/index.js";
 import {
@@ -78,13 +78,13 @@ export class StyleEngine {
     this.deps = deps;
     this.cssPathList = [...initialCssPath];
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         cssWatchers: false,
         screenStyleCache: false,
         deps: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

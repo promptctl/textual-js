@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Worker as NodeWorker } from "node:worker_threads";
 
-import { makeAutoObservable, observable, runInAction } from "mobx";
+import { observable, runInAction } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 
 import type { Content } from "../content/index.js";
 import { Message, type MessageInit } from "../events/message.js";
@@ -102,14 +103,14 @@ export class Worker<TResult> {
       this.onSettled = postMessageOrOnSettled as (worker: Worker<TResult>) => void;
     }
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         work: false,
         postMessage: false,
         onSettled: false,
         execution: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }
@@ -320,13 +321,13 @@ export class WorkerManager implements Iterable<Worker<unknown>> {
   private nextId = 1;
 
   constructor() {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         workers: false,
         orderedIds: false,
         toString: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

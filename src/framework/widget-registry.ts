@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable } from "mobx";
+import { observable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import type { Message } from "../events/message.js";
 import type { Widget } from "./widget.js";
@@ -26,11 +27,11 @@ export class NodeList implements Iterable<Widget> {
   private readonly items = observable.array<Widget>([]);
 
   constructor() {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         items: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }
@@ -115,7 +116,7 @@ export class WidgetRegistry {
   version = 0;
 
   constructor() {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         entries: false,
@@ -123,7 +124,7 @@ export class WidgetRegistry {
         order: false,
         childrenByParent: false,
         rootChildren: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

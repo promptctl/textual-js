@@ -9,7 +9,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import { Signal } from "../services/signal.js";
 import type { ActiveTheme } from "../services/theme.js";
@@ -50,13 +50,13 @@ export class SignalRegistry {
       bindings_updated_signal: this.createFrameworkSignal<void>(),
     };
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         registry: false,
         deps: false,
         signals: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

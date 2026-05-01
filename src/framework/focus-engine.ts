@@ -15,7 +15,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import type { Widget } from "./widget.js";
 import type { Screen } from "./app-framework.js";
@@ -62,12 +62,12 @@ export class FocusEngine {
 
   constructor(deps: FocusEngineDeps) {
     this.deps = deps;
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         focusTrapNodeId: false,
         deps: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

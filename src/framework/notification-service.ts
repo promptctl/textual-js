@@ -10,7 +10,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import {
   Notification,
@@ -38,12 +38,12 @@ export class NotificationService {
   constructor(deps: NotificationServiceDeps) {
     this.deps = deps;
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         notifications: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

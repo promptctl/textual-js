@@ -119,7 +119,7 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
     }
 
     const selectorList = csstree.parse(selectorText, { context: "selectorList" }) as {
-      children: Iterable<{ children: Iterable<unknown> }>;
+      children: Iterable<csstree.CssNode & { children: Iterable<unknown> }>;
     };
     const selectors: ParsedSelector[] = [];
 
@@ -182,7 +182,7 @@ export function parseSelectorList(selectorText: string): ParsedSelector[] {
       segments.push(currentSegment);
 
       selectors.push({
-        raw: csstree.generate(selectorNode as never),
+        raw: csstree.generate(selectorNode),
         segments,
         combinators,
         specificity,

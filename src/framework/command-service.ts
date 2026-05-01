@@ -10,7 +10,7 @@
 import "./mobx-config.js";
 
 import React from "react";
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import {
   CommandPalette,
@@ -54,14 +54,14 @@ export class CommandService {
   constructor(deps: CommandServiceDeps) {
     this.deps = deps;
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         appCommandProviders: false,
         systemCommandResolver: false,
         publicApp: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

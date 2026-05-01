@@ -11,7 +11,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import {
   Blur,
@@ -121,7 +121,7 @@ export class MessagePump {
 
   constructor(deps: MessagePumpDeps) {
     this.deps = deps;
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         queue: false,
@@ -133,7 +133,7 @@ export class MessagePump {
         drainPromise: false,
         activePrevention: false,
         deps: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

@@ -13,7 +13,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import type { Widget } from "./widget.js";
 import type { Message } from "../events/message.js";
@@ -74,13 +74,13 @@ export class PointerEngine {
 
   constructor(deps: PointerEngineDeps) {
     this.deps = deps;
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         pendingPointerClick: false,
         lastClickChain: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }

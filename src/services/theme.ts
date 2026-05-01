@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable } from "mobx";
+import { observable } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 
 import { Color, normalizeColor } from "../styles/color.js";
 
@@ -249,13 +250,13 @@ export class ThemeManager {
   ansiThemeLight: AnsiTheme = ANSI_THEME_LIGHT;
 
   constructor() {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         themes: false,
         ansiThemeDark: observable.ref,
         ansiThemeLight: observable.ref,
-      } as never,
+      },
       { autoBind: true },
     );
 

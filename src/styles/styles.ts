@@ -1,4 +1,5 @@
-import { makeAutoObservable, observable } from "mobx";
+import { observable } from "mobx";
+import { autoObservable } from "../framework/auto-observable.js";
 
 import { normalizeStyleAssignment, parseTcss, type StyleAssignmentValue } from "./stylesheet.js";
 
@@ -9,12 +10,12 @@ export class Styles {
     private readonly onChange?: () => void,
     initialRules?: Record<string, string>,
   ) {
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         rules: false,
         onChange: false,
-      } as never,
+      },
       { autoBind: true },
     );
 

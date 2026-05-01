@@ -10,7 +10,7 @@
 
 import "./mobx-config.js";
 
-import { makeAutoObservable } from "mobx";
+import { autoObservable } from "./auto-observable.js";
 
 import {
   ThemeManager,
@@ -50,12 +50,12 @@ export class ThemeBroker {
   constructor(deps: ThemeBrokerDeps) {
     this.deps = deps;
 
-    makeAutoObservable(
+    autoObservable(
       this,
       {
         deps: false,
         themeManager: false,
-      } as never,
+      },
       { autoBind: true },
     );
   }
