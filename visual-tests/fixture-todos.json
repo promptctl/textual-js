@@ -123,13 +123,13 @@
     "name": "footer_empty",
     "stage": "future",
     "component": "Footer",
-    "reason": "Footer position fixed via marginTop:auto (chips/bar now dock at the bottom), but xterm renders the bar bg color (#212B32) as pure black for the empty-Footer case. Ink's testing-library output emits the truecolor `[48;2;33;43;50m` codes correctly, yet the docker xterm screenshot shows gray(0). FG colors render fine (chip text is yellow from #fea62b), so this is a BG-specific truecolor rendering miss — root cause not yet identified (candidates: Ink's color emission for whitespace-only Text, xterm-direct terminfo handling of BG truecolor on otherwise-empty rows, or a scroll/erase interaction at the terminal's last visible row). Tracked as a follow-up under .11.2."
+    "reason": "Wrong palette in src/widgets/footer-component.tsx: FOOTER_BACKGROUND is hardcoded to `#212B32`, but Python Textual's footer bar bg is `#242f38` (verified in visual-tests/snapshots/python/footer_empty.json — every cell on the bar row has background `#242f38`). xterm in Docker faithfully renders both colors; there is no truecolor rendering bug. Fix: change the constant. The earlier diagnosis (`xterm renders #212B32 as pure black`, with candidates around Ink's whitespace BG emission / xterm-direct terminfo / scroll-erase) was symptom-blaming — none of those candidates were verified, and consulting the Python baseline JSON immediately disproves them."
   },
   {
     "name": "footer_with_bindings",
     "stage": "future",
     "component": "Footer",
-    "reason": "Binding-chip race fixed in .11.1, dock-bottom positioning fixed in .11.2 (marginTop:auto). Chip text and palette segments render at the correct row. Remaining diff is the bar BG (#212B32 → black in docker xterm — see footer_empty for the same gap) plus chip-key color differences (yellow vs orange — likely truecolor rounding) and key formatting (`ctrl+r` vs Python's caret notation `^r`). Tracked as separate follow-ups."
+    "reason": "Three independent palette/format gaps in src/widgets/footer-component.tsx and src/framework/app-framework.ts (verified against visual-tests/snapshots/python/footer_with_bindings.json):\n  1. Bar background: JS `FOOTER_BACKGROUND = '#212B32'` vs Python `#242f38` (same as footer_empty).\n  2. Chip key color: JS `FOOTER_KEY_COLOR = '#fea62b'` vs Python `#ffa62b` (typo: `fe` should be `ff`).\n  3. Palette separator (`▏`) color: JS uses default fg `#e0e0e0` vs Python's dimmer `#495259`.\n  4. Key formatting: JS `getKeyDisplay` emits `ctrl+r` vs Python's caret form `^r` — locatable in src/framework/app-framework.ts.\nNo truecolor/xterm rendering bug exists; the previous diagnosis was symptom-blaming."
   },
   {
     "name": "header_default",
@@ -153,25 +153,25 @@
     "name": "input_empty",
     "stage": "future",
     "component": "Input",
-    "reason": "JS Input rendering diverges substantially from Python (placeholder, border/box, dimensions). Fixture .tsx exists; suppress until JS Input matches Python."
+    "reason": "Root cause is widget-layer (not symptom-blamed): src/widgets/input-component.tsx has no `defaultCss` and no placeholder rendering. JS Input renders nothing when `value` is empty — even with `placeholder` set — because `placeholder` is not part of `InputProps` and the displayValue path (line ~239) only consults `modelRef.current.value`. Python's Input is full-width with `border: tall` (top/bottom half-block bars) over `$boost` background; JS emits bare text only. Fix: add Input default CSS (background, border, padding, height, width 100%) and wire `placeholder` through props/model/render."
   },
   {
     "name": "input_filled",
     "stage": "future",
     "component": "Input",
-    "reason": "JS Input rendering diverges substantially from Python. Fixture .tsx exists; suppress until JS Input matches Python."
+    "reason": "Root cause is widget-layer: src/widgets/input-component.tsx has no `defaultCss`, so Python's full-width slate-bg box with top/bottom half-block border (`border: tall`) plus 1-cell horizontal padding is missing. JS just renders the value text inline. Fix: define DEFAULT_CSS for Input (background, border, padding, height, width:100%) the same way Footer does."
   },
   {
     "name": "input_invalid",
     "stage": "future",
     "component": "Input",
-    "reason": "JS Input rendering diverges (no -invalid CSS class application observed). Fixture .tsx exists; suppress until JS Input matches Python."
+    "reason": "Two gaps: (a) the same missing default CSS as input_filled (no border/bg/padding); (b) no styling rule for `Input.-invalid` is registered, so even though src/widgets/input-component.tsx already toggles the `-invalid` class on validation failure (syncValidationClasses), there is nothing to render against it. Python's Textual ships `border: tall $error` on `:invalid`. Fix: add the default CSS and an Input.-invalid rule (red border)."
   },
   {
     "name": "input_password",
     "stage": "future",
     "component": "Input",
-    "reason": "JS Input password obfuscation rendering diverges. Fixture .tsx exists; suppress until JS Input matches Python."
+    "reason": "Wrong obfuscation character: src/widgets/input-component.tsx line ~240 uses `*` (`'*'.repeat(...)`); Python uses `•` (U+2022 BULLET). Plus the same missing default CSS as input_filled. Fix: change the character constant and add Input default CSS."
   },
   {
     "name": "input_focused",
@@ -183,7 +183,7 @@
     "name": "input_placeholder_only",
     "stage": "future",
     "component": "Input",
-    "reason": "JS Input does not render a placeholder when value is empty. Fixture .tsx exists; suppress until JS Input matches Python."
+    "reason": "Root cause is widget-layer: src/widgets/input-component.tsx does not accept a `placeholder` prop (not part of InputProps) and the render path only outputs `modelRef.current.value`. With value empty, nothing is drawn. Fix: add `placeholder` to InputProps, store on the model, and render the dim placeholder text when `value.length === 0` (Python uses `text-style: dim`). Also covers the same missing default CSS as input_filled."
   },
   {
     "name": "key_panel_default",
