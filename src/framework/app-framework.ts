@@ -1,13 +1,10 @@
 import "./mobx-config.js";
 
 import React from "react";
-import { runInAction } from "mobx";
 
 import { autoObservable } from "./auto-observable.js";
 
 import {
-  AppBlur,
-  AppFocus,
   Blur,
   Callback,
   Click,
@@ -29,8 +26,6 @@ import {
   MouseUp,
   Notify,
   Paste,
-  Ready,
-  Resize,
   ScreenResume,
   ScreenSuspend,
   ScrollEvent,
@@ -161,6 +156,13 @@ import {
   ThemeBroker,
   type ThemeBrokerDeps,
 } from "./theme-broker.js";
+import {
+  AppLifecycleOrchestrator,
+  SuspendNotSupported,
+  type AppLifecycleDeps,
+} from "./app-lifecycle.js";
+
+export { SuspendNotSupported };
 
 export interface RegisterWidgetOptions {
   nodeId: string;
@@ -334,8 +336,6 @@ export class StylesheetError extends Error {}
 
 export class DuplicateKeyHandlers extends Error {}
 
-export class SuspendNotSupported extends Error {}
-
 class HeadlessDriver implements AppDriver {
   readonly canSuspend = false;
   readonly isHeadless = true;
@@ -489,8 +489,32 @@ export class TextualFramework {
   readonly devtools: TextualFeatureState["devtools"];
   readonly debug: boolean;
   focusedNodeId: string | null = null;
-  isRunning = false;
-  exitResult: unknown = undefined;
+  // [LAW:single-enforcer] Lifecycle phase flags (isRunning / isClosing /
+  // readyMessagePosted), exit result, batch-update depth, unhandled-error
+  // capture, host-controlled + host-reported terminal size, and displayCount
+  // live in `lifecycle` (extracted in 7w9.8). The framework holds only the
+  // service handle; getters/delegators below expose them so existing consumers
+  // (App, host renderer, tests) keep working unchanged until 7w9.10 deletes
+  // the framework class.
+  readonly lifecycle: AppLifecycleOrchestrator;
+  get isRunning(): boolean {
+    return this.lifecycle.isRunning;
+  }
+  get exitResult(): unknown {
+    return this.lifecycle.exitResult;
+  }
+  get displayCount(): number {
+    return this.lifecycle.displayCount;
+  }
+  get terminalSize(): Size {
+    return this.lifecycle.terminalSize;
+  }
+  get captureUnhandledErrors(): boolean {
+    return this.lifecycle.captureUnhandledErrors;
+  }
+  get batchUpdateCount(): number {
+    return this.lifecycle.batchUpdateCount;
+  }
   // theme + animationLevel are owned by ThemeBroker (7w9.7); getters below
   // surface them so existing framework.theme / framework.animationLevel
   // consumers (e.g. tests/scrolling.test.ts) keep working unchanged.
@@ -500,10 +524,6 @@ export class TextualFramework {
   get animationLevel(): AnimationLevel {
     return this.themeBroker.animationLevel;
   }
-  displayCount = 0;
-  terminalSize = new Size(80, 24);
-  private controlledTerminalSize: Size | null = null;
-  captureUnhandledErrors = false;
   // [LAW:single-enforcer] All screen-stack/mode/installed-screen state is owned
   // by ScreenStackService. Framework getters/setters below are thin delegators.
   readonly screenStack: ScreenStackService;
@@ -570,13 +590,9 @@ export class TextualFramework {
   activeTooltip: ActiveTooltip | null = null;
   pointerShape: PointerShape = "default";
   pointerEngine!: PointerEngine;
-  private pendingError: unknown = null;
   // [LAW:single-enforcer] Signal state lives in `signalRegistry` (extracted
   // in 7w9.3). The framework holds only the service handle.
   readonly signalRegistry: SignalRegistry;
-  private isClosing = false;
-  private readyMessagePosted = false;
-  batchUpdateCount = 0;
   // [LAW:single-enforcer] `signals` is a re-exposed view of signalRegistry's
   // composite so existing consumers (framework.signals.X.publish/subscribe)
   // and audit-§4.2's App.signals namespace continue to work unchanged.
@@ -634,7 +650,7 @@ export class TextualFramework {
       getWidget: (id) => this.registry.get(id),
       listWidgets: () => this.registry.list(),
       isRunning: () => this.isRunning,
-      isClosing: () => this.isClosing,
+      isClosing: () => this.lifecycle.getIsClosing(),
       isInBatch: () => this.batchUpdateCount > 0,
       reportUnhandledError: (error) => this.reportUnhandledError(error),
       resolveHandlers: (handlers, message) => this.resolveHandlers(handlers, message),
@@ -645,11 +661,7 @@ export class TextualFramework {
         this.bindingDispatcher.dispatchBindingActionForNode(node, action),
       dispatchPriorityBindings: (key) => this.bindingDispatcher.dispatchPriorityBindings(key),
       resolveDefaultDispatchTarget: () => this.bindingDispatcher.resolveDefaultDispatchTarget(),
-      clearPendingError: () => {
-        runInAction(() => {
-          this.pendingError = null;
-        });
-      },
+      clearPendingError: () => this.lifecycle.clearPendingError(),
       throwPendingError: () => this.throwPendingError(),
       normalizeAndComposeKey: (input, meta) => {
         const normalized = normalizeKeyName(input);
@@ -748,7 +760,7 @@ export class TextualFramework {
         runWithActiveMessagePump(this, callback);
       },
       incrementDisplayCount: () => {
-        this.displayCount += 1;
+        this.lifecycle.incrementDisplayCount();
       },
     };
     this.layoutEngine = new LayoutEngine(layoutEngineDeps);
@@ -851,6 +863,64 @@ export class TextualFramework {
     };
     this.themeBroker = new ThemeBroker(themeBrokerDeps);
 
+    // [LAW:single-enforcer] AppLifecycleOrchestrator receives only the
+    // cross-cutting hooks it needs (driver handle, pump queue + broadcast
+    // surface, registry list, focus / pointer / style / async / tooltip
+    // resets, signal publishes, layout-engine forwarding). It does NOT
+    // receive a back-reference to the framework. Its deps surface is wide
+    // because lifecycle composes most other services — but every callback is
+    // a single capability-shaped action.
+    const lifecycleDeps: AppLifecycleDeps = {
+      getDriver: () => this.driver,
+      reopenAppQueue: () => this.pump.reopenAppQueue(),
+      closeAllMessageQueues: (prune) => this.pump.closeAllMessageQueues(prune),
+      resetBatchPending: () => this.pump.resetBatchPending(),
+      discardQueuedCallbacks: () => this.pump.discardQueuedCallbacks(),
+      emitCloseMessages: () => this.pump.emitCloseMessages(),
+      emitBroadcast: (message) => this.pump.emitBroadcast(message),
+      postToFocused: (message) => this.pump.postToFocused(message),
+      enqueueLifecycleMessages: (widget) => this.pump.enqueueLifecycleMessages(widget),
+      onBatchExit: () => this.pump.onBatchExit(),
+      listWidgets: () => this.registry.list(),
+      getFocusedNodeId: () => this.focusedNodeId,
+      setFocusedNodeId: (id) => {
+        this.focusedNodeId = id;
+      },
+      scheduleActiveScreenFocusResolution: (forceRefresh) =>
+        this.focusEngine.scheduleActiveScreenFocusResolution(forceRefresh),
+      resetFocusBlurState: () => this.focusEngine.resetBlurState(),
+      isAppBlurred: () => this.focusEngine.isAppBlurred,
+      beginAppBlur: () => this.focusEngine.beginAppBlur(),
+      endAppBlur: () => this.focusEngine.endAppBlur(),
+      resolveExactFocusTarget: (address) => this.focusEngine.resolveExactFocusTarget(address),
+      applyFocusChange: (nodeId, options) => this.focusEngine.applyFocusChange(nodeId, options),
+      resetPointer: () => this.pointerEngine.reset(),
+      flushPendingRecalc: () => this.styleEngine.flushPendingRecalc(),
+      resetPendingRecalc: () => this.styleEngine.resetPendingRecalc(),
+      closeAllWatchers: () => this.styleEngine.closeAllWatchers(),
+      recalculateStyles: () => this.recalculateStyles(),
+      cancelAllWorkers: () => this.workers.cancelAll(),
+      clearAllTimers: () => this.asyncResources.clearAllTimers(),
+      pauseAllTimers: () => this.asyncResources.pauseAllTimers(),
+      resumeAllTimers: () => this.asyncResources.resumeAllTimers(),
+      clearTooltipTimer: () => this.clearTooltipTimer(),
+      clearActiveTooltip: () => {
+        this.activeTooltip = null;
+      },
+      hideTooltip: () => this.hideTooltip(),
+      publishAppResume: () => {
+        this.signals.app_resume_signal.publish(undefined);
+      },
+      publishAppSuspend: () => {
+        this.signals.app_suspend_signal.publish(undefined);
+      },
+      layoutAttachAfterRefreshRequester: (requester) =>
+        this.layoutEngine.attachAfterRefreshRequester(requester),
+      layoutFlushAfterRefreshCallbacks: () => this.layoutEngine.flushAfterRefreshCallbacks(),
+      layoutRecordDisplayPass: () => this.layoutEngine.recordDisplayPass(),
+    };
+    this.lifecycle = new AppLifecycleOrchestrator(lifecycleDeps);
+
     autoObservable(
       this,
       {
@@ -859,6 +929,7 @@ export class TextualFramework {
         notificationService: false,
         commandService: false,
         themeBroker: false,
+        lifecycle: false,
         layoutEngine: false,
         tooltipService: false,
         signalRegistry: false,
@@ -924,42 +995,26 @@ export class TextualFramework {
     this.pointerShape = shape;
   }
 
+  // [LAW:single-enforcer] Lifecycle entry points delegate to
+  // AppLifecycleOrchestrator (extracted in 7w9.8).
   setControlledTerminalSize(size: Size | null): void {
-    this.controlledTerminalSize = size;
-
-    if (size !== null) {
-      this.setTerminalSize(size);
-    }
+    this.lifecycle.setControlledTerminalSize(size);
   }
 
   syncHostTerminalSize(size: Size): void {
-    this.setTerminalSize(this.controlledTerminalSize ?? size);
+    this.lifecycle.syncHostTerminalSize(size);
   }
 
   setCaptureUnhandledErrors(enabled: boolean): void {
-    this.captureUnhandledErrors = enabled;
+    this.lifecycle.setCaptureUnhandledErrors(enabled);
   }
 
   reportUnhandledError(error: unknown): void {
-    if (!this.captureUnhandledErrors) {
-      return;
-    }
-
-    if (this.pendingError === null) {
-      runInAction(() => {
-        this.pendingError = error;
-      });
-    }
+    this.lifecycle.reportUnhandledError(error);
   }
 
   throwPendingError(): void {
-    if (this.pendingError !== null) {
-      const error = this.pendingError;
-      runInAction(() => {
-        this.pendingError = null;
-      });
-      throw error;
-    }
+    this.lifecycle.throwPendingError();
   }
 
   handleBindingsClash(_clashes: BindingClash[], _namespace: BindingNamespace): void {
@@ -975,24 +1030,7 @@ export class TextualFramework {
   }
 
   batchUpdate<T>(callback: () => T): T {
-    runInAction(() => {
-      this.batchUpdateCount += 1;
-    });
-
-    try {
-      return runInAction(() => callback());
-    } finally {
-      runInAction(() => {
-        this.batchUpdateCount = Math.max(0, this.batchUpdateCount - 1);
-      });
-
-      if (this.batchUpdateCount === 0) {
-        // [LAW:single-enforcer] Batched style and queue flushes resume only
-        // from the outermost batch boundary instead of each nested caller.
-        this.styleEngine.flushPendingRecalc();
-        this.pump.onBatchExit();
-      }
-    }
+    return this.lifecycle.batchUpdate(callback);
   }
 
   disableMessages(targetId: string | null, messageTypes: MessageConstructor[]): void {
@@ -1004,53 +1042,15 @@ export class TextualFramework {
   }
 
   startup(): void {
-    if (this.isRunning) {
-      return;
-    }
-
-    this.isClosing = false;
-    this.pump.reopenAppQueue();
-    this.isRunning = true;
-    this.signals.app_resume_signal.publish(undefined);
-
-    for (const widget of this.registry.list()) {
-      this.pump.enqueueLifecycleMessages(widget);
-    }
-
-    if (this.focusedNodeId === null) {
-      this.focusEngine.scheduleActiveScreenFocusResolution(true);
-    }
-
-    if (!this.readyMessagePosted) {
-      this.readyMessagePosted = true;
-      this.pump.emitBroadcast(new Ready());
-    }
+    this.lifecycle.startup();
   }
 
   shutdown(): void {
-    this.isClosing = true;
-    this.pump.closeAllMessageQueues(false);
-    this.batchUpdateCount = 0;
-    this.styleEngine.resetPendingRecalc();
-    this.pump.resetBatchPending();
-    this.pump.discardQueuedCallbacks();
-    this.focusedNodeId = null;
-    this.pointerEngine.reset();
-    this.workers.cancelAll();
-    this.asyncResources.clearAllTimers();
-    this.clearTooltipTimer();
-    this.activeTooltip = null;
-    this.styleEngine.closeAllWatchers();
-    this.focusEngine.resetBlurState();
-    this.isRunning = false;
-    this.pump.emitCloseMessages();
-    this.signals.app_suspend_signal.publish(undefined);
+    this.lifecycle.shutdown();
   }
 
   exit(result?: unknown): unknown {
-    this.exitResult = result;
-    this.shutdown();
-    return result;
+    return this.lifecycle.exit(result);
   }
 
   // [LAW:single-enforcer] All widget-type lookup/registration delegates to the
@@ -1157,12 +1157,7 @@ export class TextualFramework {
   }
 
   setTerminalSize(size: Size): void {
-    if (this.terminalSize.equals(size)) {
-      return;
-    }
-
-    this.terminalSize = size;
-    this.recalculateStyles();
+    this.lifecycle.setTerminalSize(size);
   }
 
   setUserStylesheet(source: string): void {
@@ -1247,25 +1242,8 @@ export class TextualFramework {
     this.ansiThemeLight = theme;
   }
 
-  async suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {
-    if (!this.driver.canSuspend || this.driver.isHeadless) {
-      throw new SuspendNotSupported("Suspend is not supported by this driver");
-    }
-
-    // [LAW:single-enforcer] App suspend owns signal publishing, timer pausing,
-    // and driver mode changes; drivers only enter/exit terminal application mode.
-    this.signals.app_suspend_signal.publish(undefined);
-    this.asyncResources.pauseAllTimers();
-    await this.driver.suspendApplicationMode();
-
-    try {
-      return await callback();
-    } finally {
-      await this.driver.resumeApplicationMode();
-      this.asyncResources.resumeAllTimers();
-      this.signals.app_resume_signal.publish(undefined);
-      this.recalculateStyles();
-    }
+  suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {
+    return this.lifecycle.suspend(callback);
   }
 
   // [LAW:single-enforcer] Palette + provider entry points delegate to
@@ -1422,8 +1400,7 @@ export class TextualFramework {
   }
 
   postResize(width: number, height: number): void {
-    this.setTerminalSize(new Size(width, height));
-    this.postToFocused(new Resize(width, height));
+    this.lifecycle.postResize(width, height);
   }
 
   async whenIdle(): Promise<void> {
@@ -1544,39 +1521,19 @@ export class TextualFramework {
   }
 
   handleAppBlur(): void {
-    if (this.focusEngine.isAppBlurred) {
-      return;
-    }
-
-    this.focusEngine.beginAppBlur();
-    this.hideTooltip();
-    this.pump.emitBroadcast(new AppBlur());
-    this.focusEngine.applyFocusChange(null, { markBlurOverride: false });
+    this.lifecycle.handleAppBlur();
   }
 
   handleAppFocus(): void {
-    this.pump.emitBroadcast(new AppFocus());
-
-    if (!this.focusEngine.isAppBlurred) {
-      return;
-    }
-
-    const { shouldRestore, address } = this.focusEngine.endAppBlur();
-
-    if (!shouldRestore) {
-      return;
-    }
-
-    const target = address === null ? null : this.focusEngine.resolveExactFocusTarget(address);
-    this.focusEngine.applyFocusChange(target?.nodeId ?? null, { markBlurOverride: false });
+    this.lifecycle.handleAppFocus();
   }
 
   attachAfterRefreshRequester(requester: () => void): () => void {
-    return this.layoutEngine.attachAfterRefreshRequester(requester);
+    return this.lifecycle.attachAfterRefreshRequester(requester);
   }
 
   recordDisplayPass(): void {
-    this.layoutEngine.recordDisplayPass();
+    this.lifecycle.recordDisplayPass();
   }
 
   registerLayoutReader(nodeId: string, reader: () => void): () => void {
@@ -1584,7 +1541,7 @@ export class TextualFramework {
   }
 
   flushAfterRefreshCallbacks(): void {
-    this.layoutEngine.flushAfterRefreshCallbacks();
+    this.lifecycle.flushAfterRefreshCallbacks();
   }
 
   handleWidgetTooltipChange(widget: Widget): void {
