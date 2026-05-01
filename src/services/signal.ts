@@ -37,19 +37,19 @@ export class Signal<TValue> {
     scheduleCallback?: (callback: () => void) => void,
     description = "",
   ) {
-    const owner = ownerOrIsOwnerMounted instanceof Object && "framework" in ownerOrIsOwnerMounted
+    const owner = ownerOrIsOwnerMounted instanceof Object && "app" in ownerOrIsOwnerMounted
       ? ownerOrIsOwnerMounted as Widget
       : null;
 
     this.isOwnerMounted = owner === null
       ? ownerOrIsOwnerMounted as () => boolean
-      : () => owner.framework.isNodeMounted(owner);
+      : () => owner.app.isNodeMounted(owner);
     this.isNodeMounted = owner === null
       ? isNodeMountedOrDescription as (node: Widget) => boolean
-      : (node: Widget) => owner.framework.isNodeMounted(node);
+      : (node: Widget) => owner.app.isNodeMounted(node);
     this.scheduleCallback = owner === null
       ? scheduleCallback ?? ((callback) => callback())
-      : (callback) => owner.framework.callLater(callback);
+      : (callback) => owner.app.callLater(callback);
     this.description = owner === null ? description : isNodeMountedOrDescription as string;
 
     autoObservable(

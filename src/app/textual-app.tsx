@@ -60,7 +60,6 @@ import { Padding } from "rich-js";
 
 import { measureVisual, renderVisual, visualize } from "../content/index.js";
 import {
-  TextualFramework,
   type ActiveTooltip,
   type KeymapInput,
   type ScreenDescriptor,
@@ -76,13 +75,10 @@ import { Color } from "../styles/color.js";
 import type { App } from "./app.js";
 
 export interface TextualAppProps extends PropsWithChildren {
-  // [LAW:one-source-of-truth] App is the runtime authority. The host adapter
-  // accepts an App reference and routes runtime reads/writes through it.
-  // The legacy `framework` prop remains for tests that still construct a
-  // TextualApp around a bare framework; new callers pass `app`.
-  app?: App;
-  framework: TextualFramework;
-  onReady?: (framework: TextualFramework) => void;
+  // [LAW:one-source-of-truth] App is the runtime authority; the host adapter
+  // routes every runtime read/write through it.
+  app: App;
+  onReady?: (app: App) => void;
   css?: string;
   stylesheet?: string;
   cssPath?: string | readonly string[];
@@ -111,12 +107,12 @@ function measureTooltip(tooltip: ActiveTooltip): { width: number; height: number
 }
 
 function clampTooltipPosition(
-  framework: TextualFramework,
+  app: App,
   tooltip: ActiveTooltip,
 ): { left: number; top: number } {
   const measurement = measureTooltip(tooltip);
-  const maxLeft = Math.max(0, framework.terminalSize.width - measurement.width);
-  const maxTop = Math.max(0, framework.terminalSize.height - measurement.height);
+  const maxLeft = Math.max(0, app.terminalSize.width - measurement.width);
+  const maxTop = Math.max(0, app.terminalSize.height - measurement.height);
 
   return {
     left: Math.max(0, Math.min(maxLeft, tooltip.x)),
@@ -125,14 +121,14 @@ function clampTooltipPosition(
 }
 
 const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | null {
-  const framework = useTextual();
-  const tooltip = framework.activeTooltip;
+  const app = useTextual();
+  const tooltip = app.activeTooltip;
 
-  if (tooltip === null || !tooltip.visible || !framework.showTooltips) {
+  if (tooltip === null || !tooltip.visible || !app.showTooltips) {
     return null;
   }
 
-  const position = clampTooltipPosition(framework, tooltip);
+  const position = clampTooltipPosition(app, tooltip);
   const bubbleVisual = buildTooltipVisual(tooltip);
 
   // [LAW:single-enforcer] Tooltip visibility and content come from framework
@@ -149,8 +145,8 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
 });
 
 const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null {
-  const framework = useTextual();
-  const notifications = framework.showNotifications ? framework.notifications.list() : [];
+  const app = useTextual();
+  const notifications = app.showNotifications ? app.notifications.list() : [];
 
   if (notifications.length === 0) {
     return null;
@@ -162,7 +158,7 @@ const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null 
     <Box
       position="absolute"
       flexDirection="column"
-      marginLeft={Math.max(0, framework.terminalSize.width - 32)}
+      marginLeft={Math.max(0, app.terminalSize.width - 32)}
       marginTop={0}
       width={32}
     >
@@ -171,7 +167,7 @@ const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null 
           key={notification.identity}
           flexDirection="column"
           borderStyle="round"
-          borderColor={getToastSeverityColor(framework, notification).css}
+          borderColor={getToastSeverityColor(app, notification).css}
           paddingX={1}
           marginBottom={1}
         >
@@ -187,16 +183,16 @@ const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null 
   );
 });
 
-function getToastSeverityColor(framework: TextualFramework, notification: Notification): Color {
+function getToastSeverityColor(app: App, notification: Notification): Color {
   const severityColors = {
-    "-information": framework.activeTheme.primary,
-    "-warning": framework.activeTheme.warning,
-    "-error": framework.activeTheme.error,
+    "-information": app.activeTheme.primary,
+    "-warning": app.activeTheme.warning,
+    "-error": app.activeTheme.error,
   };
 
   // [LAW:single-enforcer] Toast severity styling is selected from the
   // notification severity class once; the renderer consumes that class mapping.
-  return severityColors[notification.severityClass as keyof typeof severityColors] ?? framework.activeTheme.primary;
+  return severityColors[notification.severityClass as keyof typeof severityColors] ?? app.activeTheme.primary;
 }
 
 function renderToastTitle(notification: Notification): React.JSX.Element | null {
@@ -237,29 +233,23 @@ function resolveInkKeyName(input: string, key: InkKey): string {
 }
 
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
-  const framework = useTextual();
+  const app = useTextual();
   const { stdout } = useStdout();
   const [, requestAfterRefresh] = useState(0);
 
-  // [LAW:single-enforcer] Host → framework keyboard bridge. Ink's keypress
-  // events enter the runtime at exactly this seam. Ink encodes special keys
-  // (tab, escape, arrows, etc.) as boolean flags on the second arg with an
-  // empty `input` string; the framework expects a canonical key name as the
-  // first arg, so this seam translates Ink's flag-shaped key into the
-  // framework's name-shaped key.
+  // [LAW:single-enforcer] Host → app keyboard bridge.
   useInput((input, key) => {
-    framework.postKey(resolveInkKeyName(input, key), {
+    app.postKey(resolveInkKeyName(input, key), {
       ctrl: key.ctrl,
       shift: key.shift,
       meta: key.meta,
     });
   });
 
-  // [LAW:single-enforcer] Host → framework terminal-size bridge. Stdout's
-  // current dimensions and resize events enter the runtime at this seam.
+  // [LAW:single-enforcer] Host → app terminal-size bridge.
   useLayoutEffect(() => {
     const syncTerminalSize = (): void => {
-      framework.syncHostTerminalSize(new Size(stdout.columns ?? 80, stdout.rows ?? 24));
+      app.syncHostTerminalSize(new Size(stdout.columns ?? 80, stdout.rows ?? 24));
     };
 
     syncTerminalSize();
@@ -268,45 +258,36 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
     return () => {
       stdout.off("resize", syncTerminalSize);
     };
-  }, [framework, stdout]);
+  }, [app, stdout]);
 
-  // [LAW:single-enforcer] React mount/unmount triggers framework
-  // startup/shutdown. App.startup / App.shutdown are the manual-control
-  // entry for the same operation; both paths land on framework's
-  // implementation, so there is one runtime gate, not two.
+  // [LAW:single-enforcer] React mount/unmount triggers app startup/shutdown.
   useLayoutEffect(() => {
-    framework.startup();
+    app.startup();
 
     return () => {
-      framework.shutdown();
+      app.shutdown();
     };
-  }, [framework]);
+  }, [app]);
 
-  // [LAW:single-enforcer] React's setState is the runtime's after-refresh
-  // trigger. Registered exactly once per framework instance.
   useLayoutEffect(() => {
-    return framework.attachAfterRefreshRequester(() => {
+    return app.attachAfterRefreshRequester(() => {
       requestAfterRefresh((value) => value + 1);
     });
-  }, [framework]);
+  }, [app]);
 
-  // [LAW:single-enforcer] Per-render paint tick. The framework's display
-  // pass and queued after-refresh callbacks run unconditionally on every
-  // React commit — variability lives in what the framework chooses to do
-  // with that tick, not in whether the tick fires.
   useLayoutEffect(() => {
-    framework.recordDisplayPass();
-    framework.flushAfterRefreshCallbacks();
+    app.recordDisplayPass();
+    app.flushAfterRefreshCallbacks();
   });
 
-  const activeScreen = framework.activeScreenElement;
+  const activeScreen = app.activeScreenElement;
 
   return (
     <Box
       flexDirection="column"
       position="relative"
-      width={framework.terminalSize.width}
-      height={framework.terminalSize.height}
+      width={app.terminalSize.width}
+      height={app.terminalSize.height}
     >
       <Box flexDirection="column">{activeScreen ?? children}</Box>
       <ToastOverlay />
@@ -315,57 +296,9 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
   );
 });
 
-// [LAW:one-source-of-truth] Configuration sink: App-level configuration
-// flows through this surface. When an App is supplied, every setter routes
-// through app.X; otherwise the legacy bare-framework path (used by tests
-// constructing <TextualApp framework={...}> directly) writes to the
-// framework. Both paths land on the same underlying services, so the
-// runtime sees one canonical sequence either way.
-interface RuntimeConfigSink {
-  setUserStylesheet(source: string): void;
-  setCssPath(path: string | readonly string[]): void;
-  setTheme(name: string): unknown;
-  setAppBindings(declarations: Iterable<BindingDeclaration>): void;
-  setKeymap(next: KeymapInput): void;
-  setAppActions(actions: WidgetActions | undefined): void;
-  setAppCommandProviders(providers: Iterable<ProviderConstructor> | null | undefined): void;
-  setSystemCommandResolver(resolver: SystemCommandResolver | undefined): void;
-  isScreenInstalled(name: string): boolean;
-  installScreenFactory(name: string, factory: () => React.ReactElement): void;
-  addMode(name: string, factory: () => React.ReactElement): void;
-  setAppAutoFocus(selector: string | null | undefined): void;
-  setTooltipDelay(delayMs: number | null | undefined): void;
-  setShowTooltips(enabled: boolean | null | undefined): void;
-  getScreen(name: string): React.ReactElement;
-}
-
-// [LAW:locality-or-seam] Adapt the legacy bare-framework path so it
-// implements the same sink shape as App. Internal-only — disappears once
-// framework deletion (7w9.10) lands and bare-framework rendering is gone.
-function frameworkAsSink(framework: TextualFramework): RuntimeConfigSink {
-  return {
-    setUserStylesheet: (source) => framework.setUserStylesheet(source),
-    setCssPath: (path) => framework.setCssPath(path),
-    setTheme: (name) => framework.setTheme(name),
-    setAppBindings: (declarations) => framework.setAppBindings(declarations),
-    setKeymap: (next) => framework.setKeymap(next),
-    setAppActions: (actions) => framework.setAppActions(actions),
-    setAppCommandProviders: (providers) => framework.setAppCommandProviders(providers),
-    setSystemCommandResolver: (resolver) => framework.setSystemCommandResolver(resolver),
-    isScreenInstalled: (name) => framework.isScreenInstalled(name),
-    installScreenFactory: (name, factory) => framework.installScreen(name, factory),
-    addMode: (name, factory) => framework.addMode(name, factory),
-    setAppAutoFocus: (selector) => framework.setAppAutoFocus(selector),
-    setTooltipDelay: (delayMs) => framework.setTooltipDelay(delayMs),
-    setShowTooltips: (enabled) => framework.setShowTooltips(enabled),
-    getScreen: (name) => framework.getScreen(name),
-  };
-}
-
 export const TextualApp = observer(function TextualApp({
   app,
   children,
-  framework,
   onReady,
   css,
   stylesheet,
@@ -382,86 +315,78 @@ export const TextualApp = observer(function TextualApp({
   tooltipDelay,
   showTooltips,
 }: TextualAppProps): React.JSX.Element {
-  // [LAW:one-source-of-truth] Framework reference is captured once for the
-  // life of this React subtree. A parent re-render with a different
-  // framework prop must not silently swap the runtime under our feet.
-  const [ownedFramework] = useState(() => framework);
-
-  // [LAW:single-enforcer] Configuration setters flow through App when one
-  // is supplied — App is the authority. Legacy bare-framework rendering
-  // (older tests) falls back to writing framework directly; both paths
-  // share the same underlying services, so the runtime sees one ordered
-  // configuration sequence either way.
-  const [sink] = useState<RuntimeConfigSink>(() => app ?? frameworkAsSink(ownedFramework));
+  // [LAW:one-source-of-truth] App reference captured once for the life of
+  // this React subtree.
+  const [ownedApp] = useState(() => app);
 
   useLayoutEffect(() => {
-    onReady?.(ownedFramework);
-  }, [onReady, ownedFramework]);
+    onReady?.(ownedApp);
+  }, [onReady, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setUserStylesheet(css ?? stylesheet ?? "");
-  }, [css, sink, stylesheet]);
+    ownedApp.setUserStylesheet(css ?? stylesheet ?? "");
+  }, [css, ownedApp, stylesheet]);
 
   useLayoutEffect(() => {
     if (cssPath !== undefined) {
-      sink.setCssPath(cssPath);
+      ownedApp.setCssPath(cssPath);
     }
-  }, [cssPath, sink]);
+  }, [cssPath, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setTheme(theme ?? "default");
-  }, [sink, theme]);
+    ownedApp.setTheme(theme ?? "default");
+  }, [ownedApp, theme]);
 
   useLayoutEffect(() => {
-    sink.setAppBindings(bindings ?? []);
-  }, [bindings, sink]);
+    ownedApp.setAppBindings(bindings ?? []);
+  }, [bindings, ownedApp]);
 
   useLayoutEffect(() => {
     if (keymap !== undefined) {
-      sink.setKeymap(keymap);
+      ownedApp.setKeymap(keymap);
     }
-  }, [keymap, sink]);
+  }, [keymap, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setAppActions(actions);
-  }, [actions, sink]);
+    ownedApp.setAppActions(actions);
+  }, [actions, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setAppCommandProviders(commandProviders);
-  }, [commandProviders, sink]);
+    ownedApp.setAppCommandProviders(commandProviders);
+  }, [commandProviders, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setSystemCommandResolver(getSystemCommands);
-  }, [getSystemCommands, sink]);
+    ownedApp.setSystemCommandResolver(getSystemCommands);
+  }, [getSystemCommands, ownedApp]);
 
   useLayoutEffect(() => {
     for (const [name, screen] of Object.entries(screens ?? {})) {
-      if (!sink.isScreenInstalled(name)) {
-        sink.installScreenFactory(name, normalizeScreenFactory(screen, sink));
+      if (!ownedApp.isScreenInstalled(name)) {
+        ownedApp.installScreenFactory(name, normalizeScreenFactory(screen, ownedApp));
       }
     }
-  }, [sink, screens]);
+  }, [ownedApp, screens]);
 
   useLayoutEffect(() => {
     for (const [name, screen] of Object.entries(modes ?? {})) {
-      sink.addMode(name, normalizeScreenFactory(screen, sink));
+      ownedApp.addMode(name, normalizeScreenFactory(screen, ownedApp));
     }
-  }, [modes, sink]);
+  }, [modes, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setAppAutoFocus(autoFocus);
-  }, [autoFocus, sink]);
+    ownedApp.setAppAutoFocus(autoFocus);
+  }, [autoFocus, ownedApp]);
 
   useLayoutEffect(() => {
-    sink.setTooltipDelay(tooltipDelay);
-  }, [sink, tooltipDelay]);
+    ownedApp.setTooltipDelay(tooltipDelay);
+  }, [ownedApp, tooltipDelay]);
 
   useLayoutEffect(() => {
-    sink.setShowTooltips(showTooltips);
-  }, [sink, showTooltips]);
+    ownedApp.setShowTooltips(showTooltips);
+  }, [ownedApp, showTooltips]);
 
   return (
-    <TextualProvider framework={ownedFramework}>
+    <TextualProvider app={ownedApp}>
       <AppShell>{children}</AppShell>
     </TextualProvider>
   );
@@ -469,10 +394,10 @@ export const TextualApp = observer(function TextualApp({
 
 function normalizeScreenFactory(
   screen: ScreenDescriptor | (() => React.ReactElement) | string,
-  sink: { getScreen(name: string): React.ReactElement },
+  app: App,
 ): () => React.ReactElement {
   if (typeof screen === "string") {
-    return () => sink.getScreen(screen);
+    return () => app.getScreen(screen);
   }
 
   if (React.isValidElement(screen)) {

@@ -18,7 +18,8 @@ import { ResolvedStyles } from "../styles/resolved-styles.js";
 import { type StyleAssignmentValue } from "../styles/stylesheet.js";
 import { createStylesProxy, Styles } from "../styles/styles.js";
 import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
-import { TextualFramework, type AnimationLevel } from "./app-framework.js";
+import type { AnimationLevel } from "./app-framework.js";
+import type { App } from "../app/app.js";
 import { NodeList, type WidgetActions, type WidgetHandlers } from "./widget-registry.js";
 
 // [LAW:one-source-of-truth] Widget has two constructor-input shapes, but
@@ -28,7 +29,7 @@ import { NodeList, type WidgetActions, type WidgetHandlers } from "./widget-regi
 // string or string[]; nodeId synthesized). Both shapes feed the same
 // constructor body via a single conversion point (optionsToInit).
 export interface WidgetInit {
-  framework: TextualFramework;
+  app: App;
   nodeId: string;
   parentId: string | null;
   id?: string;
@@ -48,7 +49,7 @@ export interface WidgetInit {
 }
 
 export interface WidgetOptions {
-  framework: TextualFramework;
+  app: App;
   id?: string;
   classes?: string | readonly string[];
   name?: string;
@@ -209,7 +210,7 @@ export class Widget {
   static inheritCss = true;
   static inheritBindings = true;
 
-  readonly framework: TextualFramework;
+  readonly app: App;
   readonly nodeId: string;
   parentId: string | null;
   readonly id?: string;
@@ -250,7 +251,7 @@ export class Widget {
       ? (input as WidgetInit)
       : optionsToInit(input as WidgetOptions, new.target as typeof Widget);
 
-    this.framework = init.framework;
+    this.app = init.app;
     this.nodeId = init.nodeId;
     this.parentId = init.parentId;
     this.id = init.id;
@@ -268,7 +269,7 @@ export class Widget {
     // widget.resolvedStyles is the single derived output from the cascade.
     this.styles = createStylesProxy(
       new Styles(() => {
-        this.framework.refreshStyles(true);
+        this.app.refreshStyles(true);
       }),
     );
     this.borderTitle = normalizeBorderLabelInput(init.borderTitle);
@@ -291,7 +292,7 @@ export class Widget {
       autoObservable(
         this,
         {
-          framework: false,
+          app: false,
           handlersRef: false,
           actionsRef: false,
           bindingsRef: false,
@@ -310,7 +311,7 @@ export class Widget {
   }
 
   get is_mounted(): boolean {
-    return this.framework.isNodeMounted(this);
+    return this.app.isNodeMounted(this);
   }
 
   get is_attached(): boolean {
@@ -363,10 +364,10 @@ export class Widget {
     runInAction(() => {
       this.syncStateClass("-disabled", value);
     });
-    this.framework.refreshStyles(changed);
+    this.app.refreshStyles(changed);
 
     if (!wasDisabledEffective && this.isDisabledEffective) {
-      this.framework.clearFocusWithin(this);
+      this.app.clearFocusWithin(this);
     }
   }
 
@@ -376,7 +377,7 @@ export class Widget {
     runInAction(() => {
       this.syncStateClass("-loading", value);
     });
-    this.framework.refreshStyles(changed);
+    this.app.refreshStyles(changed);
   }
 
   setTooltip(value: VisualInput | null): void {
@@ -385,11 +386,11 @@ export class Widget {
     }
 
     this.tooltip = value;
-    this.framework.handleWidgetTooltipChange(this);
+    this.app.handleWidgetTooltipChange(this);
   }
 
   get parent(): Widget | undefined {
-    return this.parentId === null ? undefined : this.framework.registry.get(this.parentId);
+    return this.parentId === null ? undefined : this.app.registry.get(this.parentId);
   }
 
   get effectiveScreenRegion(): Region {
@@ -415,7 +416,7 @@ export class Widget {
       current = current.parent;
     }
 
-    let visibleRegion = new Region(0, 0, this.framework.terminalSize.width, this.framework.terminalSize.height);
+    let visibleRegion = new Region(0, 0, this.app.terminalSize.width, this.app.terminalSize.height);
     let cumulativeScrollX = 0;
     let cumulativeScrollY = 0;
 
@@ -441,11 +442,11 @@ export class Widget {
   }
 
   get isFocused(): boolean {
-    return this.framework.focusedNodeId === this.nodeId;
+    return this.app.focusedNodeId === this.nodeId;
   }
 
   get isHovered(): boolean {
-    return this.framework.hoveredNodeId === this.nodeId;
+    return this.app.hoveredNodeId === this.nodeId;
   }
 
   get display(): "block" | "none" {
@@ -487,7 +488,7 @@ export class Widget {
 
   set border_title(value: ContentInput | null) {
     this.borderTitle = normalizeBorderLabelInput(value);
-    this.framework.refreshStyles(true);
+    this.app.refreshStyles(true);
   }
 
   get border_subtitle(): Content | null {
@@ -496,17 +497,17 @@ export class Widget {
 
   set border_subtitle(value: ContentInput | null) {
     this.borderSubtitle = normalizeBorderLabelInput(value);
-    this.framework.refreshStyles(true);
+    this.app.refreshStyles(true);
   }
 
   get children(): NodeList {
-    return this.framework.registry.getChildNodeList(this.nodeId);
+    return this.app.registry.getChildNodeList(this.nodeId);
   }
 
   get siblings(): Widget[] {
     return this.parentId === null
       ? []
-      : this.framework.registry.getChildren(this.parentId).filter((widget) => widget.nodeId !== this.nodeId);
+      : this.app.registry.getChildren(this.parentId).filter((widget) => widget.nodeId !== this.nodeId);
   }
 
   get isEmpty(): boolean {
@@ -534,12 +535,12 @@ export class Widget {
   }
 
   focus(): void {
-    this.framework.focusWidget(this.nodeId);
+    this.app.focusWidget(this.nodeId);
   }
 
   blur(): void {
     if (this.isFocused) {
-      this.framework.focusWidget(null);
+      this.app.focusWidget(null);
     }
   }
 
@@ -552,7 +553,7 @@ export class Widget {
   }
 
   trap_focus(enabled = true): void {
-    this.framework.trapFocus(this, enabled);
+    this.app.trapFocus(this, enabled);
   }
 
   checkConsumeKey(key: string, character: string | null): boolean {
@@ -561,26 +562,26 @@ export class Widget {
   }
 
   get messageQueueSize(): number {
-    return this.framework.getMessageQueueSize(this.nodeId);
+    return this.app.getMessageQueueSize(this.nodeId);
   }
 
   postMessage(message: Message): boolean {
-    return this.framework.postMessage(this.nodeId, message);
+    return this.app.postMessage(this.nodeId, message);
   }
 
   prevent<T>(messageType: MessageConstructor, callback: () => T): T;
   prevent<T>(messageTypes: MessageConstructor[], callback: () => T): T;
   prevent<T>(messageTypes: MessageConstructor | MessageConstructor[], callback: () => T): T {
     const types = Array.isArray(messageTypes) ? messageTypes : [messageTypes];
-    return this.framework.preventMessages(this.nodeId, types, callback);
+    return this.app.preventMessages(this.nodeId, types, callback);
   }
 
   disableMessages(...messageTypes: MessageConstructor[]): void {
-    this.framework.disableMessages(this.nodeId, messageTypes);
+    this.app.disableMessages(this.nodeId, messageTypes);
   }
 
   enableMessages(...messageTypes: MessageConstructor[]): void {
-    this.framework.enableMessages(this.nodeId, messageTypes);
+    this.app.enableMessages(this.nodeId, messageTypes);
   }
 
   markLifecycleReady(): void {
@@ -651,7 +652,7 @@ export class Widget {
     const next = this.clampScrollOffsets(x, y);
     this.scrollTargetX = next.x;
     this.scrollTargetY = next.y;
-    this.scrollAnimation = this.createScrollAnimation(next, options, this.framework.animationLevel);
+    this.scrollAnimation = this.createScrollAnimation(next, options, this.app.animationLevel);
     this.scrollOffsetX = next.x;
     this.scrollOffsetY = next.y;
   }
@@ -748,7 +749,7 @@ export class Widget {
   }
 
   runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    return this.framework.runWorker(this, work, options);
+    return this.app.runNodeWorker(this, work, options);
   }
 
   run_worker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
@@ -758,31 +759,31 @@ export class Widget {
   }
 
   createSignal<TValue>(description = ""): Signal<TValue> {
-    return this.framework.createSignal(this, description);
+    return this.app.createSignal(this, description);
   }
 
   setTimer(name: string, delayMs: number, callback: () => void): void {
-    this.framework.setTimer(this, name, delayMs, callback);
+    this.app.setTimer(this, name, delayMs, callback);
   }
 
   setInterval(name: string, intervalMs: number, callback: () => void, options: TimerOptions = {}): void {
-    this.framework.setInterval(this, name, intervalMs, callback, options);
+    this.app.setInterval(this, name, intervalMs, callback, options);
   }
 
   clearTimer(name: string): void {
-    this.framework.clearTimer(this, name);
+    this.app.clearTimer(this, name);
   }
 
   pauseTimer(name: string): void {
-    this.framework.pauseTimer(this, name);
+    this.app.pauseTimer(this, name);
   }
 
   resumeTimer(name: string): void {
-    this.framework.resumeTimer(this, name);
+    this.app.resumeTimer(this, name);
   }
 
   resetTimer(name: string): void {
-    this.framework.resetTimer(this, name);
+    this.app.resetTimer(this, name);
   }
 
   notify(
@@ -792,19 +793,19 @@ export class Widget {
     title?: NotificationContent,
     markup?: boolean,
   ): Notification {
-    return this.framework.notify(message, severityOrOptions, timeout, title, markup);
+    return this.app.notify(message, severityOrOptions, timeout, title, markup);
   }
 
   dismissNotification(identity: string): void {
-    this.framework.dismissNotification(identity);
+    this.app.dismissNotification(identity);
   }
 
   clearNotifications(): void {
-    this.framework.clearNotifications();
+    this.app.clearNotifications();
   }
 
   matchesType(typeName: string): boolean {
-    return this.framework.widgetMatchesType(this.typeName, typeName);
+    return this.app.widgetMatchesType(this.typeName, typeName);
   }
 
   hasClass(className: string): boolean {
@@ -846,7 +847,7 @@ export class Widget {
       }
     });
 
-    this.framework.refreshStyles(changed);
+    this.app.refreshStyles(changed);
   }
 
   removeClass(...classNames: string[]): void {
@@ -862,7 +863,7 @@ export class Widget {
       }
     });
 
-    this.framework.refreshStyles(changed);
+    this.app.refreshStyles(changed);
   }
 
   toggleClass(className: string, force?: boolean): void {
@@ -878,7 +879,7 @@ export class Widget {
       }
     });
 
-    this.framework.refreshStyles(hadClass !== shouldHaveClass);
+    this.app.refreshStyles(hadClass !== shouldHaveClass);
   }
 
   setClasses(classes: string | string[]): void {
@@ -899,13 +900,13 @@ export class Widget {
       this.syncStateClass("-loading", this.loading);
     });
 
-    this.framework.refreshStyles(!same);
+    this.app.refreshStyles(!same);
   }
 
   setPseudoClass(name: string, enabled: boolean): void {
     const changed = this.pseudoClasses.get(name) !== enabled;
     this.pseudoClasses.set(name, enabled);
-    this.framework.refreshStyles(changed);
+    this.app.refreshStyles(changed);
   }
 
   hasPseudoClass(name: string): boolean {
@@ -967,10 +968,10 @@ export class Widget {
   setVisible(value: boolean | "visible" | "hidden"): void {
     const wasVisible = this.isVisible;
     this.setInlineStyle("visibility", value === true ? "visible" : value === false ? "hidden" : value);
-    this.framework.callAfterRefresh(() => {
+    this.app.callAfterRefresh(() => {
       const isVisible = this.isVisible;
 
-      if (wasVisible !== isVisible && this.framework.isNodeMounted(this)) {
+      if (wasVisible !== isVisible && this.app.isNodeMounted(this)) {
         // [LAW:single-enforcer] Visibility event emission is owned by the
         // widget visibility setter so public visible changes share one seam.
         this.postMessage(isVisible ? new Show() : new Hide());
@@ -1007,7 +1008,7 @@ export class Widget {
   mount(...widgetsOrOptions: Array<Widget | MountOptions>): Widget[] {
     const { widgets, options } = splitMountArgs(widgetsOrOptions);
 
-    if (!this.framework.isNodeMounted(this)) {
+    if (!this.app.isNodeMounted(this)) {
       throw new MountError("Cannot mount children on an unmounted widget");
     }
 
@@ -1028,7 +1029,7 @@ export class Widget {
       }
 
       widget.parentId = this.nodeId;
-      this.framework.registerWidget(widget);
+      this.app.registerWidget(widget);
       this.children._insert(insertionIndex + offset, widget);
     });
 
@@ -1057,17 +1058,17 @@ export class Widget {
     const afterAdjustment = options.after === undefined ? 0 : 1;
     const withoutChildIndex = childIndex < targetIndex ? targetIndex - 1 : targetIndex;
     this.children._insert(withoutChildIndex + afterAdjustment, childWidget);
-    this.framework.registry.touch();
+    this.app.registry.touch();
   }
 
   remove(): void {
-    if (!this.framework.isNodeMounted(this)) {
+    if (!this.app.isNodeMounted(this)) {
       return;
     }
 
     for (const widget of this.walkChildren({ withSelf: true, reverse: true })) {
-      this.framework.notifyWillUnmount(widget);
-      this.framework.unregisterWidget(widget.nodeId);
+      this.app.notifyWillUnmount(widget);
+      this.app.unregisterWidget(widget.nodeId);
     }
   }
 
@@ -1092,7 +1093,7 @@ export class Widget {
     for (const child of ordered) {
       this.children._append(child);
     }
-    this.framework.registry.touch();
+    this.app.registry.touch();
   }
 
   _find_mount_point(spot: MountSpot): [Widget, number] {
@@ -1116,7 +1117,7 @@ export class Widget {
 
     const parent = spot.parent;
 
-    if (parent === undefined || !this.framework.isNodeMounted(spot)) {
+    if (parent === undefined || !this.app.isNodeMounted(spot)) {
       throw new MountError("Mount point widget is not in the DOM");
     }
 
@@ -1144,7 +1145,7 @@ export class Widget {
   }
 
   get_child_by_type(typeConstraint: QueryTypeConstraint): Widget {
-    const typeName = this.framework.resolveWidgetTypeName(typeConstraint);
+    const typeName = this.app.resolveWidgetTypeName(typeConstraint);
     const child = this.children.toArray().find((candidate) => candidate.matchesType(typeName));
 
     if (child === undefined) {
@@ -1163,16 +1164,16 @@ export class Widget {
       return this.queryChildren(selector).results();
     }
 
-    const typeName = this.framework.resolveWidgetTypeName(selector);
+    const typeName = this.app.resolveWidgetTypeName(selector);
     return this.children.toArray().filter((child) => child.matchesType(typeName));
   }
 
   query(selectorText = "*"): DOMQuery {
-    return new DOMQuery(this.framework, this, "descendants").filter(selectorText);
+    return new DOMQuery(this.app, this, "descendants").filter(selectorText);
   }
 
   queryChildren(selectorText = "*"): DOMQuery {
-    return new DOMQuery(this.framework, this, "children").filter(selectorText);
+    return new DOMQuery(this.app, this, "children").filter(selectorText);
   }
 
   queryOne(selectorText: string, typeConstraint?: QueryTypeConstraint): Widget {
@@ -1182,7 +1183,7 @@ export class Widget {
       throw new NoMatches(`No widgets matched "${selectorText}"`);
     }
 
-    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).first(typeConstraint);
+    return new DOMQuery(this.app, this, "descendants").filter(selectorText).first(typeConstraint);
   }
 
   queryOneOptional(selectorText: string, typeConstraint?: QueryTypeConstraint): Widget | null {
@@ -1192,7 +1193,7 @@ export class Widget {
       return null;
     }
 
-    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).first(typeConstraint);
+    return new DOMQuery(this.app, this, "descendants").filter(selectorText).first(typeConstraint);
   }
 
   queryExactlyOne(selectorText: string, typeConstraint?: QueryTypeConstraint): Widget;
@@ -1210,7 +1211,7 @@ export class Widget {
       throw new TooManyMatches(`More than one widget matched "${selectorText}"`);
     }
 
-    return new DOMQuery(this.framework, this, "descendants").filter(selectorText).onlyOne(effectiveTypeConstraint);
+    return new DOMQuery(this.app, this, "descendants").filter(selectorText).onlyOne(effectiveTypeConstraint);
   }
 
   query_exactly_one(typeConstraint: QueryTypeConstraint): Widget {
@@ -1218,13 +1219,13 @@ export class Widget {
   }
 
   queryAncestor(selectorText: string, typeConstraint?: QueryTypeConstraint): Widget {
-    const selectors = this.framework.parseSelectors(selectorText);
+    const selectors = this.app.parseSelectors(selectorText);
     let currentParent = this.parent;
 
     while (currentParent !== undefined) {
       const candidate = currentParent;
 
-      if (selectors.some((selector) => this.framework.matchesSelector(candidate, selector))) {
+      if (selectors.some((selector) => this.app.matchesSelector(candidate, selector))) {
         return ensureQueryType(candidate, typeConstraint);
       }
 
@@ -1237,7 +1238,7 @@ export class Widget {
   walkChildren(options: WalkChildrenOptions = {}): Widget[] {
     const method = options.method ?? "depth";
     const withSelf = options.withSelf ?? false;
-    const seed = withSelf ? [this] : this.framework.registry.getChildren(this.nodeId);
+    const seed = withSelf ? [this] : this.app.registry.getChildren(this.nodeId);
     const output: Widget[] = [];
     const queue = [...seed];
 
@@ -1251,7 +1252,7 @@ export class Widget {
       }
 
       output.push(node);
-      const children = this.framework.registry.getChildren(node.nodeId);
+      const children = this.app.registry.getChildren(node.nodeId);
 
       if (method === "depth") {
         queue.unshift(...children);
@@ -1297,15 +1298,15 @@ function optionsToInit(options: WidgetOptions, typeSource: typeof Widget): Widge
     throw new TypeError("Widget constructor options must be an object");
   }
 
-  if (!(options.framework instanceof TextualFramework)) {
-    throw new WidgetError("Widget requires a framework");
+  if (options.app === undefined || options.app === null) {
+    throw new WidgetError("Widget requires an app");
   }
 
   const typeName = options.name ?? typeSource.name;
   validatePublicWidgetName(typeName);
 
   return {
-    framework: options.framework,
+    app: options.app,
     nodeId: `public-widget-${nextPublicWidgetId++}`,
     parentId: null,
     id: options.id,
