@@ -15,7 +15,7 @@ import stringWidth from "string-width";
 
 import type { Message } from "../events/message.js";
 import { Content, type VisualInput } from "../content/index.js";
-import { type ActiveBinding } from "./app-framework.js";
+import { type ActiveBinding } from "./_app-runtime.js";
 import type { App } from "../app/app.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { Widget } from "./widget.js";

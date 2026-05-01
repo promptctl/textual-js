@@ -2,12 +2,12 @@
 // (user/cssPath sources), screen-stylesheet caching, CSS file watching, and
 // the pending-recalc deferral flag. The framework orchestrator triggers the
 // actual widget-tree recalculation through a narrow dep callback — the engine
-// never reaches back into TextualFramework directly.
+// never reaches back into AppRuntime directly.
 // [LAW:one-source-of-truth] userStylesheets/cssPath/cssWatchers/
 // screenStyleCache/pendingStyleRecalc live in exactly one place: this engine.
 // Framework methods are thin delegators that read through it.
 // [LAW:one-way-deps] The engine depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -20,7 +20,7 @@ import {
   StylesheetError,
   type Screen,
   type ScreenOptions,
-} from "./app-framework.js";
+} from "./_app-runtime.js";
 
 export interface ScreenStylesheetState {
   css: string | null;
@@ -31,7 +31,7 @@ export interface ScreenStylesheetState {
 }
 
 // [LAW:one-way-deps] Narrow capability interface the engine requires from its
-// host (typically TextualFramework). The engine never imports the host class.
+// host (typically AppRuntime). The engine never imports the host class.
 export interface StyleEngineDeps {
   isInBatch(): boolean;
   isDebug(): boolean;

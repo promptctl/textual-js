@@ -5,7 +5,7 @@
 // [LAW:one-source-of-truth] AppSignals + the internal Signal registry live in
 // exactly one place: this service.
 // [LAW:one-way-deps] The service depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -14,7 +14,7 @@ import { autoObservable } from "./auto-observable.js";
 import { Signal } from "../services/signal.js";
 import type { ActiveTheme } from "../services/theme.js";
 import type { Widget } from "./widget.js";
-import type { Screen } from "./app-framework.js";
+import type { Screen } from "./_app-runtime.js";
 
 export interface AppSignals {
   theme_changed_signal: Signal<ActiveTheme>;
@@ -26,7 +26,7 @@ export interface AppSignals {
 }
 
 // [LAW:one-way-deps] Narrow capability interface the registry requires from
-// its host (typically TextualFramework). The registry never imports the host
+// its host (typically AppRuntime). The registry never imports the host
 // class — only this shape.
 export interface SignalRegistryDeps {
   isRunning(): boolean;

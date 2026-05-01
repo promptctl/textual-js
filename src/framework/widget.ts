@@ -9,7 +9,7 @@ import { Offset } from "../geometry/offset.js";
 import { Region } from "../geometry/region.js";
 import { Size } from "../geometry/size.js";
 import type { Notification, NotificationContent, NotificationSeverity } from "../services/notifications.js";
-import type { NotifyOptions } from "./app-framework.js";
+import type { NotifyOptions } from "./_app-runtime.js";
 import { Signal } from "../services/signal.js";
 import type { TimerOptions } from "../services/timer.js";
 import { Worker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
@@ -18,7 +18,7 @@ import { ResolvedStyles } from "../styles/resolved-styles.js";
 import { type StyleAssignmentValue } from "../styles/stylesheet.js";
 import { createStylesProxy, Styles } from "../styles/styles.js";
 import { DOMQuery, NoMatches, TooManyMatches, ensureQueryType, type QueryTypeConstraint } from "./dom-query.js";
-import type { AnimationLevel } from "./app-framework.js";
+import type { AnimationLevel } from "./_app-runtime.js";
 import type { App } from "../app/app.js";
 import { NodeList, type WidgetActions, type WidgetHandlers } from "./widget-registry.js";
 

@@ -1,14 +1,14 @@
 // Architectural guard for the True North Phase 1 invariant:
-// `TextualFramework` is a private collaborator owned by `App`. It must not
-// be imported by name (or via `TextualFrameworkOptions`) outside the two
+// `AppRuntime` is a private collaborator owned by `App`. It must not
+// be imported by name (or via `AppRuntimeOptions`) outside the two
 // directories that are allowed to know about it: `src/framework/` (where
 // it lives) and `src/app/` (where `App` constructs and drives it).
 //
 // This is the *mechanical* enforcement of the rule — comments and LAW
 // markers do not fail CI; this script does. Run via `npm run lint`.
 //
-// Forbidden symbol set: `TextualFramework`, `TextualFrameworkOptions`.
-// Other imports from `app-framework.js` (e.g. `Screen`, `SimpleCommand`,
+// Forbidden symbol set: `AppRuntime`, `AppRuntimeOptions`.
+// Other imports from `_app-runtime.js` (e.g. `Screen`, `SimpleCommand`,
 // `ActiveBinding`, `normalizeKeyName`) are *allowed* — those are subsidiary
 // concepts, not the framework class itself.
 //
@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-const FORBIDDEN_SYMBOLS = ["TextualFramework", "TextualFrameworkOptions"];
+const FORBIDDEN_SYMBOLS = ["AppRuntime", "AppRuntimeOptions"];
 const SCAN_ROOTS = ["src", "tests"];
 
 const ALLOWLIST_PREFIXES = ["src/framework/", "src/app/"];
@@ -59,7 +59,7 @@ function findViolations(filePath: string, contents: string): Violation[] {
   // possibly multi-line. The framework path is the only one we care about
   // for symbol enforcement; other framework-internal paths (e.g.
   // `framework/widget.js`) are not part of this guard.
-  const importRe = /import(?:\s+type)?\s*(?:\{([^}]*)\}|([A-Za-z_$][\w$]*)|\*\s+as\s+([A-Za-z_$][\w$]*))?\s*from\s*["']([^"']+app-framework(?:\.js)?)["']/g;
+  const importRe = /import(?:\s+type)?\s*(?:\{([^}]*)\}|([A-Za-z_$][\w$]*)|\*\s+as\s+([A-Za-z_$][\w$]*))?\s*from\s*["']([^"']+_app-runtime(?:\.js)?)["']/g;
   let match: RegExpExecArray | null;
   while ((match = importRe.exec(contents)) !== null) {
     const namedBlock = match[1];
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
   }
 
   console.error(
-    `check-framework-imports: FAIL — ${violations.length} forbidden import${violations.length === 1 ? "" : "s"} of TextualFramework / TextualFrameworkOptions outside src/framework/ + src/app/:\n`,
+    `check-framework-imports: FAIL — ${violations.length} forbidden import${violations.length === 1 ? "" : "s"} of AppRuntime / AppRuntimeOptions outside src/framework/ + src/app/:\n`,
   );
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}  imports { ${v.symbol} } from "${v.source}"`);
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
   console.error(
     "\nApp is the runtime root. Drive the runtime through the App instance " +
       "(or App[\"framework\"] for type annotations) instead of importing " +
-      "TextualFramework directly. See design-docs/true-north-arch-refactor.md.",
+      "AppRuntime directly. See design-docs/true-north-arch-refactor.md.",
   );
   process.exit(1);
 }

@@ -3,13 +3,13 @@
 // bookkeeping, and hovered-node tracking. The framework orchestrator triggers
 // cross-cutting effects (tooltip refresh, style recalc, focus changes,
 // pointer-shape updates, message posting) through a narrow injected deps
-// interface — the engine never reaches back into TextualFramework directly.
+// interface — the engine never reaches back into AppRuntime directly.
 // [LAW:one-source-of-truth] hoveredNodeId, lastPointerLocation,
 // pendingPointerClick, and lastClickChain live in exactly one place: this
 // engine. The framework reads these as the canonical source for tooltip and
 // hover-derived behavior.
 // [LAW:one-way-deps] The engine depends only on a narrow PointerEngineDeps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -43,7 +43,7 @@ export interface ResolvedPointerTarget {
 }
 
 // [LAW:one-way-deps] Narrow capability interface the engine requires from its
-// host (typically TextualFramework). The engine never imports the host class.
+// host (typically AppRuntime). The engine never imports the host class.
 export interface PointerEngineDeps {
   listWidgets(): Widget[];
   getWidget(nodeId: string): Widget | undefined;

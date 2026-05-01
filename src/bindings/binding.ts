@@ -1,4 +1,4 @@
-import { normalizeKeyName } from "../framework/app-framework.js";
+import { normalizeKeyName } from "../framework/_app-runtime.js";
 
 export interface Binding {
   key: string;

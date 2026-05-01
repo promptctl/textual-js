@@ -6,7 +6,7 @@
 // tooltipDelay + showTooltips + appAutoFocus live in exactly one place: this
 // service.
 // [LAW:one-way-deps] The service depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -18,10 +18,10 @@ import {
   type AnsiTheme,
   type ThemeDefinition,
 } from "../services/theme.js";
-import type { AnimationLevel } from "./app-framework.js";
+import type { AnimationLevel } from "./_app-runtime.js";
 
 // [LAW:one-way-deps] Narrow capability interface the broker requires from its
-// host (typically TextualFramework). The broker never imports the host class
+// host (typically AppRuntime). The broker never imports the host class
 // — only this shape.
 export interface ThemeBrokerDeps {
   // Style recalculation when theme/dark-mode changes alter resolved CSS.

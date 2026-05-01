@@ -2,14 +2,14 @@
 // callback queue, the layout-reader subscription map, and the after-refresh
 // requester slot. The framework orchestrator delegates registration, flushing,
 // and display-pass bookkeeping through a narrow injected deps interface — the
-// engine never reaches back into TextualFramework directly.
+// engine never reaches back into AppRuntime directly.
 // [LAW:one-source-of-truth] The afterRefreshCallbacks queue, layoutReaders
 // registry, and the active afterRefreshRequester each live in exactly one
 // place: this engine. Framework callers schedule via the engine's API rather
 // than maintaining parallel queues. The public displayCount observable still
 // lives on the framework; the engine writes to it via deps.
 // [LAW:one-way-deps] The engine depends only on a narrow LayoutEngineDeps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -19,7 +19,7 @@ export type AfterRefreshCallback = () => void;
 export type LayoutReader = () => void;
 
 // [LAW:one-way-deps] Narrow capability interface the engine requires from its
-// host (typically TextualFramework). The engine never imports the host class.
+// host (typically AppRuntime). The engine never imports the host class.
 export interface LayoutEngineDeps {
   // Schedule a callback on the framework's deferred-callback queue.
   callLater(callback: () => void): void;

@@ -295,7 +295,7 @@ export interface AppDriver {
   resumeApplicationMode: () => Promise<void> | void;
 }
 
-export interface TextualFrameworkOptions {
+export interface AppRuntimeOptions {
   driver?: AppDriver;
   env?: EnvironmentMap;
   cssPath?: string | readonly string[];
@@ -463,7 +463,7 @@ const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
   { key: "ctrl+p", action: "app.command_palette" },
 ];
 
-export class TextualFramework {
+export class AppRuntime {
   static readonly CLICK_CHAIN_TIME_THRESHOLD = 0.5;
 
   readonly registry = new WidgetRegistry();
@@ -600,7 +600,7 @@ export class TextualFramework {
     return this.signalRegistry.signals;
   }
 
-  constructor(options: TextualFrameworkOptions = {}) {
+  constructor(options: AppRuntimeOptions = {}) {
     const featureState = parseTextualFeatures(options.env?.TEXTUAL ?? process.env.TEXTUAL ?? "");
 
     this.driver = options.driver ?? new HeadlessDriver();
@@ -729,7 +729,7 @@ export class TextualFramework {
         }
         this.refreshTooltipFromHover();
       },
-      clickChainTimeThreshold: TextualFramework.CLICK_CHAIN_TIME_THRESHOLD,
+      clickChainTimeThreshold: AppRuntime.CLICK_CHAIN_TIME_THRESHOLD,
     };
     this.pointerEngine = new PointerEngine(pointerEngineDeps);
 
@@ -750,7 +750,7 @@ export class TextualFramework {
       isOwnPump: (pump) =>
         pump === this ||
         pump === this.publicApp ||
-        (pump instanceof Widget && pump.app.framework === this),
+        (pump instanceof Widget && pump.app === this.publicApp),
     };
     this.asyncResources = new AsyncResourceManager(asyncResourceDeps);
 
@@ -1313,7 +1313,7 @@ export class TextualFramework {
     return selectorMatchesWidget(this, widget, selector);
   }
 
-  // [LAW:locality-or-seam] Thin delegators so TextualFramework structurally
+  // [LAW:locality-or-seam] Thin delegators so AppRuntime structurally
   // satisfies SelectorMatchHost (defined in src/styles/selectors.ts). The
   // styles modules depend on a narrow capability shape — never on this class.
   getPreviousSibling(nodeId: string): Widget | undefined {

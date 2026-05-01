@@ -6,7 +6,7 @@
 // one place: this service. Framework methods are thin delegators that read
 // through it.
 // [LAW:one-way-deps] The service depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 

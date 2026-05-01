@@ -1,13 +1,13 @@
 // [LAW:single-enforcer] TooltipService is the sole owner of the tooltip reveal
 // timer and the only writer of the active-tooltip view-model. The framework
 // orchestrator triggers reveal/hide/refresh through a narrow injected deps
-// interface — the service never reaches back into TextualFramework directly.
+// interface — the service never reaches back into AppRuntime directly.
 // [LAW:one-source-of-truth] The tooltipTimer handle lives in exactly one place:
 // this service. The public activeTooltip observable still lives on the
 // framework as the canonical view-model; the service mutates it via deps so
 // reveal pipeline logic and view-model writes are not duplicated.
 // [LAW:one-way-deps] The service depends only on a narrow TooltipServiceDeps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -16,10 +16,10 @@ import { autoObservable } from "./auto-observable.js";
 
 import { measureVisual, visualize, type Visual, type VisualInput } from "../content/index.js";
 import type { Widget } from "./widget.js";
-import type { ActiveTooltip, PointerLocation } from "./app-framework.js";
+import type { ActiveTooltip, PointerLocation } from "./_app-runtime.js";
 
 // [LAW:one-way-deps] Narrow capability interface the service requires from its
-// host (typically TextualFramework). The service never imports the host class.
+// host (typically AppRuntime). The service never imports the host class.
 export interface TooltipServiceDeps {
   setActiveTooltip(tooltip: ActiveTooltip | null): void;
   getActiveTooltip(): ActiveTooltip | null;

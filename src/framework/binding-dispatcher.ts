@@ -7,7 +7,7 @@
 // lastActionDispatchResult / bindingClashSignatures live in exactly one place:
 // this service.
 // [LAW:one-way-deps] The service depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -26,7 +26,7 @@ import type {
   WidgetActions,
   WidgetCheckAction,
 } from "./widget-registry.js";
-import { normalizeKeyName } from "./app-framework.js";
+import { normalizeKeyName } from "./_app-runtime.js";
 import type {
   ActionTargetDescriptor,
   ActiveBinding,
@@ -34,7 +34,7 @@ import type {
   BindingNamespace,
   KeymapInput,
   Screen,
-} from "./app-framework.js";
+} from "./_app-runtime.js";
 
 interface BindingChainEntry {
   namespace: BindingNamespace;
@@ -51,7 +51,7 @@ interface ActiveBindingSeed {
 type ActionDispatchResult = "handled" | "consumed" | "unhandled";
 
 // [LAW:one-way-deps] Narrow capability interface the dispatcher requires from
-// its host (typically TextualFramework). The dispatcher never imports the
+// its host (typically AppRuntime). The dispatcher never imports the
 // host class — only this shape.
 export interface BindingDispatcherDeps {
   // Default-action navigation hooks. setAppActions merges these with caller-

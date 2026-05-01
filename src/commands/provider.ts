@@ -3,7 +3,7 @@
 
 import type { App } from "../app/app.js";
 import type { VisualInput } from "../content/index.js";
-import type { Screen, SimpleCommand, SystemCommand } from "../framework/app-framework.js";
+import type { Screen, SimpleCommand, SystemCommand } from "../framework/_app-runtime.js";
 import type { Widget } from "../framework/widget.js";
 
 export interface CommandHitInit {

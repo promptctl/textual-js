@@ -2,7 +2,7 @@ import React from "react";
 
 import type { BindingDeclaration } from "../bindings/index.js";
 import {
-  TextualFramework,
+  AppRuntime,
   type ActionTargetDescriptor,
   type ActiveBinding,
   type ActiveTooltip,
@@ -22,7 +22,7 @@ import {
   type BindingNamespace,
   type RegisterWidgetTypeOptions,
   type WidgetTypeMetadata,
-} from "../framework/app-framework.js";
+} from "../framework/_app-runtime.js";
 import { DEFAULT_MODE, normalizePushArgs } from "../framework/screen-stack-service.js";
 import { ModeChanged, ScreenResume, ScreenSuspend } from "../events/events.js";
 import type { EnvironmentMap } from "../services/environment.js";
@@ -117,7 +117,7 @@ export class App<Result = unknown> {
   // remains for the small number of observables not yet owned by a service
   // and for back-compat exposure via the `framework` getter (used by tests
   // and the host adapter until 7w9.10 deletes the framework class).
-  private readonly _framework: TextualFramework;
+  private readonly _runtime: AppRuntime;
 
   // [LAW:single-enforcer] Service composition: App holds direct references
   // to each internal service so all runtime calls are App → service rather
@@ -143,20 +143,20 @@ export class App<Result = unknown> {
   // [LAW:one-source-of-truth] Click-chain time threshold is a public runtime
   // tunable. App re-exports the framework's value so consumers reference
   // App.CLICK_CHAIN_TIME_THRESHOLD without reaching into the private collaborator.
-  static readonly CLICK_CHAIN_TIME_THRESHOLD = TextualFramework.CLICK_CHAIN_TIME_THRESHOLD;
+  static readonly CLICK_CHAIN_TIME_THRESHOLD = AppRuntime.CLICK_CHAIN_TIME_THRESHOLD;
   private readonly appOptions: StoredAppOptions;
   private appTitle = "";
   private appSubTitle = "";
 
   constructor(options: AppOptions = {}) {
-    const framework = new TextualFramework({
+    const framework = new AppRuntime({
       env: options.env,
       driver: options.driver,
       cssPath: options.cssPath,
     });
     framework.setPublicApp(this);
 
-    this._framework = framework;
+    this._runtime = framework;
     this.signalRegistry = framework.signalRegistry;
     this.bindingDispatcher = framework.bindingDispatcher;
     this.commandService = framework.commandService;
@@ -190,14 +190,6 @@ export class App<Result = unknown> {
     };
     this.title = options.title ?? "";
     this.subTitle = options.subTitle ?? "";
-  }
-
-  // [LAW:one-source-of-truth] Back-compat exposure of the underlying
-  // framework for host adapter (TextualApp), test harness (run-test.tsx),
-  // and existing tests. New consumers should use App's public API; this
-  // getter exists only until 7w9.10 deletes the framework class.
-  get framework(): TextualFramework {
-    return this._framework;
   }
 
   protected compose(): React.ReactNode {
@@ -583,15 +575,15 @@ export class App<Result = unknown> {
   }
 
   get features() {
-    return this._framework.features;
+    return this._runtime.features;
   }
 
   get devtools() {
-    return this._framework.devtools;
+    return this._runtime.devtools;
   }
 
   get debug(): boolean {
-    return this._framework.debug;
+    return this._runtime.debug;
   }
 
   suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {
@@ -669,7 +661,7 @@ export class App<Result = unknown> {
   // [LAW:one-source-of-truth] focusedNodeId is read off the framework
   // observable for now; phase-7w9 follow-up will lift it into FocusEngine.
   get focusedNodeId(): string | null {
-    return this._framework.focusedNodeId;
+    return this._runtime.focusedNodeId;
   }
 
   focusWidget(nodeId: string | null): void {
@@ -691,17 +683,17 @@ export class App<Result = unknown> {
   // [LAW:one-source-of-truth] pointerShape lives on the framework observable;
   // phase-7w9 follow-up will lift it into PointerEngine.
   get pointerShape(): PointerShape {
-    return this._framework.pointerShape;
+    return this._runtime.pointerShape;
   }
 
   // [LAW:one-source-of-truth] activeTooltip lives on the framework observable;
   // phase-7w9 follow-up will lift it into TooltipService.
   get activeTooltip(): ActiveTooltip | null {
-    return this._framework.activeTooltip;
+    return this._runtime.activeTooltip;
   }
 
   set activeTooltip(value: ActiveTooltip | null) {
-    this._framework.activeTooltip = value;
+    this._runtime.activeTooltip = value;
   }
 
   get tooltipDelay(): number {
@@ -913,19 +905,19 @@ export class App<Result = unknown> {
   }
 
   recalculateStyles(): void {
-    this._framework.recalculateStyles();
+    this._runtime.recalculateStyles();
   }
 
   registerWidget(widget: Widget): void {
-    this._framework.registerWidget(widget);
+    this._runtime.registerWidget(widget);
   }
 
   notifyWillUnmount(widget: Widget): void {
-    this._framework.notifyWillUnmount(widget);
+    this._runtime.notifyWillUnmount(widget);
   }
 
   unregisterWidget(nodeId: string): void {
-    this._framework.unregisterWidget(nodeId);
+    this._runtime.unregisterWidget(nodeId);
   }
 
   resolveWidgetTypeName(typeConstraint: string | Function): string {
@@ -945,11 +937,11 @@ export class App<Result = unknown> {
   }
 
   parseSelectors(selectorText: string) {
-    return this._framework.parseSelectors(selectorText);
+    return this._runtime.parseSelectors(selectorText);
   }
 
   matchesSelector(widget: Widget, selector: unknown): boolean {
-    return this._framework.matchesSelector(widget, selector as never);
+    return this._runtime.matchesSelector(widget, selector as never);
   }
 
   clearFocusWithin(container: Widget): void {
@@ -1095,7 +1087,7 @@ export class App<Result = unknown> {
   }
 
   getActiveStylesheetsFor(typeName: string) {
-    return this._framework.getActiveStylesheetsFor(typeName);
+    return this._runtime.getActiveStylesheetsFor(typeName);
   }
 
   // Snake-case theme aliases for Python-Textual API parity (mirrors framework's

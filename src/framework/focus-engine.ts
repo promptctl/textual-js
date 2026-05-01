@@ -4,21 +4,21 @@
 // isAppBlurred). The framework orchestrator triggers cross-cutting effects
 // (style recalc, bindings notification, focus/blur message enqueue) through a
 // narrow injected deps interface — the engine never reaches back into
-// TextualFramework directly.
+// AppRuntime directly.
 // [LAW:one-source-of-truth] focusTrapNodeId / blurredFocusAddress /
 // focusChangedWhileBlurred / isAppBlurred live in exactly one place: this
 // engine. The authoritative focusedNodeId remains on the framework as the
 // public observable; the engine reads/writes it through deps callbacks so
 // there is still exactly one cell holding it.
 // [LAW:one-way-deps] The engine depends only on a narrow FocusEngineDeps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
 import { autoObservable } from "./auto-observable.js";
 
 import type { Widget } from "./widget.js";
-import type { Screen } from "./app-framework.js";
+import type { Screen } from "./_app-runtime.js";
 
 export interface FocusAddress {
   path: number[];
@@ -27,7 +27,7 @@ export interface FocusAddress {
 }
 
 // [LAW:one-way-deps] Narrow capability interface the engine requires from its
-// host (typically TextualFramework). The engine never imports the host class.
+// host (typically AppRuntime). The engine never imports the host class.
 export interface FocusEngineDeps {
   getFocusedNodeId(): string | null;
   setFocusedNodeId(nodeId: string | null): void;

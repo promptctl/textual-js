@@ -4,7 +4,7 @@ import type { Widget } from "../framework/widget.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
 
 // [LAW:one-way-deps] Narrow capability interface the matcher requires from its
-// host (typically TextualFramework). The matcher never imports the host class.
+// host (typically AppRuntime). The matcher never imports the host class.
 // Host implements this structurally; selectors.ts depends only on this shape.
 export interface SelectorMatchHost {
   getPreviousSibling(nodeId: string): Widget | undefined;

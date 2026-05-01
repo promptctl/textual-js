@@ -5,7 +5,7 @@
 // [LAW:one-source-of-truth] Provider composition (app providers + active
 // screen providers) is resolved in exactly one place: this service.
 // [LAW:one-way-deps] The service depends only on a narrow injected deps
-// interface; it does NOT import TextualFramework.
+// interface; it does NOT import AppRuntime.
 
 import "./mobx-config.js";
 
@@ -30,10 +30,10 @@ import type {
   SimpleCommand,
   SystemCommand,
   SystemCommandResolver,
-} from "./app-framework.js";
+} from "./_app-runtime.js";
 
 // [LAW:one-way-deps] Narrow capability interface the service requires from
-// its host (typically TextualFramework). The service never imports the host
+// its host (typically AppRuntime). The service never imports the host
 // class — only this shape.
 export interface CommandServiceDeps {
   getActiveScreen(): Screen | null;

@@ -64,7 +64,7 @@ import {
   type KeymapInput,
   type ScreenDescriptor,
   type SystemCommandResolver,
-} from "../framework/app-framework.js";
+} from "../framework/_app-runtime.js";
 import { TextualProvider, useTextual } from "../framework/context.js";
 import { Size } from "../geometry/index.js";
 import type { BindingDeclaration } from "../bindings/index.js";

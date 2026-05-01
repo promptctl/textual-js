@@ -14,7 +14,7 @@ import {
   useStyles,
   useWidget,
 } from "../framework/context.js";
-import type { ActiveBinding } from "../framework/app-framework.js";
+import type { ActiveBinding } from "../framework/_app-runtime.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
 const FOOTER_BACKGROUND = "#212B32";
