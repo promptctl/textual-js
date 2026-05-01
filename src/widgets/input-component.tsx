@@ -6,7 +6,7 @@ import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { Content, renderContent } from "../content/index.js";
-import { Key } from "../events/index.js";
+import { Key, Paste } from "../events/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { InputValidationController, type ValidateOn, type ValidationResult, type Validator } from "../validation/index.js";
 import { SuggestionController, type Suggester } from "../suggestions/index.js";
@@ -108,6 +108,9 @@ export const Input = observer(function Input({
     handlers: {
       onKey: (message) => {
         handleInputKey(message as Key);
+      },
+      onPaste: (message) => {
+        handleInputPaste(message as Paste);
       },
       onBlur: () => {
         applyValidation("blur");
@@ -233,6 +236,16 @@ export const Input = observer(function Input({
 
     if (message.input.length > 0 && model.insert(message.input)) {
       postChanged();
+    }
+  }
+
+  function handleInputPaste(message: Paste): void {
+    const model = modelRef.current!;
+    message.stop();
+
+    if (message.text.length > 0 && model.insert(message.text)) {
+      postChanged();
+      forceRender();
     }
   }
 

@@ -24,7 +24,7 @@ import {
   type WidgetTypeMetadata,
 } from "../framework/_app-runtime.js";
 import { DEFAULT_MODE, normalizePushArgs } from "../framework/screen-stack-service.js";
-import { ModeChanged, ScreenResume, ScreenSuspend } from "../events/events.js";
+import { ModeChanged, Paste, ScreenResume, ScreenSuspend } from "../events/events.js";
 import type { EnvironmentMap } from "../services/environment.js";
 import type { WidgetActions, WidgetRegistry } from "../framework/widget-registry.js";
 import type { Widget } from "../framework/widget.js";
@@ -721,6 +721,13 @@ export class App<Result = unknown> {
 
   postKey(input: string, meta: { ctrl?: boolean; shift?: boolean; meta?: boolean; paste?: boolean } = {}): void {
     this.messagePump.postKey(input, meta);
+  }
+
+  // [LAW:single-enforcer] Paste arrives from the Ink bridge as one batch and is
+  // delivered to the focused widget as a single Paste message — bindings and
+  // character-insertion paths never see the multi-character sequence.
+  postPaste(text: string): void {
+    this.messagePump.postToFocused(new Paste(text));
   }
 
   subscribeToMessages(subscriber: MessageSubscriber): () => void {

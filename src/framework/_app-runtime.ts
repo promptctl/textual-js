@@ -1376,6 +1376,13 @@ export class AppRuntime {
     this.pump.postKey(input, meta);
   }
 
+  // [LAW:single-enforcer] Paste arrives from the Ink bridge as one batch and is
+  // delivered to the focused widget as a single Paste message — bindings and
+  // character-insertion paths never see the multi-character sequence.
+  postPaste(text: string): void {
+    this.postToFocused(new Paste(text));
+  }
+
   postClick(x: number, y: number, chain = 1): void {
     this.postToFocused(new Click(x, y, chain));
   }

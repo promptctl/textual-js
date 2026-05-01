@@ -398,15 +398,34 @@ function resolveHostKey(rawInput: Buffer | string): HostKey {
   const baseInput = keypress.ctrl ? keypress.name : keypress.sequence;
   const input = NON_CHARACTER_KEY_NAMES.has(keypress.name) ? namedInput : stripLeadingMetaEscape(baseInput);
 
-  // [LAW:dataflow-not-control-flow] Modifier composition receives one HostKey
-  // shape for printable characters and named keys; empty parsed names naturally
-  // preserve the raw sequence for the later paste-handling ticket.
   return {
     input,
     ctrl: keypress.ctrl,
     shift: keypress.shift || isShiftedSingleCharacter(input),
     meta: keypress.meta || keypress.option,
   };
+}
+
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
+
+// [LAW:single-enforcer] Paste detection lives at one boundary: an Ink input
+// event that is multi-character with no recognized escape sequence is paste,
+// and bracketed-paste markers are stripped so the same path handles both
+// terminals that enable bracketed-paste mode and those that do not.
+function extractPasteText(rawInput: Buffer | string, parsedName: string): string | null {
+  const source = normalizeRawKeypressInput(rawInput);
+
+  if (source.startsWith(BRACKETED_PASTE_START)) {
+    const end = source.endsWith(BRACKETED_PASTE_END) ? source.length - BRACKETED_PASTE_END.length : source.length;
+    return source.slice(BRACKETED_PASTE_START.length, end);
+  }
+
+  if (source.length > 1 && parsedName === "") {
+    return source;
+  }
+
+  return null;
 }
 
 function stripLeadingMetaEscape(input: string): string {
@@ -438,6 +457,19 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
 
   useEffect(() => {
     const handleData = (data: Buffer | string): void => {
+      // [LAW:dataflow-not-control-flow] One pipeline: parse the raw input once,
+      // then dispatch as Paste when the parser yields no key name for a
+      // multi-character batch, otherwise dispatch as Key. Both paths run
+      // unconditionally — only the value of `pasteText` selects which message
+      // type the focused widget receives.
+      const parsed = parseTerminalKeypress(data);
+      const pasteText = extractPasteText(data, parsed.name);
+
+      if (pasteText !== null) {
+        app.postPaste(pasteText);
+        return;
+      }
+
       const key = resolveHostKey(data);
 
       if (shouldDispatchHostKey(key, internal_exitOnCtrlC)) {
