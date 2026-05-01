@@ -220,7 +220,7 @@ describe("command palette provider composition", () => {
     await session.app.openCommandPalette();
 
     expect(contexts[0]?.app).toBe(session.app);
-    expect(contexts[0]?.screen).toBe(session.app.screenStack[0]);
+    expect(contexts[0]?.screen).toBe(session.app.getScreenStack()[0]);
     expect(contexts[0]?.focused?.typeName).toBe("Focused");
 
     session.unmount();

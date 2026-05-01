@@ -19,18 +19,36 @@ import {
   type SystemCommand,
   type NotifyOptions,
 } from "../framework/app-framework.js";
+import { DEFAULT_MODE, normalizePushArgs } from "../framework/screen-stack-service.js";
+import { ModeChanged, ScreenResume, ScreenSuspend } from "../events/events.js";
 import type { EnvironmentMap } from "../services/environment.js";
-import type { WidgetActions } from "../framework/widget-registry.js";
+import type { WidgetActions, WidgetRegistry } from "../framework/widget-registry.js";
 import type { Widget } from "../framework/widget.js";
 import { CommandPalette, type CommandPaletteOptions, type ProviderConstructor } from "../commands/index.js";
 import type { Message } from "../events/message.js";
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationContent, type NotificationSeverity } from "../services/notifications.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
-import { Worker, WorkerManager, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
+import { Worker, WorkerManager, getCurrentWorker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import { NoMatches } from "../framework/dom-query.js";
 import { runTestRoot, type RunTestOptions, type TestSession } from "../testing/run-test.js";
+import { matchesSelector, parseSelectorList } from "../styles/index.js";
 import { TextualApp } from "./textual-app.js";
+import type { SignalRegistry } from "../framework/signal-registry.js";
+import type { BindingDispatcher } from "../framework/binding-dispatcher.js";
+import type { CommandService } from "../framework/command-service.js";
+import type { ThemeBroker } from "../framework/theme-broker.js";
+import type { NotificationService } from "../framework/notification-service.js";
+import type { AppLifecycleOrchestrator } from "../framework/app-lifecycle.js";
+import type { StyleEngine } from "../framework/style-engine.js";
+import type { FocusEngine } from "../framework/focus-engine.js";
+import type { PointerEngine } from "../framework/pointer-engine.js";
+import type { AsyncResourceManager } from "../framework/async-resource-manager.js";
+import type { LayoutEngine } from "../framework/layout-engine.js";
+import type { TooltipService } from "../framework/tooltip-service.js";
+import type { MessagePump } from "../framework/message-pump.js";
+import type { ScreenStackService } from "../framework/screen-stack-service.js";
+import type { WidgetTypeRegistry } from "../framework/widget-type-registry.js";
 
 export interface AppOptions {
   title?: unknown;
@@ -76,18 +94,45 @@ interface StoredAppOptions {
 
 // [LAW:one-source-of-truth] App is the runtime root. Every runtime concept —
 // lifecycle, widget tree, screen stack, focus, pointer routing, message
-// dispatch, async resources, styles, notifications, themes — is reached
-// through App. The internal framework field is a private collaborator owned
-// by App; consumers must not bypass App by reading `app.framework.*`.
+// dispatch, async resources, styles, notifications, themes — is composed by
+// App from internal services. The internal `_framework` collaborator wires
+// them up and is held privately for the few non-service-owned observables
+// (focusedNodeId, activeTooltip, pointerShape) and back-compat surfaces;
+// consumers must not bypass App by reading `app.framework.*` from new code.
 // [LAW:single-enforcer] App is the single boundary for lifecycle, dispatch,
 // focus, async ownership, and notification/theme settings. Cross-cutting
 // invariants are enforced at App's methods, not duplicated at consumer
 // callsites.
 export class App<Result = unknown> {
   // [LAW:one-source-of-truth] App constructs and owns its framework; callers
-  // cannot inject a foreign framework. This collapses the former dual
-  // construction path where either App or TextualFramework could root the tree.
-  readonly framework: TextualFramework;
+  // cannot inject a foreign framework. The framework's services are captured
+  // as private fields below; app.tsx reaches into services directly rather
+  // than routing through the framework facade. The `_framework` reference
+  // remains for the small number of observables not yet owned by a service
+  // and for back-compat exposure via the `framework` getter (used by tests
+  // and the host adapter until 7w9.10 deletes the framework class).
+  private readonly _framework: TextualFramework;
+
+  // [LAW:single-enforcer] Service composition: App holds direct references
+  // to each internal service so all runtime calls are App → service rather
+  // than App → framework → service.
+  private readonly signalRegistry: SignalRegistry;
+  private readonly bindingDispatcher: BindingDispatcher;
+  private readonly commandService: CommandService;
+  private readonly themeBroker: ThemeBroker;
+  private readonly notificationService: NotificationService;
+  private readonly lifecycle: AppLifecycleOrchestrator;
+  private readonly styleEngine: StyleEngine;
+  private readonly focusEngine: FocusEngine;
+  private readonly pointerEngine: PointerEngine;
+  private readonly asyncResources: AsyncResourceManager;
+  private readonly layoutEngine: LayoutEngine;
+  private readonly tooltipService: TooltipService;
+  private readonly messagePump: MessagePump;
+  private readonly screenStack: ScreenStackService;
+  private readonly widgetTypeRegistry: WidgetTypeRegistry;
+  private readonly registry: WidgetRegistry;
+  readonly workers: WorkerManager;
 
   // [LAW:one-source-of-truth] Click-chain time threshold is a public runtime
   // tunable. App re-exports the framework's value so consumers reference
@@ -98,12 +143,32 @@ export class App<Result = unknown> {
   private appSubTitle = "";
 
   constructor(options: AppOptions = {}) {
-    this.framework = new TextualFramework({
+    const framework = new TextualFramework({
       env: options.env,
       driver: options.driver,
       cssPath: options.cssPath,
     });
-    this.framework.setPublicApp(this);
+    framework.setPublicApp(this);
+
+    this._framework = framework;
+    this.signalRegistry = framework.signalRegistry;
+    this.bindingDispatcher = framework.bindingDispatcher;
+    this.commandService = framework.commandService;
+    this.themeBroker = framework.themeBroker;
+    this.notificationService = framework.notificationService;
+    this.lifecycle = framework.lifecycle;
+    this.styleEngine = framework.styleEngine;
+    this.focusEngine = framework.focusEngine;
+    this.pointerEngine = framework.pointerEngine;
+    this.asyncResources = framework.asyncResources;
+    this.layoutEngine = framework.layoutEngine;
+    this.tooltipService = framework.tooltipService;
+    this.messagePump = framework.pump;
+    this.screenStack = framework.screenStack;
+    this.widgetTypeRegistry = framework.widgetTypeRegistry;
+    this.registry = framework.registry;
+    this.workers = framework.workers;
+
     this.appOptions = {
       css: options.css,
       cssPath: options.cssPath,
@@ -121,6 +186,14 @@ export class App<Result = unknown> {
     this.subTitle = options.subTitle ?? "";
   }
 
+  // [LAW:one-source-of-truth] Back-compat exposure of the underlying
+  // framework for host adapter (TextualApp), test harness (run-test.tsx),
+  // and existing tests. New consumers should use App's public API; this
+  // getter exists only until 7w9.10 deletes the framework class.
+  get framework(): TextualFramework {
+    return this._framework;
+  }
+
   protected compose(): React.ReactNode {
     return null;
   }
@@ -129,32 +202,44 @@ export class App<Result = unknown> {
     return [];
   }
 
-  get screenStack(): Screen[] {
-    return this.framework.getScreenStack();
+  get screenStackVersion(): number {
+    return this.screenStack.screenStackVersion;
   }
 
   get screen(): Screen | null {
-    return this.framework.activeScreen;
+    return this.screenStack.activeScreen;
   }
 
   getDefaultScreen(): Screen | null {
-    return this.framework.getScreenStack()[0] ?? null;
+    return this.screenStack.getScreenStack()[0] ?? null;
+  }
+
+  getScreenStack(): Screen[] {
+    return this.screenStack.getScreenStack();
   }
 
   installScreen(screen: ScreenDescriptor | (() => React.ReactElement), name: string): void {
-    this.framework.installScreen(name, normalizeScreenFactory(screen));
+    this.screenStack.installScreen(name, normalizeScreenFactory(screen));
+  }
+
+  // [LAW:locality-or-seam] Host-shaped install entry: takes (name, factory)
+  // to match the framework signature consumers like TextualApp use to
+  // populate the SCREENS map. App's public installScreen accepts (screen,
+  // name) for Python-Textual API parity.
+  installScreenFactory(name: string, factory: () => React.ReactElement): void {
+    this.screenStack.installScreen(name, factory);
   }
 
   uninstallScreen(name: string): void {
-    this.framework.uninstallScreen(name);
+    this.screenStack.uninstallScreen(name);
   }
 
   getScreen(name: string, expectedType?: React.ComponentType<Record<string, unknown>>): React.ReactElement {
-    return expectedType === undefined ? this.framework.getScreen(name) : this.framework.getScreen(name, expectedType);
+    return expectedType === undefined ? this.screenStack.getScreen(name) : this.screenStack.getScreen(name, expectedType);
   }
 
   getChildById(id: string) {
-    const child = this.framework.registry.getChildren(null).find((widget) => widget.id === id);
+    const child = this.registry.getChildren(null).find((widget) => widget.id === id);
 
     if (child === undefined) {
       throw new NoMatches(`No child with id "${id}"`);
@@ -164,7 +249,7 @@ export class App<Result = unknown> {
   }
 
   getWidgetById(id: string) {
-    const widget = this.framework.findWidgets(`#${id}`)[0];
+    const widget = this.findWidgets(`#${id}`)[0];
 
     if (widget === undefined) {
       throw new NoMatches(`No widget with id "${id}"`);
@@ -181,40 +266,164 @@ export class App<Result = unknown> {
     if (typeof callbackOrOptions !== "function" && callbackOrOptions?.wait_for_dismiss === true) {
       const { wait_for_dismiss, ...options } = callbackOrOptions;
       void wait_for_dismiss;
-      return this.framework.pushScreenWait(descriptor, options);
+      return this.pushScreenWait(descriptor, options);
     }
 
-    return this.framework.pushScreen(descriptor, callbackOrOptions as ((result: unknown) => void) | ScreenOptions | undefined, extraOptions);
+    const { callback, options } = normalizePushArgs(callbackOrOptions as ((result: unknown) => void) | ScreenOptions | undefined, extraOptions);
+    const element = this.screenStack.resolveScreenElement(descriptor);
+    const entry = this.makeScreenEntry(element, { ...options, callback });
+
+    this.clearPointerState();
+    this.suspendCurrentScreen();
+
+    this.screenStack.pushEntry(entry);
+    this.styleEngine.refreshCssWatchers();
+
+    this.resumeActiveScreen();
+    this.signalRegistry.signals.screen_change_signal.publish(entry);
+    this.bindingDispatcher.notifyBindingsUpdated();
+
+    return entry;
   }
 
   pushScreenWait(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Promise<unknown> {
-    return this.framework.pushScreenWait(descriptor, options);
+    // [LAW:single-enforcer] pushScreenWait is only meaningful inside a worker;
+    // assert the caller's context before queueing the screen so the failure
+    // surfaces at the call site, not after a screen mount has already occurred.
+    getCurrentWorker();
+
+    return new Promise((resolve) => {
+      const entry = this.pushScreen(descriptor, options) as Screen;
+      entry.waiters.push(resolve);
+    });
   }
 
   popScreen(result?: unknown): Screen | null {
-    return this.framework.popScreen(result);
+    this.clearPointerState();
+    this.suspendCurrentScreen();
+
+    const popped = this.screenStack.popEntry();
+    this.styleEngine.refreshCssWatchers();
+
+    this.screenStack.resolveScreenResult(popped, result);
+
+    this.resumeActiveScreen();
+    this.signalRegistry.signals.screen_change_signal.publish(this.screenStack.activeScreen);
+    this.bindingDispatcher.notifyBindingsUpdated();
+
+    return popped;
   }
 
   switchScreen(descriptor: ScreenDescriptor, options: ScreenOptions = {}): Screen {
-    return this.framework.switchScreen(descriptor, options);
+    if (this.screenStack.activeStackIsEmpty()) {
+      return this.pushScreen(descriptor, options) as Screen;
+    }
+
+    const element = this.screenStack.resolveScreenElement(descriptor);
+    const current = this.screenStack.topOfActiveStack();
+
+    if (current !== undefined && current.element === element) {
+      return current;
+    }
+
+    this.clearPointerState();
+    this.suspendCurrentScreen();
+
+    const entry = this.makeScreenEntry(element, options);
+    this.screenStack.clearScreenWaiters(current);
+    this.screenStack.replaceTop(entry);
+    this.styleEngine.refreshCssWatchers();
+
+    this.resumeActiveScreen();
+    this.signalRegistry.signals.screen_change_signal.publish(entry);
+    this.bindingDispatcher.notifyBindingsUpdated();
+
+    return entry;
   }
 
   switchMode(name: string): void {
-    this.framework.switchMode(name);
+    if (name === this.screenStack.activeMode) {
+      return;
+    }
+
+    this.screenStack.ensureKnownMode(name);
+
+    this.clearPointerState();
+    this.suspendCurrentScreen();
+
+    if (name !== DEFAULT_MODE && this.screenStack.modeStackLength(name) === 0) {
+      const factory = this.screenStack.modeFactory(name);
+
+      if (factory !== undefined) {
+        // [LAW:one-source-of-truth] The mode's factory is the sole producer of
+        // its base screen; the mode name is not doubled up as the screen name.
+        const entry = this.makeScreenEntry(factory(), {});
+        this.screenStack.setModeStack(name, [entry]);
+      }
+    }
+
+    this.screenStack.setActiveMode(name);
+    this.styleEngine.refreshCssWatchers();
+    this.signalRegistry.signals.mode_change_signal.publish(name);
+    this.messagePump.emitBroadcast(new ModeChanged(name));
+
+    this.resumeActiveScreen();
+    this.signalRegistry.signals.screen_change_signal.publish(this.screenStack.activeScreen);
+    this.bindingDispatcher.notifyBindingsUpdated();
   }
 
   addMode(name: string, factory: () => React.ReactElement): void {
-    this.framework.addMode(name, factory);
+    this.screenStack.addMode(name, factory);
   }
 
   removeMode(name: string): void {
-    this.framework.removeMode(name);
+    this.screenStack.removeMode(name);
+  }
+
+  // [LAW:single-enforcer] Screen-entry construction goes through the
+  // ScreenStackService factory so the dismiss action is wired with App's
+  // popScreen — a single point of authority for screen lifecycle.
+  private makeScreenEntry(
+    element: React.ReactElement,
+    options: ScreenOptions & { callback?: (result: unknown) => void },
+  ): Screen {
+    return this.screenStack.createScreen(element, options, (result) => {
+      this.popScreen(result);
+    });
+  }
+
+  private clearPointerState(): void {
+    this.pointerEngine.clearPointerState();
+    this.tooltipService.hideTooltip();
+  }
+
+  private suspendCurrentScreen(): void {
+    const screen = this.screenStack.activeScreen;
+
+    if (screen === null) {
+      return;
+    }
+
+    this.focusEngine.saveScreenFocusSnapshot(screen);
+    this.messagePump.emitBroadcast(new ScreenSuspend(screen.name));
+  }
+
+  private resumeActiveScreen(): void {
+    const screen = this.screenStack.activeScreen;
+
+    if (screen === null) {
+      return;
+    }
+
+    this.messagePump.emitBroadcast(new ScreenResume(screen.name));
+    this.focusEngine.scheduleActiveScreenFocusResolution(true);
   }
 
   render(): React.ReactElement {
     return (
       <TextualApp
-        framework={this.framework}
+        app={this}
+        framework={this._framework}
         css={this.appOptions.css}
         cssPath={this.appOptions.cssPath}
         stylesheet={this.appOptions.stylesheet}
@@ -252,27 +461,23 @@ export class App<Result = unknown> {
   }
 
   get returnValue(): Result | undefined {
-    return this.framework.exitResult as Result | undefined;
+    return this.lifecycle.exitResult as Result | undefined;
   }
 
   exit(result?: Result): Result | undefined {
-    return this.framework.exit(result) as Result | undefined;
+    return this.lifecycle.exit(result) as Result | undefined;
   }
 
   get batchUpdateCount(): number {
-    return this.framework.batchUpdateCount;
+    return this.lifecycle.batchUpdateCount;
   }
 
   batchUpdate<T>(callback: () => T): T {
-    return this.framework.batchUpdate(callback);
+    return this.lifecycle.batchUpdate(callback);
   }
 
   runWorker<TResult>(work: WorkerCallable<TResult>, options: WorkerOptions = {}): Worker<TResult> {
-    return this.framework.runAppWorker(work, options);
-  }
-
-  get workers(): WorkerManager {
-    return this.framework.workers;
+    return this.asyncResources.runAppWorker(work, options);
   }
 
   notify(
@@ -282,269 +487,362 @@ export class App<Result = unknown> {
     title?: NotificationContent,
     markup?: boolean,
   ): Notification {
-    return this.framework.notify(message, severityOrOptions, timeout, title, markup);
+    return this.notificationService.notify(message, severityOrOptions, timeout, title, markup);
   }
 
   clearNotifications(): void {
-    this.framework.clearNotifications();
+    this.notificationService.clearNotifications();
   }
 
   _unnotify(notification: Notification): void {
-    this.framework._unnotify(notification);
+    this.notificationService.unnotify(notification);
   }
 
   get theme(): string {
-    return this.framework.theme;
+    return this.themeBroker.theme;
   }
 
   set theme(name: string) {
-    this.framework.setTheme(name);
+    this.themeBroker.setTheme(name);
+  }
+
+  setTheme(name: string): ActiveTheme {
+    return this.themeBroker.setTheme(name);
   }
 
   get dark(): boolean {
-    return this.framework.dark;
+    return this.themeBroker.dark;
   }
 
   set dark(value: boolean) {
-    this.framework.setDarkMode(value);
+    this.themeBroker.setDarkMode(value);
   }
 
   get ansiTheme(): AnsiTheme {
-    return this.framework.ansiTheme;
+    return this.themeBroker.ansiTheme;
   }
 
   get ansiThemeDark(): AnsiTheme {
-    return this.framework.ansiThemeDark;
+    return this.themeBroker.ansiThemeDark;
   }
 
   set ansiThemeDark(theme: AnsiTheme) {
-    this.framework.ansiThemeDark = theme;
+    this.themeBroker.setAnsiThemeDark(theme);
   }
 
   get ansiThemeLight(): AnsiTheme {
-    return this.framework.ansiThemeLight;
+    return this.themeBroker.ansiThemeLight;
   }
 
   set ansiThemeLight(theme: AnsiTheme) {
-    this.framework.ansiThemeLight = theme;
+    this.themeBroker.setAnsiThemeLight(theme);
   }
 
   get app_suspend_signal() {
-    return this.framework.signals.app_suspend_signal;
+    return this.signalRegistry.signals.app_suspend_signal;
   }
 
   get app_resume_signal() {
-    return this.framework.signals.app_resume_signal;
+    return this.signalRegistry.signals.app_resume_signal;
   }
 
   get theme_changed_signal() {
-    return this.framework.signals.theme_changed_signal;
+    return this.signalRegistry.signals.theme_changed_signal;
   }
 
   get mode_change_signal() {
-    return this.framework.signals.mode_change_signal;
+    return this.signalRegistry.signals.mode_change_signal;
   }
 
   get screen_change_signal() {
-    return this.framework.signals.screen_change_signal;
+    return this.signalRegistry.signals.screen_change_signal;
   }
 
   get features() {
-    return this.framework.features;
+    return this._framework.features;
   }
 
   get devtools() {
-    return this.framework.devtools;
+    return this._framework.devtools;
   }
 
   get debug(): boolean {
-    return this.framework.debug;
+    return this._framework.debug;
   }
 
   suspend<TResult>(callback: () => Promise<TResult> | TResult): Promise<TResult> {
-    return this.framework.suspend(callback);
+    return this.lifecycle.suspend(callback);
   }
 
   searchCommands(commands: readonly SimpleCommand[]): Promise<CommandPalette> {
-    return this.framework.searchCommands(commands);
+    return this.commandService.searchCommands(commands);
   }
 
   // [LAW:single-enforcer] App is the boundary for lifecycle: startup,
   // shutdown, isRunning, idle observation, and refresh accounting.
   startup(): void {
-    this.framework.startup();
+    this.lifecycle.startup();
   }
 
   shutdown(): void {
-    this.framework.shutdown();
+    this.lifecycle.shutdown();
   }
 
   get isRunning(): boolean {
-    return this.framework.isRunning;
+    return this.lifecycle.isRunning;
   }
 
   whenIdle(): Promise<void> {
-    return this.framework.whenIdle();
+    return this.messagePump.whenIdle();
   }
 
   get displayCount(): number {
-    return this.framework.displayCount;
+    return this.lifecycle.displayCount;
   }
 
-  findWidgets(selector: string): Widget[] {
-    return this.framework.findWidgets(selector);
+  // [LAW:single-enforcer] App owns selector-based widget queries. Two
+  // shapes share one entry: a literal `#id` short-circuits to the registry
+  // index; everything else parses and matches against the registered
+  // widget list using the registry as the structural-match host.
+  findWidgets(selectorText: string): Widget[] {
+    const trimmedSelector = selectorText.trim();
+
+    if (trimmedSelector.startsWith("#") && !trimmedSelector.includes(" ")) {
+      const match = this.registry.getByCssId(trimmedSelector.slice(1));
+      return match === undefined ? [] : [match];
+    }
+
+    const selectors = parseSelectorList(trimmedSelector);
+
+    return this.registry.list().filter((widget) =>
+      selectors.some((selector) => matchesSelector(this.registry, widget, selector)),
+    );
   }
 
   getByCssId(cssId: string): Widget | undefined {
-    return this.framework.registry.getByCssId(cssId);
+    return this.registry.getByCssId(cssId);
   }
 
   isScreenInstalled(name: string): boolean {
-    return this.framework.isScreenInstalled(name);
+    return this.screenStack.isScreenInstalled(name);
   }
 
   get screenStackDepth(): number {
-    return this.framework.screenStackDepth;
+    return this.screenStack.screenStackDepth;
   }
 
   get activeMode(): string {
-    return this.framework.activeMode;
+    return this.screenStack.activeMode;
   }
 
   get terminalSize(): Size {
-    return this.framework.terminalSize;
+    return this.lifecycle.terminalSize;
   }
 
   // [LAW:single-enforcer] App is the boundary for focus routing. Focus
   // chain construction, navigation, and current-focus inspection all enter
   // through App so keyboard, pointer, and tests share one answer.
+  // [LAW:one-source-of-truth] focusedNodeId is read off the framework
+  // observable for now; phase-7w9 follow-up will lift it into FocusEngine.
   get focusedNodeId(): string | null {
-    return this.framework.focusedNodeId;
+    return this._framework.focusedNodeId;
   }
 
   focusWidget(nodeId: string | null): void {
-    this.framework.focusWidget(nodeId);
+    this.focusEngine.focusWidget(nodeId);
   }
 
   focusNext(selector?: string | Function): Widget | null {
-    return this.framework.focusNext(selector);
+    return this.focusEngine.focusNext(selector);
   }
 
   focusPrevious(selector?: string | Function): Widget | null {
-    return this.framework.focusPrevious(selector);
+    return this.focusEngine.focusPrevious(selector);
   }
 
   getFocusChain(): Widget[] {
-    return this.framework.getFocusChain();
+    return this.focusEngine.getFocusChain();
   }
 
+  // [LAW:one-source-of-truth] pointerShape lives on the framework observable;
+  // phase-7w9 follow-up will lift it into PointerEngine.
   get pointerShape(): PointerShape {
-    return this.framework.pointerShape;
+    return this._framework.pointerShape;
   }
 
+  // [LAW:one-source-of-truth] activeTooltip lives on the framework observable;
+  // phase-7w9 follow-up will lift it into TooltipService.
   get activeTooltip(): ActiveTooltip | null {
-    return this.framework.activeTooltip;
+    return this._framework.activeTooltip;
   }
 
   get tooltipDelay(): number {
-    return this.framework.tooltipDelay;
+    return this.themeBroker.tooltipDelay;
   }
 
   set tooltipDelay(delayMs: number | null | undefined) {
-    this.framework.setTooltipDelay(delayMs);
+    this.themeBroker.setTooltipDelay(delayMs);
+  }
+
+  setTooltipDelay(delayMs: number | null | undefined): void {
+    this.themeBroker.setTooltipDelay(delayMs);
   }
 
   // [LAW:single-enforcer] App is the boundary for message and key dispatch.
   // postMessage / postKey / runAction all flow through App so subscribers,
   // bindings, and instrumentation observe one ordered transcript.
   get messageQueueSize(): number {
-    return this.framework.messageQueueSize;
+    return this.messagePump.messageQueueSize;
   }
 
   postMessage(targetId: string, message: Message): boolean {
-    return this.framework.postMessage(targetId, message);
+    return this.messagePump.postMessage(targetId, message);
   }
 
   postKey(input: string, meta: { ctrl?: boolean; shift?: boolean; meta?: boolean; paste?: boolean } = {}): void {
-    this.framework.postKey(input, meta);
+    this.messagePump.postKey(input, meta);
   }
 
   subscribeToMessages(subscriber: MessageSubscriber): () => void {
-    return this.framework.subscribeToMessages(subscriber);
+    return this.messagePump.subscribeToMessages(subscriber);
   }
 
   runAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean {
-    return this.framework.runAction(action, defaultTarget);
+    return this.bindingDispatcher.runAction(action, defaultTarget);
   }
 
   checkAction(action: string, defaultTarget?: ActionTargetDescriptor): boolean | null {
-    return this.framework.checkAction(action, defaultTarget);
+    return this.bindingDispatcher.checkAction(action, defaultTarget);
   }
 
   setKeymap(next: KeymapInput): void {
-    this.framework.setKeymap(next);
+    this.bindingDispatcher.setKeymap(next);
   }
 
   updateKeymap(patch: KeymapInput): void {
-    this.framework.updateKeymap(patch);
+    this.bindingDispatcher.updateKeymap(patch);
+  }
+
+  setAppBindings(declarations: Iterable<BindingDeclaration>): void {
+    this.bindingDispatcher.setAppBindings(declarations);
+  }
+
+  setAppActions(actions: WidgetActions | undefined): void {
+    this.bindingDispatcher.setAppActions(actions);
+  }
+
+  setAppCommandProviders(providers: Iterable<ProviderConstructor> | null | undefined): void {
+    this.commandService.setAppCommandProviders(providers);
+  }
+
+  setSystemCommandResolver(resolver: ((screen: Screen | null) => Iterable<SystemCommand>) | undefined): void {
+    this.commandService.setSystemCommandResolver(resolver);
+  }
+
+  setAppAutoFocus(selector: string | null | undefined): void {
+    this.themeBroker.setAppAutoFocus(selector);
+  }
+
+  setShowTooltips(enabled: boolean | null | undefined): void {
+    this.themeBroker.setShowTooltips(enabled);
+  }
+
+  setShowNotifications(enabled: boolean | null | undefined): void {
+    this.notificationService.setShowNotifications(enabled);
+  }
+
+  setUserStylesheet(source: string): void {
+    this.styleEngine.setUserStylesheet(source);
+  }
+
+  setCssPath(path: string | readonly string[]): void {
+    this.styleEngine.setCssPath(path);
+  }
+
+  syncHostTerminalSize(size: Size): void {
+    this.lifecycle.syncHostTerminalSize(size);
+  }
+
+  attachAfterRefreshRequester(requester: () => void): () => void {
+    return this.lifecycle.attachAfterRefreshRequester(requester);
+  }
+
+  recordDisplayPass(): void {
+    this.lifecycle.recordDisplayPass();
+  }
+
+  flushAfterRefreshCallbacks(): void {
+    this.lifecycle.flushAfterRefreshCallbacks();
+  }
+
+  get showTooltips(): boolean {
+    return this.themeBroker.showTooltips;
+  }
+
+  get showNotifications(): boolean {
+    return this.notificationService.showNotifications;
+  }
+
+  get activeScreenElement(): React.ReactElement | null {
+    return this.screenStack.activeScreenElement;
   }
 
   getActiveBindings(): ActiveBinding[] {
-    return this.framework.getActiveBindings();
+    return this.bindingDispatcher.getActiveBindings();
   }
 
   openCommandPalette(options: CommandPaletteOptions = {}): Promise<CommandPalette> {
-    return this.framework.openCommandPalette(options);
+    return this.commandService.openCommandPalette(options);
   }
 
   // [LAW:single-enforcer] App is the boundary for async resource ownership.
   // Deferred and threaded callbacks enter through App so timer scope, idle
   // accounting, and shutdown draining share one authority.
   callLater<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    this.framework.callLater(callback, ...args);
+    this.messagePump.callLater(callback, ...args);
   }
 
   callNext<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    this.framework.callNext(callback, ...args);
+    this.messagePump.callNext(callback, ...args);
   }
 
   callAfterRefresh<TArgs extends unknown[]>(callback: (...args: TArgs) => void, ...args: TArgs): void {
-    this.framework.callAfterRefresh(callback, ...args);
+    this.layoutEngine.callAfterRefresh(callback, ...args);
   }
 
   callFromThread<TResult, TArgs extends unknown[]>(
     callback: (...args: TArgs) => TResult,
     ...args: TArgs
   ): Promise<TResult> {
-    return this.framework.callFromThread(callback, ...args);
+    return this.asyncResources.callFromThread(callback, ...args);
   }
 
   get notifications(): Notifications {
-    return this.framework.notifications;
+    return this.notificationService.notifications;
   }
 
   get themeManager(): ThemeManager {
-    return this.framework.themeManager;
+    return this.themeBroker.themeManager;
   }
 
   get signals(): AppSignals {
-    return this.framework.signals;
+    return this.signalRegistry.signals;
   }
 
   get activeTheme(): ActiveTheme {
-    return this.framework.activeTheme;
+    return this.themeBroker.activeTheme;
   }
 
   registerTheme(theme: ThemeDefinition): ActiveTheme {
-    return this.framework.registerTheme(theme);
+    return this.themeBroker.registerTheme(theme);
   }
 
   get animationLevel(): AnimationLevel {
-    return this.framework.animationLevel;
+    return this.themeBroker.animationLevel;
   }
 
   set animationLevel(level: AnimationLevel) {
-    this.framework.setAnimationLevel(level);
+    this.themeBroker.setAnimationLevel(level);
   }
 
   private resolveCommandProviders(): Iterable<ProviderConstructor> | null | undefined {
