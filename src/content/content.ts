@@ -59,6 +59,284 @@ export class Content {
     );
   }
 
+  get isEmpty(): boolean {
+    return this.plain.length === 0;
+  }
+
+  equals(other: string | Content): boolean {
+    const otherText = typeof other === "string" ? other : other.plain;
+    return this.plain === otherText;
+  }
+
+  compareTo(other: Content): number {
+    return this.plain < other.plain ? -1 : this.plain > other.plain ? 1 : 0;
+  }
+
+  charAt(index: number): Content {
+    const normalized = normalizeIndex(index, this.plain.length);
+    return this.slice(normalized, normalized + 1);
+  }
+
+  slice(start: number, end?: number): Content {
+    const length = this.plain.length;
+    const resolvedStart = normalizeIndex(start, length);
+    const resolvedEnd = end === undefined ? length : normalizeIndex(end, length);
+
+    if (resolvedStart >= resolvedEnd) {
+      return new Content("");
+    }
+
+    return new Content(
+      this.plain.slice(resolvedStart, resolvedEnd),
+      clipSpans(this.spans, resolvedStart, resolvedEnd),
+    );
+  }
+
+  add(other: string | Content): Content {
+    const rightContent = typeof other === "string" ? new Content(other) : other;
+    return Content.assemble(this, rightContent);
+  }
+
+  stylizeBefore(style: string, start?: number, end?: number): Content {
+    const length = this.plain.length;
+    const resolvedStart = start === undefined ? 0 : normalizeIndex(start, length);
+    const resolvedEnd = end === undefined ? length : normalizeIndex(end, length);
+
+    if (resolvedStart >= resolvedEnd) {
+      return this;
+    }
+
+    return new Content(this.plain, [
+      {
+        start: resolvedStart,
+        end: resolvedEnd,
+        style,
+      },
+      ...cloneSpans(this.spans),
+    ]);
+  }
+
+  join(pieces: readonly (string | Content)[]): Content {
+    if (pieces.length === 0) {
+      return new Content("");
+    }
+
+    // [LAW:dataflow-not-control-flow] Single-item join returns the item
+    // directly; the loop naturally handles this since the separator is never
+    // inserted for a single piece.
+    const parts: Content[] = [];
+
+    for (let index = 0; index < pieces.length; index += 1) {
+      if (index > 0) {
+        parts.push(this);
+      }
+
+      parts.push(typeof pieces[index] === "string" ? new Content(pieces[index] as string) : (pieces[index] as Content));
+    }
+
+    return Content.assemble(...parts);
+  }
+
+  wrap(width: number): Content[] {
+    if (this.plain.length === 0) {
+      return [new Content("")];
+    }
+
+    const lines: Content[] = [];
+    const words = this.plain.split(/\s+/).filter((word) => word.length > 0);
+    let currentLine = "";
+    const currentSpans: Span[] = [];
+
+    for (const word of words) {
+      const wordStart = this.plain.indexOf(word, currentLine.length + (lines.length > 0 ? 0 : 0));
+      const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
+
+      if (cellLen(testLine) > width && currentLine.length > 0) {
+        lines.push(
+          new Content(
+            currentLine,
+            clipSpans(this.spans, 0, currentLine.length),
+          ),
+        );
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+
+    if (currentLine.length > 0 || lines.length === 0) {
+      lines.push(
+        new Content(
+          currentLine,
+          clipSpans(this.spans, 0, currentLine.length),
+        ),
+      );
+    }
+
+    return lines;
+  }
+
+  fold(width: number): Content[] {
+    if (width <= 0) {
+      return [new Content("")];
+    }
+
+    if (this.plain.length === 0) {
+      return [new Content("")];
+    }
+
+    const lines = this.plain.split("\n");
+    const result: Content[] = [];
+    let offset = 0;
+
+    for (const line of lines) {
+      if (line.length === 0) {
+        result.push(new Content("", clipSpans(this.spans, offset, offset)));
+        offset += 1;
+        continue;
+      }
+
+      let lineOffset = 0;
+
+      while (lineOffset < line.length) {
+        let cellCount = 0;
+        let charIndex = lineOffset;
+
+        while (charIndex < line.length && cellCount < width) {
+          const char = line[charIndex]!;
+          const codePoint = char.codePointAt(0) ?? 0;
+          const charWidth = codePoint > 0xffff ? 2 : 1;
+
+          if (cellCount + charWidth > width) {
+            break;
+          }
+
+          cellCount += charWidth;
+          charIndex += char.length;
+        }
+
+        result.push(
+          new Content(
+            line.slice(lineOffset, charIndex),
+            clipSpans(this.spans, offset + lineOffset, offset + charIndex),
+          ),
+        );
+        lineOffset = charIndex;
+      }
+
+      offset += line.length + 1;
+    }
+
+    return result.length === 0 ? [new Content("")] : result;
+  }
+
+  expandTabs(tabWidth: number): Content {
+    if (!this.plain.includes("\t")) {
+      return this;
+    }
+
+    const lines = this.plain.split("\n");
+    const expandedLines: string[] = [];
+    const expandedSpans: Span[] = [];
+    let originalOffset = 0;
+    let expandedOffset = 0;
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex]!;
+      let expandedLine = "";
+      let lineExpandedOffset = 0;
+
+      for (let charIndex = 0; charIndex < line.length; charIndex += 1) {
+        const char = line[charIndex]!;
+
+        if (char === "\t") {
+          const column = cellLen(expandedLine);
+          const spaces = tabWidth - (column % tabWidth);
+          expandedLine += " ".repeat(spaces);
+          lineExpandedOffset += spaces - 1;
+        } else {
+          expandedLine += char;
+        }
+      }
+
+      for (const span of this.spans) {
+        const lineStart = originalOffset;
+        const lineEnd = originalOffset + line.length;
+
+        if (span.end <= lineStart || span.start >= lineEnd) {
+          continue;
+        }
+
+        const clippedStart = Math.max(span.start, lineStart) - lineStart;
+        const clippedEnd = Math.min(span.end, lineEnd) - lineStart;
+        let expandedStart = 0;
+        let expandedEnd = 0;
+        let pos = 0;
+
+        for (let i = 0; i < line.length; i += 1) {
+          const expandedPos = pos;
+
+          if (line[i] === "\t") {
+            pos += tabWidth - (pos % tabWidth);
+          } else {
+            pos += 1;
+          }
+
+          if (i < clippedStart) {
+            expandedStart = pos;
+            expandedEnd = pos;
+          }
+
+          if (i >= clippedStart && i < clippedEnd) {
+            if (expandedEnd === expandedStart && i === clippedStart) {
+              expandedStart = expandedPos;
+            }
+
+            expandedEnd = pos;
+          }
+        }
+
+        expandedSpans.push({
+          start: expandedOffset + expandedStart,
+          end: expandedOffset + expandedEnd,
+          style: span.style,
+        });
+      }
+
+      expandedLines.push(expandedLine);
+      originalOffset += line.length + 1;
+      expandedOffset += expandedLine.length + 1;
+    }
+
+    return new Content(expandedLines.join("\n"), expandedSpans);
+  }
+
+  simplify(): Content {
+    if (this.spans.length <= 1) {
+      return this;
+    }
+
+    const sorted = cloneSpans(this.spans).sort((a, b) => a.start - b.start || a.end - b.end);
+    const merged: Span[] = [sorted[0]!];
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      const current = sorted[index]!;
+      const last = merged[merged.length - 1]!;
+
+      if (current.start === last.end && current.style === last.style) {
+        last.end = current.end;
+      } else {
+        merged.push(current);
+      }
+    }
+
+    // [LAW:one-source-of-truth] simplify mutates this.spans in place per the
+    // spec contract — callers own the Content instance.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this as any).spans = merged;
+    return this;
+  }
+
   stylize(style: string, start?: number, end?: number): Content {
     const length = this.plain.length;
     const resolvedStart = start === undefined ? 0 : normalizeIndex(start, length);
@@ -173,4 +451,14 @@ export class Content {
 
 function normalizeIndex(index: number, length: number): number {
   return Math.max(0, Math.min(length, index < 0 ? length + index : index));
+}
+
+function clipSpans(spans: readonly Span[], start: number, end: number): Span[] {
+  return spans
+    .map((span) => ({
+      start: Math.max(0, span.start - start),
+      end: Math.min(end - start, Math.max(0, span.end - start)),
+      style: span.style,
+    }))
+    .filter((span) => span.start < span.end && span.end > 0);
 }

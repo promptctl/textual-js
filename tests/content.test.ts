@@ -61,7 +61,6 @@ describe("Content construction", () => {
       { start: 2, end: 2, style: "italic" },
     ]);
 
-    // Only the first span survives: clamped to [0, 3], second is out of range, third is empty
     expect(content.spans).toEqual([{ start: 0, end: 3, style: "bold" }]);
   });
 });
@@ -103,9 +102,8 @@ describe("Content.fromText", () => {
 describe("Content properties", () => {
   it("returns first line only, clipping spans", () => {
     const content = Content.fromText("hello\nworld", { markup: false });
-    const firstLine = content.firstLine;
 
-    expect(firstLine.plain).toBe("hello");
+    expect(content.firstLine.plain).toBe("hello");
   });
 
   it("returns full content when no newline exists", () => {
@@ -116,10 +114,35 @@ describe("Content properties", () => {
 
   it("clips spans to first line boundary", () => {
     const content = new Content("ab\ncd", [{ start: 0, end: 4, style: "bold" }]);
-    const firstLine = content.firstLine;
 
-    expect(firstLine.plain).toBe("ab");
-    expect(firstLine.spans).toEqual([{ start: 0, end: 2, style: "bold" }]);
+    expect(content.firstLine.plain).toBe("ab");
+    expect(content.firstLine.spans).toEqual([{ start: 0, end: 2, style: "bold" }]);
+  });
+});
+
+describe("Content truthiness and equality", () => {
+  it("empty content is isEmpty", () => {
+    expect(new Content("").isEmpty).toBe(true);
+    expect(new Content("foo").isEmpty).toBe(false);
+  });
+
+  it("equals string values", () => {
+    expect(new Content("foo").equals("foo")).toBe(true);
+    expect(new Content("foo").equals("bar")).toBe(false);
+  });
+
+  it("equals other Content instances", () => {
+    expect(new Content("foo").equals(new Content("foo"))).toBe(true);
+    expect(new Content("foo").equals(new Content("bar"))).toBe(false);
+  });
+
+  it("compares by plain text for ordering", () => {
+    const a = new Content("apple");
+    const b = new Content("banana");
+
+    expect(a.compareTo(b)).toBeLessThan(0);
+    expect(b.compareTo(a)).toBeGreaterThan(0);
+    expect(a.compareTo(a)).toBe(0);
   });
 });
 
@@ -129,7 +152,6 @@ describe("Content stylize", () => {
     const styled = content.stylize("bold");
 
     expect(styled.spans).toEqual([{ start: 0, end: 5, style: "bold" }]);
-    // Original is unchanged
     expect(content.spans).toEqual([]);
   });
 
@@ -158,6 +180,32 @@ describe("Content stylize", () => {
   });
 });
 
+describe("Content stylizeBefore", () => {
+  it("inserts span before existing spans", () => {
+    const content = Content.styled("hello", "red");
+    const before = content.stylizeBefore("bold", 0, 3);
+
+    expect(before.spans).toEqual([
+      { start: 0, end: 3, style: "bold" },
+      { start: 0, end: 5, style: "red" },
+    ]);
+  });
+
+  it("returns same content when start >= end", () => {
+    const content = new Content("hello");
+    const same = content.stylizeBefore("bold", 3, 3);
+
+    expect(same).toBe(content);
+  });
+
+  it("applies to full text when no positions given", () => {
+    const content = new Content("hello");
+    const before = content.stylizeBefore("bold");
+
+    expect(before.spans).toEqual([{ start: 0, end: 5, style: "bold" }]);
+  });
+});
+
 describe("Content addSpans", () => {
   it("appends additional spans to existing ones", () => {
     const content = Content.styled("hello", "red");
@@ -168,27 +216,219 @@ describe("Content addSpans", () => {
   });
 });
 
+describe("Content indexing and slicing", () => {
+  it("charAt returns single-character Content", () => {
+    const content = new Content("hello");
+
+    expect(content.charAt(0).plain).toBe("h");
+    expect(content.charAt(0).spans).toEqual([]);
+  });
+
+  it("charAt supports negative indexing", () => {
+    expect(new Content("hello").charAt(-1).plain).toBe("o");
+  });
+
+  it("charAt clips spans to the character", () => {
+    const char = Content.styled("hello", "bold").charAt(1);
+
+    expect(char.plain).toBe("e");
+    expect(char.spans).toEqual([{ start: 0, end: 1, style: "bold" }]);
+  });
+
+  it("slice extracts a range", () => {
+    expect(new Content("hello world").slice(0, 5).plain).toBe("hello");
+  });
+
+  it("slice clips spans to the range", () => {
+    const sliced = new Content("hello world", [{ start: 3, end: 8, style: "bold" }]).slice(2, 7);
+
+    expect(sliced.plain).toBe("llo w");
+    expect(sliced.spans).toEqual([{ start: 1, end: 5, style: "bold" }]);
+  });
+
+  it("slice returns empty when start >= end", () => {
+    expect(new Content("hello").slice(5, 3).plain).toBe("");
+  });
+
+  it("slice defaults end to full length", () => {
+    expect(new Content("hello").slice(2).plain).toBe("llo");
+  });
+});
+
+describe("Content concatenation", () => {
+  it("concatenates two Content instances", () => {
+    const result = Content.styled("foo", "red").add(Content.styled("bar", "blue"));
+
+    expect(result.plain).toBe("foobar");
+    expect(result.spans).toEqual([
+      { start: 0, end: 3, style: "red" },
+      { start: 3, end: 6, style: "blue" },
+    ]);
+  });
+
+  it("concatenates Content with string", () => {
+    const result = Content.styled("foo", "red").add("bar");
+
+    expect(result.plain).toBe("foobar");
+    expect(result.spans).toEqual([{ start: 0, end: 3, style: "red" }]);
+  });
+
+  it("preserves all spans from both sides through chain", () => {
+    const result = Content.styled("foo", "red").add(new Content(" ")).add(Content.styled("bar", "blue"));
+
+    expect(result.plain).toBe("foo bar");
+    expect(result.spans).toEqual([
+      { start: 0, end: 3, style: "red" },
+      { start: 4, end: 7, style: "blue" },
+    ]);
+  });
+});
+
+describe("Content join", () => {
+  it("joins pieces with separator", () => {
+    expect(new Content(", ").join(["a", "b", "c"]).plain).toBe("a, b, c");
+  });
+
+  it("joins Content pieces preserving spans", () => {
+    const result = new Content(" ").join([
+      Content.styled("foo", "red"),
+      Content.styled("bar", "blue"),
+    ]);
+
+    expect(result.plain).toBe("foo bar");
+    expect(result.spans).toEqual([
+      { start: 0, end: 3, style: "red" },
+      { start: 4, end: 7, style: "blue" },
+    ]);
+  });
+
+  it("returns empty for empty list", () => {
+    expect(new Content(", ").join([]).plain).toBe("");
+  });
+
+  it("returns single item for single-element list", () => {
+    expect(new Content(", ").join(["only"]).plain).toBe("only");
+  });
+});
+
 describe("Content truncate", () => {
   it("truncates with ellipsis", () => {
-    const content = Content.fromText("hello", { markup: false });
-    const truncated = content.truncate(4, { overflow: "ellipsis" });
+    const truncated = Content.fromText("hello", { markup: false }).truncate(4, { overflow: "ellipsis" });
 
     expect(truncated.cellLength).toBe(4);
     expect(truncated.plain.endsWith("…")).toBe(true);
   });
 
   it("does not truncate when content fits", () => {
-    const content = Content.fromText("hi", { markup: false });
-    const truncated = content.truncate(10);
-
-    expect(truncated.plain).toBe("hi");
+    expect(Content.fromText("hi", { markup: false }).truncate(10).plain).toBe("hi");
   });
 
   it("crops without ellipsis", () => {
-    const content = Content.fromText("hello world", { markup: false });
-    const cropped = content.truncate(5, { overflow: "crop" });
+    const cropped = Content.fromText("hello world", { markup: false }).truncate(5, { overflow: "crop" });
 
     expect(cropped.cellLength).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("Content wrap", () => {
+  it("wraps text at word boundaries", () => {
+    const lines = new Content("hello world foo bar").wrap(11);
+
+    expect(lines.length).toBe(2);
+    expect(lines[0]!.plain).toBe("hello world");
+    expect(lines[1]!.plain).toBe("foo bar");
+  });
+
+  it("returns single-element list for short text", () => {
+    const lines = new Content("hi").wrap(80);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.plain).toBe("hi");
+  });
+
+  it("returns empty-content list for empty input", () => {
+    const lines = new Content("").wrap(10);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.plain).toBe("");
+  });
+});
+
+describe("Content fold", () => {
+  it("hard-wraps at exact cell positions", () => {
+    const lines = new Content("abcdefghij").fold(5);
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.plain).toBe("abcde");
+    expect(lines[1]!.plain).toBe("fghij");
+  });
+
+  it("returns single-element list for short text", () => {
+    const lines = new Content("hi").fold(80);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.plain).toBe("hi");
+  });
+
+  it("returns empty-content list for empty input", () => {
+    const lines = new Content("").fold(10);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.plain).toBe("");
+  });
+
+  it("handles multi-line content", () => {
+    const lines = new Content("abc\ndefgh").fold(3);
+
+    expect(lines.map((l) => l.plain)).toEqual(["abc", "def", "gh"]);
+  });
+
+  it("preserves blank lines", () => {
+    const lines = new Content("abc\n\ndefgh").fold(3);
+
+    expect(lines.map((l) => l.plain)).toEqual(["abc", "", "def", "gh"]);
+  });
+});
+
+describe("Content expandTabs", () => {
+  it("replaces tabs with spaces aligned to tab stops", () => {
+    expect(new Content("a\tb").expandTabs(8).plain).toBe("a       b");
+  });
+
+  it("returns unchanged content when no tabs", () => {
+    expect(new Content("no tabs").expandTabs(4).plain).toBe("no tabs");
+  });
+
+  it("handles tab at column 0", () => {
+    expect(new Content("\thello").expandTabs(4).plain).toBe("    hello");
+  });
+});
+
+describe("Content simplify", () => {
+  it("merges adjacent spans with same style", () => {
+    const content = new Content("hello world", [
+      { start: 0, end: 5, style: "bold" },
+      { start: 5, end: 11, style: "bold" },
+    ]);
+    const simplified = content.simplify();
+
+    expect(simplified.spans).toEqual([{ start: 0, end: 11, style: "bold" }]);
+  });
+
+  it("does not merge spans with different styles", () => {
+    const content = new Content("hello world", [
+      { start: 0, end: 5, style: "bold" },
+      { start: 5, end: 11, style: "italic" },
+    ]);
+    const simplified = content.simplify();
+
+    expect(simplified.spans).toHaveLength(2);
+  });
+
+  it("returns same content for single span", () => {
+    const content = Content.styled("hello", "bold");
+
+    expect(content.simplify()).toBe(content);
   });
 });
 
@@ -209,9 +449,7 @@ describe("Content blank and assemble", () => {
   });
 
   it("handles zero width", () => {
-    const blank = Content.blank(0);
-
-    expect(blank.plain).toBe("");
+    expect(Content.blank(0).plain).toBe("");
   });
 
   it("assembles multiple parts with correct span offsets", () => {
@@ -238,16 +476,14 @@ describe("Content blank and assemble", () => {
 describe("Content toSegments and toRichText", () => {
   it("converts to RichText and back without loss", () => {
     const original = Content.styled("hello", "bold");
-    const richText = original.toRichText();
-    const roundTripped = Content.fromRichText(richText);
+    const roundTripped = Content.fromRichText(original.toRichText());
 
     expect(roundTripped.plain).toBe("hello");
     expect(roundTripped.spans.length).toBeGreaterThanOrEqual(1);
   });
 
   it("produces segments from content", () => {
-    const content = Content.styled("hello", "bold");
-    const segments = content.toSegments();
+    const segments = Content.styled("hello", "bold").toSegments();
 
     expect(segments.length).toBeGreaterThan(0);
     expect(segments.map((s) => s.text).join("")).toBe("hello");
