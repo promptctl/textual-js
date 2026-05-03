@@ -1,5 +1,5 @@
 import type { Props as InkTextProps } from "ink";
-import { ANSI_COLOR_NAMES, Color, Segment, Style } from "rich-js";
+import { ANSI_COLOR_NAMES, Segment, Style } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import { Content } from "../src/content/content.js";
@@ -8,8 +8,11 @@ import { parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 function buildBaseStyle(textProps: Partial<InkTextProps>): Style {
   return new Style({
-    color: typeof textProps.color === "string" ? Color.parse(textProps.color) : undefined,
-    bgcolor: typeof textProps.backgroundColor === "string" ? Color.parse(textProps.backgroundColor) : undefined,
+    color: typeof textProps.color === "string" && textProps.color.length > 0 ? textProps.color : undefined,
+    bgcolor:
+      typeof textProps.backgroundColor === "string" && textProps.backgroundColor.length > 0
+        ? textProps.backgroundColor
+        : undefined,
     bold: textProps.bold,
     dim: textProps.dimColor,
     italic: textProps.italic,

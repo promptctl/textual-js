@@ -1,4 +1,4 @@
-import { Color as RichColor } from "rich-js";
+import { ColorRgba } from "rich-js";
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
@@ -514,9 +514,8 @@ export class Color {
     return new Color(0, 0, 0, 1, { auto: true, automaticPercentage: percentage });
   }
 
-  static fromRichColor(color: RichColor): Color {
-    const triplet = color.getTruecolor();
-    return new Color(triplet.red, triplet.green, triplet.blue);
+  static fromRichColor(color: ColorRgba): Color {
+    return new Color(color.red, color.green, color.blue, color.alpha);
   }
 
   static from_hsl(hue: number, saturation: number, lightness: number): Color {
@@ -527,7 +526,7 @@ export class Color {
     return Color.fromHsv(hue, saturation, value);
   }
 
-  static from_rich_color(color: RichColor): Color {
+  static from_rich_color(color: ColorRgba): Color {
     return Color.fromRichColor(color);
   }
 
@@ -586,12 +585,12 @@ export class Color {
     return this.isTransparent;
   }
 
-  get richColor(): RichColor {
+  get richColor(): ColorRgba {
     const [red, green, blue] = this.rgb;
-    return RichColor.fromRgb(red, green, blue);
+    return new ColorRgba(red, green, blue);
   }
 
-  get rich_color(): RichColor {
+  get rich_color(): ColorRgba {
     return this.richColor;
   }
 

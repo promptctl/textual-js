@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Color as RichColor } from "rich-js";
+import { ColorRgba } from "rich-js";
 
 import { Color, ColorParseError, Gradient, lab_to_rgb, labToRgb, normalizeColor, rgb_to_lab, rgbToLab } from "../src/index.js";
 
@@ -65,11 +65,11 @@ describe("color normalization", () => {
   });
 
   it("bridges rich-js colors without creating a second color model", () => {
-    const source = RichColor.fromRgb(10, 20, 30);
+    const source = new ColorRgba(10, 20, 30);
     const color = Color.from_rich_color(source);
 
     expect(color.rgb).toEqual([10, 20, 30]);
-    expect(color.rich_color.getTruecolor().rgb).toBe("rgb(10,20,30)");
+    expect(color.rich_color.rgb).toBe("rgb(10,20,30)");
   });
 
   it("samples validated gradients", () => {

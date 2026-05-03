@@ -5,7 +5,6 @@ import {
   Segment,
   isMeasurable,
   isRenderable,
-  Color,
   type Measurable,
   type RenderOptions,
   type Renderable,
@@ -81,12 +80,12 @@ function isVisual(value: unknown): value is VisualBase {
   return value instanceof VisualBase;
 }
 
-function resolveTextPropColor(value: TextProps["color"] | TextProps["backgroundColor"]): Color | undefined {
+function resolveTextPropColor(value: TextProps["color"] | TextProps["backgroundColor"]): string | undefined {
   if (typeof value !== "string" || value.length === 0) {
     return undefined;
   }
 
-  return Color.parse(value);
+  return value;
 }
 
 function splitLayoutTextProps(textProps: Partial<TextProps>): {
