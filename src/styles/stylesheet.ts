@@ -1045,6 +1045,51 @@ function parseBorder(rawValue: string): BorderValue {
   };
 }
 
+interface InkBorderStyle {
+  topLeft: string;
+  top: string;
+  topRight: string;
+  right: string;
+  bottomRight: string;
+  bottom: string;
+  bottomLeft: string;
+  left: string;
+}
+
+// [LAW:one-source-of-truth] TCSS border tokens are normalized here before
+// they cross into Ink. Widget DEFAULT_CSS may use Textual names such as
+// `tall`; consumers never restate glyph tables at individual render sites.
+const INK_BORDER_STYLES: Readonly<Record<string, string | InkBorderStyle>> = {
+  solid: "single",
+  heavy: "bold",
+  thick: "bold",
+  dashed: "single",
+  tall: {
+    topLeft: "▊",
+    top: "▔",
+    topRight: "▎",
+    right: "▎",
+    bottomRight: "▎",
+    bottom: "▁",
+    bottomLeft: "▊",
+    left: "▊",
+  },
+  wide: {
+    topLeft: "▁",
+    top: "▁",
+    topRight: "▁",
+    right: "▐",
+    bottomRight: "▔",
+    bottom: "▔",
+    bottomLeft: "▔",
+    left: "▌",
+  },
+};
+
+function mapBorderStyle(style: string): string | InkBorderStyle {
+  return INK_BORDER_STYLES[style] ?? style;
+}
+
 function parseFractional(rawValue: string): number {
   const trimmed = rawValue.trim();
   const percentMatch = trimmed.match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))%$/);
@@ -1899,7 +1944,7 @@ function rulesToInk(
   const contentAlignVertical = rules["content-align-vertical"] as AlignValue["vertical"] | undefined;
 
   if (border !== undefined) {
-    box.borderStyle = border.style === "" ? undefined : border.style;
+    box.borderStyle = border.style === "" ? undefined : mapBorderStyle(border.style);
 
     if (border.color !== undefined) {
       box.borderColor = colorToInkValue(border.color);

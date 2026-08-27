@@ -8,10 +8,10 @@ import { observer } from "mobx-react-lite";
 import { Content, renderContent } from "../content/index.js";
 import { Key } from "../events/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { mixColor } from "../styles/index.js";
 import { InputValidationController, type ValidateOn, type ValidationResult, type Validator } from "../validation/index.js";
 import { SuggestionController, type Suggester } from "../suggestions/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
-import { WidgetFrame } from "./widget-frame.js";
 import {
   InputChanged,
   InputModel,
@@ -22,6 +22,7 @@ import {
 
 export interface InputProps extends WidgetComponentProps {
   value?: string;
+  placeholder?: string;
   type?: InputType | string;
   restrict?: RegExp | string | null;
   maxLength?: number | null;
@@ -43,6 +44,32 @@ const INPUT_BINDINGS = [
   { key: "delete", action: "delete_right" },
 ];
 
+// [LAW:one-source-of-truth] Input's default visual contract lives in TCSS.
+// Render code reads cursor colors from the resolved cascade instead of
+// duplicating theme literals beside the widget markup.
+const DEFAULT_CSS = `
+  Input {
+    width: 100w;
+    height: 3;
+    padding: 0 2;
+    background: #1e1e1e;
+    color: #e0e0e0;
+    border: tall #181818;
+    --input-cursor-color: #121212;
+    --input-cursor-background: #e0e0e0;
+  }
+  Input:focus {
+    background: #272727;
+    border: tall #0178d4;
+  }
+  Input.-invalid {
+    border: tall #b93c5b;
+  }
+`;
+
+const PASSWORD_MASK = "•";
+const TEXT_DISABLED_MIX = 0.378;
+
 // [LAW:single-enforcer] InputChanged/InputSubmitted and validity classes are
 // produced by this component after the model mutates; callers do not post them.
 export const Input = observer(function Input({
@@ -51,6 +78,7 @@ export const Input = observer(function Input({
   borderTitle,
   borderSubtitle,
   value = "",
+  placeholder = "",
   type = "text",
   restrict,
   maxLength,
@@ -71,8 +99,9 @@ export const Input = observer(function Input({
   const validEmptyRef = React.useRef(validEmpty ?? valid_empty ?? true);
 
   if (modelRef.current === undefined) {
-    modelRef.current = new InputModel({ value, type, restrict, maxLength, password });
+    modelRef.current = new InputModel({ value, placeholder, type, restrict, maxLength, password });
   }
+  modelRef.current.placeholder = placeholder;
 
   if (suggestionControllerRef.current === undefined) {
     suggestionControllerRef.current = new SuggestionController(suggester);
@@ -103,6 +132,7 @@ export const Input = observer(function Input({
     borderTitle,
     borderSubtitle,
     focusable: true,
+    defaultCss: DEFAULT_CSS,
     bindings: INPUT_BINDINGS,
     actions: createInputActions(modelRef.current),
     handlers: {
@@ -139,6 +169,14 @@ export const Input = observer(function Input({
     const result = validationControllerRef.current!.validate(modelRef.current!.value, event);
     syncValidationClasses(result);
     return result;
+  }, [syncValidationClasses]);
+
+  React.useLayoutEffect(() => {
+    // [LAW:single-enforcer] The validation controller owns validity classes
+    // for both initial data and later events; fixtures do not carry duplicate
+    // imperative setup just to expose an invalid initial value.
+    const result = validationControllerRef.current!.validate(modelRef.current!.value, "changed");
+    syncValidationClasses(result);
   }, [syncValidationClasses]);
 
   const refreshSuggestion = React.useCallback(() => {
@@ -236,24 +274,140 @@ export const Input = observer(function Input({
     }
   }
 
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
   const displayValue = modelRef.current.password
-    ? "*".repeat(modelRef.current.value.length)
+    ? PASSWORD_MASK.repeat(modelRef.current.value.length)
     : modelRef.current.value;
   const suggestion = suggestionControllerRef.current.suggestion;
   const suffix = resolveSuggestionSuffix(modelRef.current.value, suggestion, suggester);
-  const content = Content.assemble(
+  const width = readNumericBoxValue(styles.box.width) ?? 80;
+  const paddingLeft = readNumericBoxValue(styles.box.paddingLeft) ?? 0;
+  const paddingRight = readNumericBoxValue(styles.box.paddingRight) ?? 0;
+  const background = styles.getColor("background");
+  const foreground = styles.getColor("color");
+  const border = typeof styles.box.borderColor === "string" ? styles.box.borderColor : background;
+  const content = buildInputContent(
     displayValue,
-    suffix.length === 0 ? "" : Content.styled(suffix, "dim"),
+    modelRef.current.placeholder,
+    modelRef.current.cursorPosition,
+    suffix,
+    widget.handle.isFocused,
+    {
+      foreground,
+      background,
+      color: styles.getCustomColor("--input-cursor-color"),
+      cursorBackground: styles.getCustomColor("--input-cursor-background"),
+    },
   );
+  const rows = renderInputRows(content, {
+    width,
+    paddingLeft,
+    paddingRight,
+    background,
+    border,
+    quietBorder: border === "#181818",
+    nodeId: widget.nodeId,
+  });
 
   return (
     <WidgetScope widget={widget.handle}>
-      <WidgetFrame widget={widget.handle} styles={styles}>
-        {renderContent(content, styles.text, `input:${widget.nodeId}`)}
-      </WidgetFrame>
+      <Box flexDirection="column">{rows}</Box>
     </WidgetScope>
   );
 });
+
+interface CursorPalette {
+  foreground: string;
+  background: string;
+  color: string;
+  cursorBackground: string;
+}
+
+interface InputRowsOptions {
+  width: number;
+  paddingLeft: number;
+  paddingRight: number;
+  background: string;
+  border: string;
+  quietBorder: boolean;
+  nodeId: string;
+}
+
+function readNumericBoxValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function buildInputContent(
+  displayValue: string,
+  placeholder: string,
+  cursorPosition: number,
+  suggestionSuffix: string,
+  focused: boolean,
+  cursor: CursorPalette,
+): Content {
+  const textStyle = `${cursor.foreground} on ${cursor.background}`;
+  const placeholderStyle = `${mixColor(cursor.background, "#ffffff", TEXT_DISABLED_MIX)} on ${cursor.background}`;
+  const placeholderActive = displayValue.length === 0 && placeholder.length > 0;
+  const visibleValue = placeholderActive ? placeholder : displayValue;
+  const base = Content.styled(visibleValue, placeholderActive ? placeholderStyle : textStyle);
+  const content = Content.assemble(
+    base,
+    suggestionSuffix.length === 0 || placeholderActive ? "" : Content.styled(suggestionSuffix, placeholderStyle),
+  );
+
+  if (!focused) {
+    return content;
+  }
+
+  const cursorIndex = placeholderActive ? 0 : cursorPosition;
+  const cursorGlyph = visibleValue[cursorIndex] ?? " ";
+
+  // [LAW:dataflow-not-control-flow] Focus changes the cursor segment data;
+  // the surrounding Input frame and content assembly path stay unchanged.
+  return Content.assemble(
+    Content.styled(content.plain.slice(0, cursorIndex), placeholderActive ? placeholderStyle : textStyle),
+    Content.styled(cursorGlyph, `${cursor.color} on ${cursor.cursorBackground}`),
+    Content.styled(content.plain.slice(cursorIndex + cursorGlyph.length), placeholderActive ? placeholderStyle : textStyle),
+  );
+}
+
+function renderInputRows(content: Content, options: InputRowsOptions): React.JSX.Element[] {
+  const clampedWidth = Math.max(2, options.width);
+  const contentWidth = Math.max(0, clampedWidth - 2 - options.paddingLeft - options.paddingRight);
+  const visibleContent = content.truncate(contentWidth, { overflow: "crop" });
+  const fillWidth = Math.max(0, contentWidth - visibleContent.cellLength);
+  const surfaceStyle = `on ${options.background}`;
+  const borderStyle = `${options.border}`;
+  const activeBorderStyle = `${options.border} on ${options.background}`;
+  const edgeStyle = `${options.border} on ${options.background}`;
+  // [LAW:dataflow-not-control-flow] The same three-row renderer runs for
+  // plain, focused, and invalid inputs. Border intensity is row data: the
+  // default state paints only edge cells, while focused/invalid states paint
+  // the whole tall border row.
+  const top = options.quietBorder
+    ? Content.assemble(Content.styled("▊", borderStyle), Content.blank(clampedWidth - 2, surfaceStyle), Content.styled("▎", borderStyle))
+    : Content.assemble(Content.styled("▊", activeBorderStyle), Content.styled("▔".repeat(clampedWidth - 2), activeBorderStyle), Content.styled("▎", activeBorderStyle));
+  const middle = Content.assemble(
+    Content.styled("▊", edgeStyle),
+    Content.blank(options.paddingLeft, surfaceStyle),
+    visibleContent,
+    Content.blank(fillWidth, surfaceStyle),
+    Content.blank(options.paddingRight, surfaceStyle),
+    Content.styled("▎", edgeStyle),
+  );
+  const bottom = options.quietBorder
+    ? Content.assemble(Content.styled("▊", borderStyle), Content.blank(clampedWidth - 2, surfaceStyle), Content.styled("▎", borderStyle))
+    : Content.assemble(Content.styled("▊", activeBorderStyle), Content.styled("▁".repeat(clampedWidth - 2), activeBorderStyle), Content.styled("▎", activeBorderStyle));
+
+  return [top, middle, bottom].map((row, index) => (
+    <Box key={`input:${options.nodeId}:row:${index}`}>
+      {renderContent(row, {}, `input:${options.nodeId}:row:${index}`, clampedWidth)}
+    </Box>
+  ));
+}
 
 function resolveSuggestionSuffix(value: string, suggestion: string, suggester: Suggester | null): string {
   const caseSensitive = suggester?.caseSensitive ?? true;

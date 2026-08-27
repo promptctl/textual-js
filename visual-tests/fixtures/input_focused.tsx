@@ -3,7 +3,7 @@ import { Input } from "../../src/index.js";
 import { FixtureScreen } from "../fixture-screen.tsx";
 
 export const appProps = {
-  autoFocus: null,
+  autoFocus: "#target",
 };
 
 export default function InputFocusedFixture(): React.JSX.Element {
@@ -14,7 +14,4 @@ export default function InputFocusedFixture(): React.JSX.Element {
   );
 }
 
-export const interactions = [
-  { type: "key", keys: "Tab" },
-  { type: "wait", ms: 50 },
-] as const;
+export const interactions: never[] = [];

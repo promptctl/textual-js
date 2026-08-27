@@ -186,10 +186,12 @@ export class InputModel {
   private readonly _restrictRule: RestrictRule;
   private _maxLength: number | null;
   private _password: boolean;
+  private _placeholder: string;
   readonly type: InputType;
 
   constructor(options: {
     value?: string;
+    placeholder?: string;
     type?: InputType | string;
     restrict?: RegExp | string | null;
     maxLength?: number | null;
@@ -203,6 +205,7 @@ export class InputModel {
 
     this.type = typeName;
     this._password = options.password ?? false;
+    this._placeholder = options.placeholder ?? "";
     this._maxLength = options.maxLength ?? null;
     this._restrictRule =
       options.restrict !== undefined && options.restrict !== null
@@ -252,6 +255,14 @@ export class InputModel {
 
   get password(): boolean {
     return this._password;
+  }
+
+  get placeholder(): string {
+    return this._placeholder;
+  }
+
+  set placeholder(next: string) {
+    this._placeholder = next;
   }
 
   get maxLength(): number | null {

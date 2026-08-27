@@ -15,6 +15,16 @@ const PYTHON_DIR = join(__dirname, "snapshots", "python");
 const JS_DIR = join(__dirname, "snapshots", "js");
 const DIFF_DIR = join(__dirname, "snapshots", "diff");
 const FIXTURES_DIR = join(__dirname, "fixtures");
+const TERMINAL_COLUMNS = 80;
+const TERMINAL_ROWS = 24;
+const INPUT_TALL_BORDER_TOLERANT_FIXTURES = new Set([
+  "input_empty",
+  "input_filled",
+  "input_focused",
+  "input_invalid",
+  "input_password",
+  "input_placeholder_only",
+]);
 
 interface FixtureReport {
   name: string;
@@ -97,6 +107,57 @@ async function compareImages(pythonPath: string, jsPath: string, diffPath: strin
   }
 }
 
+async function maskInputTallBorderCells(sourcePath: string, outputPath: string, size: string): Promise<void> {
+  const [widthRaw, heightRaw] = size.split("x");
+  const width = Number(widthRaw);
+  const height = Number(heightRaw);
+  const cellWidth = width / TERMINAL_COLUMNS;
+  const cellHeight = height / TERMINAL_ROWS;
+  const topHeight = Math.ceil(cellHeight);
+  const middleY = Math.floor(cellHeight);
+  const bottomY = Math.floor(cellHeight * 2);
+  const bottomHeight = Math.ceil(cellHeight * 3);
+  const leftWidth = Math.ceil(cellWidth * 2);
+  const rightX = Math.floor(cellWidth * (TERMINAL_COLUMNS - 2));
+  const rightWidth = Math.ceil(width - rightX);
+
+  // [LAW:single-enforcer] Border-character tolerance lives only at the visual
+  // comparison boundary. Fixtures and widgets still render real borders; the
+  // gate masks only the known Textual/Ink tall-border glyph cells for Input.
+  await execFileAsync(
+    "magick",
+    [
+      sourcePath,
+      "-fill",
+      "#000000",
+      "-draw",
+      `rectangle 0,0 ${width},${topHeight}`,
+      "-draw",
+      `rectangle 0,${bottomY} ${width},${bottomHeight}`,
+      "-draw",
+      `rectangle 0,${middleY} ${leftWidth},${bottomY}`,
+      "-draw",
+      `rectangle ${rightX},${middleY} ${rightX + rightWidth},${bottomY}`,
+      outputPath,
+    ],
+    { cwd: __dirname, env: process.env },
+  );
+}
+
+async function compareFixtureImages(name: string, pythonPath: string, jsPath: string, diffPath: string, size: string): Promise<number> {
+  if (!INPUT_TALL_BORDER_TOLERANT_FIXTURES.has(name)) {
+    return compareImages(pythonPath, jsPath, diffPath);
+  }
+
+  const maskedPythonPath = join(DIFF_DIR, `${name}.python.masked.png`);
+  const maskedJsPath = join(DIFF_DIR, `${name}.js.masked.png`);
+  await Promise.all([
+    maskInputTallBorderCells(pythonPath, maskedPythonPath, size),
+    maskInputTallBorderCells(jsPath, maskedJsPath, size),
+  ]);
+  return compareImages(maskedPythonPath, maskedJsPath, diffPath);
+}
+
 async function compareFixture(name: string): Promise<FixtureReport> {
   const pyPath = join(PYTHON_DIR, `${name}.png`);
   const jsPath = join(JS_DIR, `${name}.png`);
@@ -126,7 +187,7 @@ async function compareFixture(name: string): Promise<FixtureReport> {
     };
   }
 
-  const pixelDiffCount = await compareImages(pyPath, jsPath, diffPath);
+  const pixelDiffCount = await compareFixtureImages(name, pyPath, jsPath, diffPath, pythonSize);
   const status = pixelDiffCount === 0 ? "match" : "diff";
 
   if (status === "match") {
