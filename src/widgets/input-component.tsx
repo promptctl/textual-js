@@ -327,13 +327,14 @@ export const Input = observer(function Input({
   }, [applyValidation, refreshSuggestion, widget]);
 
   const acceptSuggestion = React.useCallback((): boolean => {
+    const model = modelRef.current!;
     const suggestion = suggestionControllerRef.current!.suggestion;
 
-    if (suggestion.length === 0) {
+    if (!offersCompletion(model.value, model.password) || suggestion.length === 0) {
       return false;
     }
 
-    modelRef.current!.value = suggestion;
+    model.value = suggestion;
     postChanged();
     return true;
   }, [postChanged]);
@@ -470,7 +471,7 @@ export const Input = observer(function Input({
     suggester,
     modelRef.current.password,
   );
-  const textAttributes = textAttributesOf(styles.text);
+  const { contentStyle, layoutProps } = splitContentTextStyle(styles.text);
   const body = Content.assemble(
     resolveInputDisplay(modelRef.current.value, placeholder, modelRef.current.password, palette),
     Content.styled(suffix, `${palette.foreground} dim`),
@@ -478,11 +479,14 @@ export const Input = observer(function Input({
   // [LAW:dataflow-not-control-flow] Cursor visibility is data, not a branch:
   // an index when the widget holds focus, null when it does not.
   const cursorIndex = widget.handle.isFocused ? modelRef.current.cursorPosition : null;
+  // The cascade's text style lands here, on the content between the borders —
+  // the strip Textual applies `rich_style` to — and never on the border glyphs
+  // `inputRow` composes around it.
   const valueRow = Content.assemble(
     " ".repeat(leftPadding),
     buildInputArea(body, modelRef.current.cursorPosition, cursorIndex, areaWidth, palette),
     " ".repeat(rightPadding),
-  );
+  ).stylizeBefore(contentStyle);
   const edgeRow = (glyph: string): Content =>
     Content.styled(glyph.repeat(innerWidth), palette.border);
 
@@ -490,18 +494,40 @@ export const Input = observer(function Input({
     <WidgetScope widget={widget.handle}>
       <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
         <Box key={`input:${widget.nodeId}:top`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), textAttributes, `input:${widget.nodeId}:top`)}
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), layoutProps, `input:${widget.nodeId}:top`)}
         </Box>
         <Box key={`input:${widget.nodeId}:value`}>
-          {renderContent(inputRow(valueRow, palette, borderCells), textAttributes, `input:${widget.nodeId}:value`)}
+          {renderContent(inputRow(valueRow, palette, borderCells), layoutProps, `input:${widget.nodeId}:value`)}
         </Box>
         <Box key={`input:${widget.nodeId}:bottom`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), textAttributes, `input:${widget.nodeId}:bottom`)}
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), layoutProps, `input:${widget.nodeId}:bottom`)}
         </Box>
       </WidgetFrame>
     </WidgetScope>
   );
 });
+
+// [LAW:one-source-of-truth] One rule decides whether a completion is offered to
+// the user at all. Both halves of the offer read it: the suffix that advertises
+// the completion, and the right-arrow accept that takes it. Writing the rule
+// twice is what let them disagree — the suffix was suppressed in a masked field
+// while the accept stayed live, leaving an action with no affordance that
+// swapped the typed secret for a value the user had never been shown.
+//
+// This is a deliberate divergence from Python Textual, which offers both: it
+// renders `suggestion[len(value):]` in cleartext over the bullets
+// (`_input.py` render_line, 640-644) and accepts it ungated
+// (`action_cursor_right`, 874). Offering neither is defensible and offering
+// both is defensible; offering only the invisible half is not.
+function offersCompletion(value: string, password: boolean): boolean {
+  // An empty value completes nothing: `"anything".startsWith("")` is vacuously
+  // true, so an emptied field would otherwise show the whole stale suggestion
+  // glued onto the placeholder.
+  //
+  // A masked field offers nothing — the length of a completion is itself a fact
+  // about the secret being typed.
+  return value.length > 0 && !password;
+}
 
 function resolveSuggestionSuffix(
   value: string,
@@ -509,13 +535,7 @@ function resolveSuggestionSuffix(
   suggester: Suggester | null,
   password: boolean,
 ): string {
-  // An empty value completes nothing: `"anything".startsWith("")` is vacuously
-  // true, so without this an emptied field would show the whole stale
-  // suggestion glued onto the placeholder.
-  //
-  // A masked field shows no suffix at all rather than a masked one — the length
-  // of a completion is itself a fact about the secret being typed.
-  if (value.length === 0 || password) {
+  if (!offersCompletion(value, password)) {
     return "";
   }
 
@@ -527,14 +547,57 @@ function resolveSuggestionSuffix(
   return prefixMatches ? suggestion.slice(value.length) : "";
 }
 
-// `styles.text` minus the two colours this widget paints itself. The cascade
-// writes `color` and `backgroundColor` into it from the `color`/`background`
-// rules; passing those through would fill the border columns, which Textual
-// leaves transparent. Everything else — bold, italic, underline and whatever
-// Ink adds next — is carried, so `Input { text-style: bold }` still applies.
-function textAttributesOf(text: Partial<TextProps>): Partial<TextProps> {
-  const { color, backgroundColor, ...attributes } = text;
+// Textual keeps two style channels apart: `text-style` paints the widget's
+// *content* (`Input.render_line` applies `rich_style` to the value strip,
+// `_input.py`:669) while the border is drawn separately, so
+// `Input { text-style: bold }` bolds the value and leaves the ▔ ▁ ▊ ▎ glyphs
+// alone — verified against Textual 8.2.3, whose compositor reports the value
+// segment bold and every border segment not.
+//
+// Ink has one channel: base `TextProps` handed to `renderContent` reach every
+// segment of the row, border glyphs included. So split the cascade's rule back
+// into the two channels Textual keeps apart — visual attributes ride the
+// content's own spans, layout props stay on the element. Composing the border
+// glyphs outside that span (see `inputRow`) means they carry no text style by
+// construction, so the next attribute Ink adds cannot leak onto them either.
+//
+// `color`/`backgroundColor` are dropped rather than carried: this widget paints
+// its own foreground and background per span, and letting the cascade's values
+// through as a base style would fill the border columns Textual leaves
+// transparent.
+function splitContentTextStyle(text: Partial<TextProps>): {
+  contentStyle: string;
+  layoutProps: Partial<TextProps>;
+} {
+  const {
+    color,
+    backgroundColor,
+    bold,
+    italic,
+    underline,
+    strikethrough,
+    dimColor,
+    inverse,
+    ...layoutProps
+  } = text;
+
   void color;
   void backgroundColor;
-  return attributes;
+
+  const attributes: readonly (readonly [boolean | undefined, string])[] = [
+    [bold, "bold"],
+    [italic, "italic"],
+    [underline, "underline"],
+    [strikethrough, "strike"],
+    [dimColor, "dim"],
+    [inverse, "reverse"],
+  ];
+
+  return {
+    contentStyle: attributes
+      .filter(([enabled]) => enabled === true)
+      .map(([, token]) => token)
+      .join(" "),
+    layoutProps,
+  };
 }

@@ -77,6 +77,35 @@ function borderColorOf(frame: string): string {
   return `${match[1]},${match[2]},${match[3]}`;
 }
 
+/**
+ * The SGR codes a rendered row carries, as numbers.
+ *
+ * `38`/`48` introduce an extended colour whose following parameters are not SGR
+ * codes in their own right (`5;n` for 256-colour, `2;r;g;b` for truecolour), so
+ * they are skipped: a naive scan would read the `1` out of a colour like
+ * `38;2;1;1;1` and call the row bold.
+ */
+function sgrCodes(row: string): number[] {
+  const codes: number[] = [];
+
+  for (const match of row.matchAll(/\[([0-9;]*)m/g)) {
+    const params = match[1].split(";").filter((part) => part.length > 0).map(Number);
+
+    for (let index = 0; index < params.length; index += 1) {
+      const code = params[index];
+      codes.push(code);
+
+      if (code === 38 || code === 48) {
+        index += params[index + 1] === 5 ? 2 : 4;
+      }
+    }
+  }
+
+  return codes;
+}
+
+const SGR_BOLD = 1;
+
 describe("Input rendering", () => {
   it("draws a bordered frame around its value", async () => {
     const { text } = await framesOf(<Input id={TARGET_ID} value="hello world" />);
@@ -311,6 +340,37 @@ describe("Input rendering", () => {
     session.unmount();
   });
 
+  it("does not accept a suggestion in a password field", async () => {
+    const session = await runTest(
+      <Input id={TARGET_ID} password suggester={new SuggestFromList(["hunter2secret"])} />,
+    );
+    const target = session.app.getByCssId(TARGET_ID) as InputHandle;
+
+    session.app.focusWidget(target.nodeId);
+    await session.app.whenIdle();
+    await session.pilot.type("hun");
+    await session.app.whenIdle();
+
+    // Not a vacuous pass: the suggester really did find a completion, and the
+    // programmatic API still reports it — only the offer to the user is
+    // withheld. Without this the test would pass on a field that simply had
+    // nothing to accept.
+    expect(target.suggestion).toBe("hunter2secret");
+
+    await session.pilot.press("right");
+    await session.app.whenIdle();
+    const frame = stripAnsi(session.lastFrame() ?? "");
+
+    // A masked field offers no completion, so right-arrow moves the cursor and
+    // leaves the value alone. Accepting here would swap the typed secret for a
+    // value the user was never shown, since the suffix is suppressed — an
+    // action with no affordance.
+    expect(frame).toContain("•••");
+    expect(frame).not.toContain("••••");
+    expect(frame).not.toContain("ter2secret");
+    session.unmount();
+  });
+
   it("honours a text-style rule from the cascade", async () => {
     const plain = await runTest(<Input id={TARGET_ID} value="styled" />);
     const plainFrame = plain.lastFrame() ?? "";
@@ -325,6 +385,36 @@ describe("Input rendering", () => {
     // text-style resolves into styles.text; the widget must not discard it.
     expect(boldFrame).not.toBe(plainFrame);
     expect(stripAnsi(boldFrame)).toBe(stripAnsi(plainFrame));
+  });
+
+  it("scopes a text-style rule to the value, leaving the border glyphs unstyled", async () => {
+    const session = await runTest(<Input id={TARGET_ID} value="styled" />, {
+      appProps: { css: `Input { text-style: bold; }` },
+    });
+    const [top, value, bottom] = (session.lastFrame() ?? "")
+      .split("\n")
+      .slice(0, 3)
+      .map(sgrCodes);
+    session.unmount();
+
+    // Textual paints text-style onto the content strip (`render_line` applies
+    // `rich_style` to the value) and draws the border through a separate
+    // channel: with `Input { text-style: bold }` its compositor reports the
+    // value segment bold and every ▔ ▁ ▊ ▎ segment plain.
+    //
+    // Rows 0 and 2 hold border decoration and nothing else, so bold there is
+    // bold that leaked onto chrome — which the frame-equality test above
+    // cannot see, since it passes whether bold landed on the value alone or on
+    // every cell of the widget.
+    //
+    // This has to be asserted here, on the escape sequences, rather than by the
+    // input_text_style visual fixture: ▔ ▁ ▊ ▎ are solid block characters that
+    // xterm draws identically bold or not, so a leak is pixel-identical and
+    // Gate 4 cannot see it. The fixture pins the complementary half — that the
+    // style reaches the value at all.
+    expect(value).toContain(SGR_BOLD);
+    expect(top).not.toContain(SGR_BOLD);
+    expect(bottom).not.toContain(SGR_BOLD);
   });
 
   it("scrolls the window so the cursor stays visible once the value overflows", async () => {
