@@ -371,6 +371,7 @@ export {
   type FooterKeyProps,
   type FooterProps,
   type InputProps,
+  type InputWidget,
   type ProgressBarProps,
   type RadioButtonProps,
   type RadioSetButtonSpec,

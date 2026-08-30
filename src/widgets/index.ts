@@ -4,7 +4,7 @@
 export { Button, type ButtonProps } from "./button-component.js";
 export { ButtonPressed, type ButtonVariant } from "./button.js";
 export { Static, type StaticProps } from "./static-component.js";
-export { Input, type InputProps } from "./input-component.js";
+export { Input, type InputProps, type InputWidget } from "./input-component.js";
 export { InputChanged, InputSubmitted } from "./input.js";
 export { Switch, type SwitchProps } from "./switch-component.js";
 export { SwitchChanged } from "./switch.js";
