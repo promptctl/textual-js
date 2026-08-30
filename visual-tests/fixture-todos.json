@@ -150,40 +150,10 @@
     "reason": "Pre-seeded Python baseline for Stage 10 HelpPanel implementation"
   },
   {
-    "name": "input_empty",
-    "stage": "future",
-    "component": "Input",
-    "reason": "Root cause is widget-layer (not symptom-blamed): src/widgets/input-component.tsx has no `defaultCss` and no placeholder rendering. JS Input renders nothing when `value` is empty — even with `placeholder` set — because `placeholder` is not part of `InputProps` and the displayValue path (line ~239) only consults `modelRef.current.value`. Python's Input is full-width with `border: tall` (top/bottom half-block bars) over `$boost` background; JS emits bare text only. Fix: add Input default CSS (background, border, padding, height, width 100%) and wire `placeholder` through props/model/render."
-  },
-  {
-    "name": "input_filled",
-    "stage": "future",
-    "component": "Input",
-    "reason": "Root cause is widget-layer: src/widgets/input-component.tsx has no `defaultCss`, so Python's full-width slate-bg box with top/bottom half-block border (`border: tall`) plus 1-cell horizontal padding is missing. JS just renders the value text inline. Fix: define DEFAULT_CSS for Input (background, border, padding, height, width:100%) the same way Footer does."
-  },
-  {
-    "name": "input_invalid",
-    "stage": "future",
-    "component": "Input",
-    "reason": "Two gaps: (a) the same missing default CSS as input_filled (no border/bg/padding); (b) no styling rule for `Input.-invalid` is registered, so even though src/widgets/input-component.tsx already toggles the `-invalid` class on validation failure (syncValidationClasses), there is nothing to render against it. Python's Textual ships `border: tall $error` on `:invalid`. Fix: add the default CSS and an Input.-invalid rule (red border)."
-  },
-  {
-    "name": "input_password",
-    "stage": "future",
-    "component": "Input",
-    "reason": "Wrong obfuscation character: src/widgets/input-component.tsx line ~240 uses `*` (`'*'.repeat(...)`); Python uses `•` (U+2022 BULLET). Plus the same missing default CSS as input_filled. Fix: change the character constant and add Input default CSS."
-  },
-  {
     "name": "input_focused",
     "stage": "future",
     "component": "Input",
-    "reason": "Tab now routes to Input via the Ink key bridge, but the Input widget has no :focus visual styling, so the screen state is unchanged after focus and the xterm watchdog still times out. Distinct from the previous diagnosis (which blamed the bridge): Input rendering needs a focus indicator. Tracked under .14."
-  },
-  {
-    "name": "input_placeholder_only",
-    "stage": "future",
-    "component": "Input",
-    "reason": "Root cause is widget-layer: src/widgets/input-component.tsx does not accept a `placeholder` prop (not part of InputProps) and the render path only outputs `modelRef.current.value`. With value empty, nothing is drawn. Fix: add `placeholder` to InputProps, store on the model, and render the dim placeholder text when `value.length === 0` (Python uses `text-style: dim`). Also covers the same missing default CSS as input_filled."
+    "reason": "NOT an Input rendering gap — Input focus styling is done and verified. `Input:focus` resolves border #0178d4, background #272727, placeholder #797979 and the reverse-video block cursor (#121212 on #e0e0e0); rendering the focused frame directly matches visual-tests/snapshots/python/input_focused.json at 240/240 cells, and tests/input-render.test.tsx asserts the focused frame differs from the blurred one. The blocker is framework key dispatch: postToFocused in src/framework/message-pump.ts (~line 305) drops the message when resolveDefaultDispatchTarget() returns undefined, and postKey (~line 313) routes every non-priority key through it. With AUTO_FOCUS = null (which this fixture sets, matching the Python fixture) nothing is focused, the Key message is discarded, and the app-level `{ key: 'tab', action: 'app.focus_next' }` binding at src/framework/_app-runtime.ts:459 never runs. Verified by probe: app.focusNext() focuses the Input correctly, but pilot.press('tab') leaves app.focusedNodeId null, and a custom app-level f5 binding does not fire either — no key reaches app bindings while nothing is focused. Textual routes unfocused keys to the Screen/App so app bindings still fire. Fix belongs in the framework, not in Input. Secondary, Input-side: handleInputKey in src/widgets/input-component.tsx calls message.stop() on every key including tab, so once focused the Input swallows Tab and focus cannot advance."
   },
   {
     "name": "key_panel_default",

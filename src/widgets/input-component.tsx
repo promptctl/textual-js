@@ -2,12 +2,13 @@
 // services do not import or know about the widget component.
 
 import React from "react";
-import { Box } from "ink";
+import { Box, type TextProps } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { Content, renderContent } from "../content/index.js";
 import { Key, Paste } from "../events/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import type { Widget } from "../framework/widget.js";
 import { InputValidationController, type ValidateOn, type ValidationResult, type Validator } from "../validation/index.js";
 import { SuggestionController, type Suggester } from "../suggestions/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
@@ -22,6 +23,7 @@ import {
 
 export interface InputProps extends WidgetComponentProps {
   value?: string;
+  placeholder?: string;
   type?: InputType | string;
   restrict?: RegExp | string | null;
   maxLength?: number | null;
@@ -32,6 +34,165 @@ export interface InputProps extends WidgetComponentProps {
   validEmpty?: boolean;
   valid_empty?: boolean;
   suggester?: Suggester | null;
+}
+
+// [LAW:types-are-the-program] The public instance members this widget installs
+// on its handle — `validate` is public API per spec/docs-spec/widget_input.md.
+// Naming that surface lets a caller who queried an Input say so once, instead
+// of restating a structural cast at every call site. This is a handle type,
+// not a component alias; see src/widgets/README.md on the distinction.
+export interface InputHandle extends Widget {
+  validate(value?: string): ValidationResult;
+  validEmpty: boolean;
+  readonly suggestion: string;
+}
+
+// Textual obscures password input with U+2022 BULLET, not an asterisk.
+const INPUT_PASSWORD_CHARACTER = "•";
+
+// Textual's `Input { padding: 0 2 }`, drawn here rather than declared as a CSS
+// `padding` rule: this widget paints its own border cells, and an Ink-applied
+// box padding would push those cells inward off the frame edge.
+const INPUT_HORIZONTAL_PADDING = 2;
+
+// `▊` (left seven-eighths block) reversed paints a thin rule on the cell's
+// right edge; `▎` (left one-quarter block) paints one on the left. Together
+// they are Textual's `border: tall`, and they carry no background of their
+// own — the screen shows through, exactly as the Python baseline records.
+const INPUT_BORDER_LEFT = "▊";
+const INPUT_BORDER_RIGHT = "▎";
+const INPUT_BORDER_TOP = "▔";
+const INPUT_BORDER_BOTTOM = "▁";
+const INPUT_BORDER_CELLS = 2;
+
+// [LAW:one-source-of-truth] Every colour the Input paints is resolved here and
+// nowhere else. State is expressed as cascade data — the component below never
+// asks whether it is focused or invalid, it only reads what the cascade
+// resolved. Values are Textual's dark theme, verified cell-by-cell against
+// visual-tests/snapshots/python/input_*.json.
+const DEFAULT_CSS = `
+  Input {
+    width: 100%;
+    height: 3;
+    background: #1e1e1e;
+    color: #e0e0e0;
+    --input-border: #191919;
+    --input-placeholder: #737373;
+    --input-cursor-foreground: #121212;
+    --input-cursor-background: #e0e0e0;
+  }
+  Input:focus {
+    background: #272727;
+    --input-border: #0178d4;
+    --input-placeholder: #797979;
+  }
+  Input.-invalid {
+    --input-border: #762b3d;
+  }
+  Input.-invalid:focus {
+    --input-border: #ba3c5b;
+  }
+`;
+
+interface InputPalette {
+  background: string;
+  foreground: string;
+  border: string;
+  placeholder: string;
+  cursorForeground: string;
+  cursorBackground: string;
+}
+
+// [LAW:no-defensive-null-guards] DEFAULT_CSS declares every one of these in the
+// base rule, so the typed accessors fail loud on a broken cascade instead of
+// each call site re-stating a hex literal already written above.
+function readInputPalette(styles: ReturnType<typeof useStyles>): InputPalette {
+  return {
+    background: styles.getColor("background"),
+    foreground: styles.getColor("color"),
+    border: styles.getCustomColor("--input-border"),
+    placeholder: styles.getCustomColor("--input-placeholder"),
+    cursorForeground: styles.getCustomColor("--input-cursor-foreground"),
+    cursorBackground: styles.getCustomColor("--input-cursor-background"),
+  };
+}
+
+// [LAW:dataflow-not-control-flow] Placeholder, plain value and obscured value
+// are one value selection feeding one render path — not three render paths.
+// Textual shows the placeholder exactly when the value is empty, in password
+// mode too.
+function resolveInputDisplay(
+  value: string,
+  placeholder: string,
+  password: boolean,
+  palette: InputPalette,
+): Content {
+  if (value.length === 0) {
+    return Content.styled(placeholder, palette.placeholder);
+  }
+
+  return Content.styled(
+    password ? INPUT_PASSWORD_CHARACTER.repeat(value.length) : value,
+    palette.foreground,
+  );
+}
+
+// The value row's visible window.
+//
+// [LAW:one-source-of-truth] Every width decision here goes through Content's
+// cell-aware measurement (`cellLength`, `truncate`) — the same utilities
+// widget-frame.tsx uses — rather than raw string length, so wide and astral
+// characters are neither split nor mis-measured.
+//
+// [LAW:dataflow-not-control-flow] The cursor is a value, not a branch: an empty
+// range (0, 0) when the widget is unfocused, which `stylize` returns unchanged,
+// so focused and unfocused take the same path.
+//
+// Where the window sits and whether a cursor is drawn are two separate
+// questions, and only the second depends on focus. `caret` is the model's
+// cursor position, which focus does not change, so the window holds still
+// across blur and refocus; `cursorIndex` is null when unfocused and only
+// suppresses the overlay.
+//
+// Textual scrolls the window to keep the cursor visible. This offset is
+// derived from the caret each render rather than stored as a sticky
+// `view_position`, so it re-anchors on every move instead of holding — and an
+// Input constructed with an overflowing value opens on its tail, since the
+// model starts the caret at the end. Tracked as textual-input-view-position-zwi.
+function buildInputArea(
+  body: Content,
+  caret: number,
+  cursorIndex: number | null,
+  areaWidth: number,
+  palette: InputPalette,
+): Content {
+  const viewOffset = Math.max(0, caret - areaWidth + 1);
+  const visible = body.slice(viewOffset).truncate(areaWidth, { overflow: "crop" });
+  const area = Content.assemble(visible, " ".repeat(Math.max(0, areaWidth - visible.cellLength)));
+  const cursorStart = cursorIndex === null ? 0 : cursorIndex - viewOffset;
+  const cursorEnd = cursorIndex === null ? 0 : cursorStart + 1;
+
+  return area.stylize(
+    `${palette.cursorForeground} on ${palette.cursorBackground}`,
+    cursorStart,
+    cursorEnd,
+  );
+}
+
+// The border columns carry no background of their own — the screen shows
+// through them — so the surface fill is applied to `inner` alone.
+//
+// [LAW:dataflow-not-control-flow] `borderCells` is a width budget, not a
+// condition: each glyph is emitted through a slice, so one column yields the
+// left rule alone and zero yields an empty row without either case being a
+// branch. A frame narrower than the border (every Input's first paint, before
+// the layout reader measures it) must not render wider than it was allocated.
+function inputRow(inner: Content, palette: InputPalette, borderCells: number): Content {
+  return Content.assemble(
+    Content.styled(INPUT_BORDER_LEFT.slice(0, Math.min(1, borderCells)), `${palette.border} reverse`),
+    inner.stylizeBefore(`on ${palette.background}`),
+    Content.styled(INPUT_BORDER_RIGHT.slice(0, Math.max(0, borderCells - 1)), palette.border),
+  );
 }
 
 const INPUT_BINDINGS = [
@@ -51,6 +212,7 @@ export const Input = observer(function Input({
   borderTitle,
   borderSubtitle,
   value = "",
+  placeholder = "",
   type = "text",
   restrict,
   maxLength,
@@ -90,11 +252,7 @@ export const Input = observer(function Input({
     });
   }, []);
 
-  if (validationControllerRef.current === undefined) {
-    rebuildValidationController(validEmptyRef.current);
-  } else {
-    rebuildValidationController(validEmptyRef.current);
-  }
+  rebuildValidationController(validEmptyRef.current);
 
   const widget = useWidget({
     id,
@@ -103,6 +261,7 @@ export const Input = observer(function Input({
     borderTitle,
     borderSubtitle,
     focusable: true,
+    defaultCss: DEFAULT_CSS,
     bindings: INPUT_BINDINGS,
     actions: createInputActions(modelRef.current),
     handlers: {
@@ -129,14 +288,22 @@ export const Input = observer(function Input({
     widget.handle.toggleClass("-invalid", !result.isValid);
   }, [widget.handle]);
 
-  const recomputeValidationState = React.useCallback((): ValidationResult => {
+  // [LAW:one-source-of-truth] The "run every validator regardless of which
+  // events the widget subscribes to" controller is built here and nowhere
+  // else; both the `validEmpty` setter and the public `validate()` read it.
+  const validateValue = React.useCallback((candidate: string): ValidationResult => {
     const controller = new InputValidationController({
       validators: validatorsRef.current,
       validEmpty: validEmptyRef.current,
       validateOn: ["changed", "submitted", "blur"],
     });
-    return controller.validate(modelRef.current!.value, "changed")!;
+    return controller.validate(candidate, "changed")!;
   }, []);
+
+  const recomputeValidationState = React.useCallback(
+    (): ValidationResult => validateValue(modelRef.current!.value),
+    [validateValue],
+  );
 
   const applyValidation = React.useCallback((event: ValidateOn) => {
     const result = validationControllerRef.current!.validate(modelRef.current!.value, event);
@@ -160,13 +327,14 @@ export const Input = observer(function Input({
   }, [applyValidation, refreshSuggestion, widget]);
 
   const acceptSuggestion = React.useCallback((): boolean => {
+    const model = modelRef.current!;
     const suggestion = suggestionControllerRef.current!.suggestion;
 
-    if (suggestion.length === 0) {
+    if (!offersCompletion(model.value, model.password) || suggestion.length === 0) {
       return false;
     }
 
-    modelRef.current!.value = suggestion;
+    model.value = suggestion;
     postChanged();
     return true;
   }, [postChanged]);
@@ -177,9 +345,23 @@ export const Input = observer(function Input({
       valid_empty?: boolean;
       suggestion?: string;
       _suggestion?: string;
+      validate?: InputHandle["validate"];
     };
 
     Object.defineProperties(inputHandle, {
+      // Textual's public `Input.validate(value)`: run every validator now and
+      // publish the outcome as the -valid/-invalid classes the cascade styles
+      // against. Textual validates on value *changes*, so a widget built with
+      // an initial value carries no verdict until someone asks for one.
+      validate: {
+        configurable: true,
+        value: (candidate: string = modelRef.current!.value): ValidationResult => {
+          const result = validateValue(candidate);
+          syncValidationClasses(result);
+          forceRender();
+          return result;
+        },
+      },
       validEmpty: {
         configurable: true,
         get: () => validEmptyRef.current,
@@ -206,7 +388,7 @@ export const Input = observer(function Input({
         get: () => suggestionControllerRef.current!.suggestion,
       },
     });
-  }, [rebuildValidationController, recomputeValidationState, syncValidationClasses, widget.handle]);
+  }, [rebuildValidationController, recomputeValidationState, syncValidationClasses, validateValue, widget.handle]);
 
   function handleInputKey(message: Key): void {
     const model = modelRef.current!;
@@ -249,30 +431,173 @@ export const Input = observer(function Input({
     }
   }
 
-  const displayValue = modelRef.current.password
-    ? "*".repeat(modelRef.current.value.length)
-    : modelRef.current.value;
+  // [LAW:dataflow-not-control-flow] On the very first render the widget is not
+  // yet registered and `styles` is empty — the typed accessors below would
+  // throw. Gate on `lifecycleReady` so styles are read only once the framework
+  // guarantees the cascade has populated them, mirroring Button and Switch.
+  if (!widget.lifecycleReady) {
+    return <WidgetScope widget={widget.handle}><></></WidgetScope>;
+  }
+
+  const palette = readInputPalette(styles);
+  // [LAW:one-source-of-truth] The frame width is the region Ink measured for
+  // this widget (`width: 100%` stretching to the screen), not a literal copied
+  // from the terminal geometry. The first paint measures zero and the layout
+  // reader re-renders with the real width.
+  const frameWidth = widget.handle.screenRegion.width;
+  const borderCells = Math.min(INPUT_BORDER_CELLS, frameWidth);
+  const innerWidth = frameWidth - borderCells;
+  // [LAW:one-source-of-truth] Padding and text area are carved from one width
+  // budget, so `padding * 2 + area === innerWidth` holds at every width and the
+  // value row can never render wider than the border rows above and below it.
+  // Together with `borderCells`, this keeps
+  // `borderCells + leftPadding + areaWidth + rightPadding === frameWidth` true
+  // at every width.
+  // Padding is budgeted as a total, not capped per side. Capping each side at
+  // half the inner width makes the text area oscillate as the widget grows
+  // (0, 1, 0, 1, 0, 1, 2 …) because the per-side cap reaches its maximum one
+  // step before the area would have grown. Taking the padding as one budget
+  // keeps the area monotonic in the width, and matches Textual, where
+  // `padding: 0 2` is fixed and the content box simply shrinks to nothing.
+  const totalPadding = Math.min(INPUT_HORIZONTAL_PADDING * 2, innerWidth);
+  const leftPadding = Math.min(INPUT_HORIZONTAL_PADDING, totalPadding);
+  const rightPadding = totalPadding - leftPadding;
+  const areaWidth = innerWidth - totalPadding;
+
   const suggestion = suggestionControllerRef.current.suggestion;
-  const suffix = resolveSuggestionSuffix(modelRef.current.value, suggestion, suggester);
-  const content = Content.assemble(
-    displayValue,
-    suffix.length === 0 ? "" : Content.styled(suffix, "dim"),
+  const suffix = resolveSuggestionSuffix(
+    modelRef.current.value,
+    suggestion,
+    suggester,
+    modelRef.current.password,
   );
+  const { contentStyle, layoutProps } = splitContentTextStyle(styles.text);
+  const body = Content.assemble(
+    resolveInputDisplay(modelRef.current.value, placeholder, modelRef.current.password, palette),
+    Content.styled(suffix, `${palette.foreground} dim`),
+  );
+  // [LAW:dataflow-not-control-flow] Cursor visibility is data, not a branch:
+  // an index when the widget holds focus, null when it does not.
+  const cursorIndex = widget.handle.isFocused ? modelRef.current.cursorPosition : null;
+  // The cascade's text style lands here, on the content between the borders —
+  // the strip Textual applies `rich_style` to — and never on the border glyphs
+  // `inputRow` composes around it.
+  const valueRow = Content.assemble(
+    " ".repeat(leftPadding),
+    buildInputArea(body, modelRef.current.cursorPosition, cursorIndex, areaWidth, palette),
+    " ".repeat(rightPadding),
+  ).stylizeBefore(contentStyle);
+  const edgeRow = (glyph: string): Content =>
+    Content.styled(glyph.repeat(innerWidth), palette.border);
 
   return (
     <WidgetScope widget={widget.handle}>
-      <WidgetFrame widget={widget.handle} styles={styles}>
-        {renderContent(content, styles.text, `input:${widget.nodeId}`)}
+      <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
+        <Box key={`input:${widget.nodeId}:top`}>
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), layoutProps, `input:${widget.nodeId}:top`)}
+        </Box>
+        <Box key={`input:${widget.nodeId}:value`}>
+          {renderContent(inputRow(valueRow, palette, borderCells), layoutProps, `input:${widget.nodeId}:value`)}
+        </Box>
+        <Box key={`input:${widget.nodeId}:bottom`}>
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), layoutProps, `input:${widget.nodeId}:bottom`)}
+        </Box>
       </WidgetFrame>
     </WidgetScope>
   );
 });
 
-function resolveSuggestionSuffix(value: string, suggestion: string, suggester: Suggester | null): string {
+// [LAW:one-source-of-truth] One rule decides whether a completion is offered to
+// the user at all. Both halves of the offer read it: the suffix that advertises
+// the completion, and the right-arrow accept that takes it. Writing the rule
+// twice is what let them disagree — the suffix was suppressed in a masked field
+// while the accept stayed live, leaving an action with no affordance that
+// swapped the typed secret for a value the user had never been shown.
+//
+// This is a deliberate divergence from Python Textual, which offers both: it
+// renders `suggestion[len(value):]` in cleartext over the bullets
+// (`_input.py` render_line, 640-644) and accepts it ungated
+// (`action_cursor_right`, 874). Offering neither is defensible and offering
+// both is defensible; offering only the invisible half is not.
+function offersCompletion(value: string, password: boolean): boolean {
+  // An empty value completes nothing: `"anything".startsWith("")` is vacuously
+  // true, so an emptied field would otherwise show the whole stale suggestion
+  // glued onto the placeholder.
+  //
+  // A masked field offers nothing — the length of a completion is itself a fact
+  // about the secret being typed.
+  return value.length > 0 && !password;
+}
+
+function resolveSuggestionSuffix(
+  value: string,
+  suggestion: string,
+  suggester: Suggester | null,
+  password: boolean,
+): string {
+  if (!offersCompletion(value, password)) {
+    return "";
+  }
+
   const caseSensitive = suggester?.caseSensitive ?? true;
   const prefixMatches = caseSensitive
     ? suggestion.startsWith(value)
     : suggestion.toLowerCase().startsWith(value.toLowerCase());
 
   return prefixMatches ? suggestion.slice(value.length) : "";
+}
+
+// Textual keeps two style channels apart: `text-style` paints the widget's
+// *content* (`Input.render_line` applies `rich_style` to the value strip,
+// `_input.py`:669) while the border is drawn separately, so
+// `Input { text-style: bold }` bolds the value and leaves the ▔ ▁ ▊ ▎ glyphs
+// alone — verified against Textual 8.2.3, whose compositor reports the value
+// segment bold and every border segment not.
+//
+// Ink has one channel: base `TextProps` handed to `renderContent` reach every
+// segment of the row, border glyphs included. So split the cascade's rule back
+// into the two channels Textual keeps apart — visual attributes ride the
+// content's own spans, layout props stay on the element. Composing the border
+// glyphs outside that span (see `inputRow`) means they carry no text style by
+// construction, so the next attribute Ink adds cannot leak onto them either.
+//
+// `color`/`backgroundColor` are dropped rather than carried: this widget paints
+// its own foreground and background per span, and letting the cascade's values
+// through as a base style would fill the border columns Textual leaves
+// transparent.
+function splitContentTextStyle(text: Partial<TextProps>): {
+  contentStyle: string;
+  layoutProps: Partial<TextProps>;
+} {
+  const {
+    color,
+    backgroundColor,
+    bold,
+    italic,
+    underline,
+    strikethrough,
+    dimColor,
+    inverse,
+    ...layoutProps
+  } = text;
+
+  void color;
+  void backgroundColor;
+
+  const attributes: readonly (readonly [boolean | undefined, string])[] = [
+    [bold, "bold"],
+    [italic, "italic"],
+    [underline, "underline"],
+    [strikethrough, "strike"],
+    [dimColor, "dim"],
+    [inverse, "reverse"],
+  ];
+
+  return {
+    contentStyle: attributes
+      .filter(([enabled]) => enabled === true)
+      .map(([, token]) => token)
+      .join(" "),
+    layoutProps,
+  };
 }
