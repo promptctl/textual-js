@@ -1,5 +1,5 @@
 import React from "react";
-import { Input, useTextual, type InputWidget } from "../../src/index.js";
+import { Input, useTextual, type InputHandle } from "../../src/index.js";
 import { NumberValidator } from "../../src/validation/index.js";
 import { FixtureScreen } from "../fixture-screen.tsx";
 
@@ -17,7 +17,7 @@ function ValidateOnMount(): null {
   const app = useTextual();
 
   React.useEffect(() => {
-    const input = app.getByCssId(TARGET_ID) as InputWidget | undefined;
+    const input = app.getByCssId(TARGET_ID) as InputHandle | undefined;
 
     if (input === undefined) {
       throw new Error(`input_invalid fixture: no widget with id "${TARGET_ID}"`);

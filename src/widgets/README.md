@@ -7,7 +7,8 @@ This file is the canonical implementation template for built-in widgets.
 ## Public Shape
 
 - Export user-facing widgets by Textual name: `Button`, `Input`, `ProgressBar`, `Static`, `Switch`.
-- Do not export `ButtonWidget` / `InputWidget` aliases.
+- Do not export `ButtonWidget` / `InputWidget` component aliases. One public name per widget; a second name for the same component is a second source of truth for what to import.
+- A widget that installs public instance members on its handle (Textual's public widget methods — `Input.validate`, and so on) exports one `WidgetNameHandle` interface describing exactly that surface, e.g. `InputHandle`. This is not the aliasing the rule above forbids: it names the *handle* a query returns, not the component. Without it every caller restates the same structural cast. Export it only when the widget really does install such members — never as a decorative synonym for the component.
 - Keep backing state helpers internal to implementation modules and name them `WidgetNameModel`.
 - Re-export only completed public widgets from `src/widgets/index.ts` and `src/index.ts`.
 

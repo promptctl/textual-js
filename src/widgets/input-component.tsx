@@ -36,11 +36,12 @@ export interface InputProps extends WidgetComponentProps {
   suggester?: Suggester | null;
 }
 
-// [LAW:types-are-the-program] The Input installs extra members on its widget
-// handle (Textual's `Input` API surface). Naming that surface lets a caller
-// that queried an Input say so once, instead of reaching for `any` at the
-// point of every call.
-export interface InputWidget extends Widget {
+// [LAW:types-are-the-program] The public instance members this widget installs
+// on its handle — `validate` is public API per spec/docs-spec/widget_input.md.
+// Naming that surface lets a caller who queried an Input say so once, instead
+// of restating a structural cast at every call site. This is a handle type,
+// not a component alias; see src/widgets/README.md on the distinction.
+export interface InputHandle extends Widget {
   validate(value?: string): ValidationResult;
   validEmpty: boolean;
   readonly suggestion: string;
@@ -102,11 +103,6 @@ interface InputPalette {
   cursorBackground: string;
 }
 
-interface InputRun {
-  text: string;
-  style: string;
-}
-
 // [LAW:no-defensive-null-guards] DEFAULT_CSS declares every one of these in the
 // base rule, so the typed accessors fail loud on a broken cascade instead of
 // each call site re-stating a hex literal already written above.
@@ -121,45 +117,6 @@ function readInputPalette(styles: ReturnType<typeof useStyles>): InputPalette {
   };
 }
 
-// [LAW:composability] Fitting a run list to an exact cell width knows nothing
-// about inputs: crop what overflows, pad what falls short. Any run list, any
-// width.
-function fitRuns(runs: readonly InputRun[], width: number, fillStyle: string): InputRun[] {
-  let remaining = Math.max(0, width);
-  const cropped = runs.map((run) => {
-    const text = run.text.slice(0, remaining);
-    remaining -= text.length;
-    return { text, style: run.style };
-  });
-
-  return [...cropped, { text: " ".repeat(remaining), style: fillStyle }];
-}
-
-// [LAW:composability] Overlaying a one-cell style at an index is independent of
-// what Input means by "cursor" — it is a run-list operation.
-// [LAW:dataflow-not-control-flow] The fold runs over every run unconditionally.
-// A null index is the identity overlay: it matches no cell and the list comes
-// back unchanged, so an unfocused Input takes the same code path as a focused
-// one and simply carries no cursor.
-function overlayCell(runs: readonly InputRun[], index: number | null, style: string): InputRun[] {
-  let consumed = 0;
-
-  return runs.flatMap((run) => {
-    const local = index === null ? -1 : index - consumed;
-    consumed += run.text.length;
-
-    if (local < 0 || local >= run.text.length) {
-      return [run];
-    }
-
-    return [
-      { text: run.text.slice(0, local), style: run.style },
-      { text: run.text.slice(local, local + 1), style },
-      { text: run.text.slice(local + 1), style: run.style },
-    ];
-  });
-}
-
 // [LAW:dataflow-not-control-flow] Placeholder, plain value and obscured value
 // are one value selection feeding one render path — not three render paths.
 // Textual shows the placeholder exactly when the value is empty, in password
@@ -169,38 +126,58 @@ function resolveInputDisplay(
   placeholder: string,
   password: boolean,
   palette: InputPalette,
-): InputRun {
+): Content {
   if (value.length === 0) {
-    return { text: placeholder, style: `${palette.placeholder} on ${palette.background}` };
+    return Content.styled(placeholder, palette.placeholder);
   }
 
-  return {
-    text: password ? INPUT_PASSWORD_CHARACTER.repeat(value.length) : value,
-    style: `${palette.foreground} on ${palette.background}`,
-  };
+  return Content.styled(
+    password ? INPUT_PASSWORD_CHARACTER.repeat(value.length) : value,
+    palette.foreground,
+  );
 }
 
-function inputBorderRuns(inner: readonly InputRun[], palette: InputPalette): InputRun[] {
-  return [
-    { text: INPUT_BORDER_LEFT, style: `${palette.border} reverse` },
-    ...inner,
-    { text: INPUT_BORDER_RIGHT, style: palette.border },
-  ];
+// The value row's visible window.
+//
+// [LAW:one-source-of-truth] Every width decision here goes through Content's
+// cell-aware measurement (`cellLength`, `truncate`) — the same utilities
+// widget-frame.tsx uses — rather than raw string length, so wide and astral
+// characters are neither split nor mis-measured.
+//
+// [LAW:dataflow-not-control-flow] The cursor is a value, not a branch: an empty
+// range (0, 0) when the widget is unfocused, which `stylize` returns unchanged,
+// so focused and unfocused take the same path.
+//
+// Textual scrolls the window to keep the cursor visible; the offset here is
+// derived from the cursor each render rather than stored as a sticky
+// `view_position`, so it always keeps the cursor in view but re-anchors on
+// every move instead of holding until the cursor would leave.
+function buildInputArea(
+  body: Content,
+  cursorIndex: number | null,
+  areaWidth: number,
+  palette: InputPalette,
+): Content {
+  const viewOffset = cursorIndex === null ? 0 : Math.max(0, cursorIndex - areaWidth + 1);
+  const visible = body.slice(viewOffset).truncate(areaWidth, { overflow: "crop" });
+  const area = Content.assemble(visible, " ".repeat(Math.max(0, areaWidth - visible.cellLength)));
+  const cursorStart = cursorIndex === null ? 0 : cursorIndex - viewOffset;
+  const cursorEnd = cursorIndex === null ? 0 : cursorStart + 1;
+
+  return area.stylize(
+    `${palette.cursorForeground} on ${palette.cursorBackground}`,
+    cursorStart,
+    cursorEnd,
+  );
 }
 
-function renderInputRow(runs: readonly InputRun[], key: string): React.JSX.Element {
-  return (
-    <Box key={key}>
-      {runs
-        .filter((run) => run.text.length > 0)
-        .map((run, index) => (
-          // renderContent keys the spans it emits but not the element it
-          // returns; the fragment supplies the list key React needs here.
-          <React.Fragment key={`${key}:${index}`}>
-            {renderContent(Content.styled(run.text, run.style), {}, `${key}:${index}`)}
-          </React.Fragment>
-        ))}
-    </Box>
+// The border columns carry no background of their own — the screen shows
+// through them — so the surface fill is applied to `inner` alone.
+function inputRow(inner: Content, palette: InputPalette): Content {
+  return Content.assemble(
+    Content.styled(INPUT_BORDER_LEFT, `${palette.border} reverse`),
+    inner.stylizeBefore(`on ${palette.background}`),
+    Content.styled(INPUT_BORDER_RIGHT, palette.border),
   );
 }
 
@@ -357,7 +334,7 @@ export const Input = observer(function Input({
       valid_empty?: boolean;
       suggestion?: string;
       _suggestion?: string;
-      validate?: InputWidget["validate"];
+      validate?: InputHandle["validate"];
     };
 
     Object.defineProperties(inputHandle, {
@@ -458,55 +435,43 @@ export const Input = observer(function Input({
   // reader re-renders with the real width.
   const frameWidth = widget.handle.screenRegion.width;
   const innerWidth = Math.max(0, frameWidth - INPUT_BORDER_CELLS);
-  const areaWidth = Math.max(0, innerWidth - INPUT_HORIZONTAL_PADDING * 2);
-  const surfaceStyle = `on ${palette.background}`;
-  const paddingRun: InputRun = { text: " ".repeat(INPUT_HORIZONTAL_PADDING), style: surfaceStyle };
+  // [LAW:one-source-of-truth] Padding and text area are carved from one width
+  // budget, so `padding * 2 + area === innerWidth` holds at every width and the
+  // value row can never render wider than the border rows above and below it.
+  // At a narrow width the padding gives way before the text area does.
+  const paddingWidth = Math.min(INPUT_HORIZONTAL_PADDING, Math.floor(innerWidth / 2));
+  const areaWidth = innerWidth - paddingWidth * 2;
+  const padding = " ".repeat(paddingWidth);
 
   const suggestion = suggestionControllerRef.current.suggestion;
   const suffix = resolveSuggestionSuffix(modelRef.current.value, suggestion, suggester);
-  const display = resolveInputDisplay(
-    modelRef.current.value,
-    placeholder,
-    modelRef.current.password,
-    palette,
+  const body = Content.assemble(
+    resolveInputDisplay(modelRef.current.value, placeholder, modelRef.current.password, palette),
+    Content.styled(suffix, `${palette.foreground} dim`),
   );
   // [LAW:dataflow-not-control-flow] Cursor visibility is data, not a branch:
-  // an index when the widget holds focus, null when it does not. Both feed the
-  // same overlay.
+  // an index when the widget holds focus, null when it does not.
   const cursorIndex = widget.handle.isFocused ? modelRef.current.cursorPosition : null;
-  const areaRuns = overlayCell(
-    fitRuns(
-      [display, { text: suffix, style: `${palette.foreground} dim ${surfaceStyle}` }],
-      areaWidth,
-      surfaceStyle,
-    ),
-    cursorIndex,
-    `${palette.cursorForeground} on ${palette.cursorBackground}`,
+  const valueRow = Content.assemble(
+    padding,
+    buildInputArea(body, cursorIndex, areaWidth, palette),
+    padding,
   );
-  const edgeRun = (glyph: string): InputRun => ({
-    text: glyph.repeat(innerWidth),
-    style: `${palette.border} ${surfaceStyle}`,
-  });
+  const edgeRow = (glyph: string): Content =>
+    Content.styled(glyph.repeat(innerWidth), palette.border);
 
   return (
     <WidgetScope widget={widget.handle}>
-      {/* Every surface cell carries its own `on <background>` rather than
-          relying on a container fill: Textual leaves the two border columns
-          transparent (the screen shows through), which a full-width fill
-          would paint over. */}
       <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
-        {renderInputRow(
-          inputBorderRuns([edgeRun(INPUT_BORDER_TOP)], palette),
-          `input:${widget.nodeId}:top`,
-        )}
-        {renderInputRow(
-          inputBorderRuns([paddingRun, ...areaRuns, paddingRun], palette),
-          `input:${widget.nodeId}:value`,
-        )}
-        {renderInputRow(
-          inputBorderRuns([edgeRun(INPUT_BORDER_BOTTOM)], palette),
-          `input:${widget.nodeId}:bottom`,
-        )}
+        <Box key={`input:${widget.nodeId}:top`}>
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette), {}, `input:${widget.nodeId}:top`)}
+        </Box>
+        <Box key={`input:${widget.nodeId}:value`}>
+          {renderContent(inputRow(valueRow, palette), {}, `input:${widget.nodeId}:value`)}
+        </Box>
+        <Box key={`input:${widget.nodeId}:bottom`}>
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette), {}, `input:${widget.nodeId}:bottom`)}
+        </Box>
       </WidgetFrame>
     </WidgetScope>
   );
