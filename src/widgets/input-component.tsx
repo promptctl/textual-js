@@ -173,11 +173,17 @@ function buildInputArea(
 
 // The border columns carry no background of their own — the screen shows
 // through them — so the surface fill is applied to `inner` alone.
-function inputRow(inner: Content, palette: InputPalette): Content {
+//
+// [LAW:dataflow-not-control-flow] `borderCells` is a width budget, not a
+// condition: each glyph is emitted through a slice, so one column yields the
+// left rule alone and zero yields an empty row without either case being a
+// branch. A frame narrower than the border (every Input's first paint, before
+// the layout reader measures it) must not render wider than it was allocated.
+function inputRow(inner: Content, palette: InputPalette, borderCells: number): Content {
   return Content.assemble(
-    Content.styled(INPUT_BORDER_LEFT, `${palette.border} reverse`),
+    Content.styled(INPUT_BORDER_LEFT.slice(0, Math.min(1, borderCells)), `${palette.border} reverse`),
     inner.stylizeBefore(`on ${palette.background}`),
-    Content.styled(INPUT_BORDER_RIGHT, palette.border),
+    Content.styled(INPUT_BORDER_RIGHT.slice(0, Math.max(0, borderCells - 1)), palette.border),
   );
 }
 
@@ -434,11 +440,15 @@ export const Input = observer(function Input({
   // from the terminal geometry. The first paint measures zero and the layout
   // reader re-renders with the real width.
   const frameWidth = widget.handle.screenRegion.width;
-  const innerWidth = Math.max(0, frameWidth - INPUT_BORDER_CELLS);
+  const borderCells = Math.min(INPUT_BORDER_CELLS, frameWidth);
+  const innerWidth = frameWidth - borderCells;
   // [LAW:one-source-of-truth] Padding and text area are carved from one width
   // budget, so `padding * 2 + area === innerWidth` holds at every width and the
   // value row can never render wider than the border rows above and below it.
-  // At a narrow width the padding gives way before the text area does.
+  // Together with `borderCells`, this keeps
+  // `borderCells + paddingWidth * 2 + areaWidth === frameWidth` true at every
+  // width — the padding gives way before the text area, and the border before
+  // the padding.
   const paddingWidth = Math.min(INPUT_HORIZONTAL_PADDING, Math.floor(innerWidth / 2));
   const areaWidth = innerWidth - paddingWidth * 2;
   const padding = " ".repeat(paddingWidth);
@@ -464,13 +474,13 @@ export const Input = observer(function Input({
     <WidgetScope widget={widget.handle}>
       <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
         <Box key={`input:${widget.nodeId}:top`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette), {}, `input:${widget.nodeId}:top`)}
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), {}, `input:${widget.nodeId}:top`)}
         </Box>
         <Box key={`input:${widget.nodeId}:value`}>
-          {renderContent(inputRow(valueRow, palette), {}, `input:${widget.nodeId}:value`)}
+          {renderContent(inputRow(valueRow, palette, borderCells), {}, `input:${widget.nodeId}:value`)}
         </Box>
         <Box key={`input:${widget.nodeId}:bottom`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette), {}, `input:${widget.nodeId}:bottom`)}
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), {}, `input:${widget.nodeId}:bottom`)}
         </Box>
       </WidgetFrame>
     </WidgetScope>

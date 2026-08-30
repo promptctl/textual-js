@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
+import { Box } from "ink";
 
 import { Input, runTest, type InputHandle } from "../src/index.js";
 import { NumberValidator } from "../src/validation/index.js";
@@ -145,6 +146,28 @@ describe("Input rendering", () => {
     session.unmount();
   });
 
+  it("applies the validator's verdict to typed input, not just to validate()", async () => {
+    // The live path a user takes — handleInputKey -> postChanged ->
+    // applyValidation("changed") -> syncValidationClasses. The validate()
+    // accessor the other tests use bypasses all of it.
+    const session = await runTest(numberInput(""));
+    const target = session.app.getByCssId(TARGET_ID) as InputHandle;
+
+    session.app.focusWidget(target.nodeId);
+    await session.app.whenIdle();
+
+    await session.pilot.type("abc");
+    expect([...target.classes]).toContain("-invalid");
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("abc");
+
+    await session.pilot.press("backspace", "backspace", "backspace");
+    await session.pilot.type("123");
+    expect([...target.classes]).toContain("-valid");
+    expect([...target.classes]).not.toContain("-invalid");
+
+    session.unmount();
+  });
+
   it("renders a visibly different frame when a validator fails", async () => {
     // Same displayed value in both frames, so the only thing the comparison can
     // be sensitive to is the invalid styling — not a text difference.
@@ -165,6 +188,32 @@ describe("Input rendering", () => {
     expect(borderColorOf(invalid.focused)).not.toBe(borderColorOf(valid.focused));
     expect(borderColorOf(invalid.focused)).not.toBe(borderColorOf(invalid.blurred));
     expect(borderColorOf(invalid.blurred)).not.toBe(borderColorOf(valid.blurred));
+  });
+
+  it.each([1, 2, 3, 6])("never renders wider than the %i columns it was given", async (width) => {
+    const session = await runTest(
+      <Box width={width} flexDirection="column">
+        <Input id={TARGET_ID} value="hello world" />
+      </Box>,
+    );
+    const rows = stripAnsi(session.lastFrame() ?? "")
+      .split("\n")
+      .filter((row) => row.length > 0);
+
+    // Locks the user-visible property: nothing spills past the allocated
+    // columns at any width, including widths too narrow to hold the border.
+    //
+    // Deliberately NOT a test of the border/padding width budget in
+    // input-component.tsx: Ink clips a Box's children to its width, so an
+    // over-wide row is absorbed before it reaches the frame and reverting the
+    // budget still passes here. The budget is a source-level invariant that
+    // keeps the component from depending on that clip; it is not observable
+    // from a rendered frame, and this test does not pretend to cover it.
+    for (const row of rows) {
+      expect(row.length).toBeLessThanOrEqual(width);
+    }
+
+    session.unmount();
   });
 
   it("scrolls the window so the cursor stays visible once the value overflows", async () => {
