@@ -2,7 +2,7 @@
 // services do not import or know about the widget component.
 
 import React from "react";
-import { Box } from "ink";
+import { Box, type TextProps } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { Content, renderContent } from "../content/index.js";
@@ -148,17 +148,25 @@ function resolveInputDisplay(
 // range (0, 0) when the widget is unfocused, which `stylize` returns unchanged,
 // so focused and unfocused take the same path.
 //
-// Textual scrolls the window to keep the cursor visible; the offset here is
-// derived from the cursor each render rather than stored as a sticky
-// `view_position`, so it always keeps the cursor in view but re-anchors on
-// every move instead of holding until the cursor would leave.
+// Where the window sits and whether a cursor is drawn are two separate
+// questions, and only the second depends on focus. `caret` is the model's
+// cursor position, which focus does not change, so the window holds still
+// across blur and refocus; `cursorIndex` is null when unfocused and only
+// suppresses the overlay.
+//
+// Textual scrolls the window to keep the cursor visible. This offset is
+// derived from the caret each render rather than stored as a sticky
+// `view_position`, so it re-anchors on every move instead of holding — and an
+// Input constructed with an overflowing value opens on its tail, since the
+// model starts the caret at the end. Tracked as textual-input-view-position-zwi.
 function buildInputArea(
   body: Content,
+  caret: number,
   cursorIndex: number | null,
   areaWidth: number,
   palette: InputPalette,
 ): Content {
-  const viewOffset = cursorIndex === null ? 0 : Math.max(0, cursorIndex - areaWidth + 1);
+  const viewOffset = Math.max(0, caret - areaWidth + 1);
   const visible = body.slice(viewOffset).truncate(areaWidth, { overflow: "crop" });
   const area = Content.assemble(visible, " ".repeat(Math.max(0, areaWidth - visible.cellLength)));
   const cursorStart = cursorIndex === null ? 0 : cursorIndex - viewOffset;
@@ -244,11 +252,7 @@ export const Input = observer(function Input({
     });
   }, []);
 
-  if (validationControllerRef.current === undefined) {
-    rebuildValidationController(validEmptyRef.current);
-  } else {
-    rebuildValidationController(validEmptyRef.current);
-  }
+  rebuildValidationController(validEmptyRef.current);
 
   const widget = useWidget({
     id,
@@ -446,15 +450,27 @@ export const Input = observer(function Input({
   // budget, so `padding * 2 + area === innerWidth` holds at every width and the
   // value row can never render wider than the border rows above and below it.
   // Together with `borderCells`, this keeps
-  // `borderCells + paddingWidth * 2 + areaWidth === frameWidth` true at every
-  // width — the padding gives way before the text area, and the border before
-  // the padding.
-  const paddingWidth = Math.min(INPUT_HORIZONTAL_PADDING, Math.floor(innerWidth / 2));
-  const areaWidth = innerWidth - paddingWidth * 2;
-  const padding = " ".repeat(paddingWidth);
+  // `borderCells + leftPadding + areaWidth + rightPadding === frameWidth` true
+  // at every width.
+  // Padding is budgeted as a total, not capped per side. Capping each side at
+  // half the inner width makes the text area oscillate as the widget grows
+  // (0, 1, 0, 1, 0, 1, 2 …) because the per-side cap reaches its maximum one
+  // step before the area would have grown. Taking the padding as one budget
+  // keeps the area monotonic in the width, and matches Textual, where
+  // `padding: 0 2` is fixed and the content box simply shrinks to nothing.
+  const totalPadding = Math.min(INPUT_HORIZONTAL_PADDING * 2, innerWidth);
+  const leftPadding = Math.min(INPUT_HORIZONTAL_PADDING, totalPadding);
+  const rightPadding = totalPadding - leftPadding;
+  const areaWidth = innerWidth - totalPadding;
 
   const suggestion = suggestionControllerRef.current.suggestion;
-  const suffix = resolveSuggestionSuffix(modelRef.current.value, suggestion, suggester);
+  const suffix = resolveSuggestionSuffix(
+    modelRef.current.value,
+    suggestion,
+    suggester,
+    modelRef.current.password,
+  );
+  const textAttributes = textAttributesOf(styles.text);
   const body = Content.assemble(
     resolveInputDisplay(modelRef.current.value, placeholder, modelRef.current.password, palette),
     Content.styled(suffix, `${palette.foreground} dim`),
@@ -463,9 +479,9 @@ export const Input = observer(function Input({
   // an index when the widget holds focus, null when it does not.
   const cursorIndex = widget.handle.isFocused ? modelRef.current.cursorPosition : null;
   const valueRow = Content.assemble(
-    padding,
-    buildInputArea(body, cursorIndex, areaWidth, palette),
-    padding,
+    " ".repeat(leftPadding),
+    buildInputArea(body, modelRef.current.cursorPosition, cursorIndex, areaWidth, palette),
+    " ".repeat(rightPadding),
   );
   const edgeRow = (glyph: string): Content =>
     Content.styled(glyph.repeat(innerWidth), palette.border);
@@ -474,24 +490,51 @@ export const Input = observer(function Input({
     <WidgetScope widget={widget.handle}>
       <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
         <Box key={`input:${widget.nodeId}:top`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), {}, `input:${widget.nodeId}:top`)}
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), textAttributes, `input:${widget.nodeId}:top`)}
         </Box>
         <Box key={`input:${widget.nodeId}:value`}>
-          {renderContent(inputRow(valueRow, palette, borderCells), {}, `input:${widget.nodeId}:value`)}
+          {renderContent(inputRow(valueRow, palette, borderCells), textAttributes, `input:${widget.nodeId}:value`)}
         </Box>
         <Box key={`input:${widget.nodeId}:bottom`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), {}, `input:${widget.nodeId}:bottom`)}
+          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), textAttributes, `input:${widget.nodeId}:bottom`)}
         </Box>
       </WidgetFrame>
     </WidgetScope>
   );
 });
 
-function resolveSuggestionSuffix(value: string, suggestion: string, suggester: Suggester | null): string {
+function resolveSuggestionSuffix(
+  value: string,
+  suggestion: string,
+  suggester: Suggester | null,
+  password: boolean,
+): string {
+  // An empty value completes nothing: `"anything".startsWith("")` is vacuously
+  // true, so without this an emptied field would show the whole stale
+  // suggestion glued onto the placeholder.
+  //
+  // A masked field shows no suffix at all rather than a masked one — the length
+  // of a completion is itself a fact about the secret being typed.
+  if (value.length === 0 || password) {
+    return "";
+  }
+
   const caseSensitive = suggester?.caseSensitive ?? true;
   const prefixMatches = caseSensitive
     ? suggestion.startsWith(value)
     : suggestion.toLowerCase().startsWith(value.toLowerCase());
 
   return prefixMatches ? suggestion.slice(value.length) : "";
+}
+
+// `styles.text` minus the two colours this widget paints itself. The cascade
+// writes `color` and `backgroundColor` into it from the `color`/`background`
+// rules; passing those through would fill the border columns, which Textual
+// leaves transparent. Everything else — bold, italic, underline and whatever
+// Ink adds next — is carried, so `Input { text-style: bold }` still applies.
+function textAttributesOf(text: Partial<TextProps>): Partial<TextProps> {
+  const { color, backgroundColor, ...attributes } = text;
+  void color;
+  void backgroundColor;
+  return attributes;
 }

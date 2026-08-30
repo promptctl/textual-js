@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import { Box } from "ink";
 
-import { Input, runTest, type InputHandle } from "../src/index.js";
+import { Input, SuggestFromList, runTest, type InputHandle } from "../src/index.js";
 import { NumberValidator } from "../src/validation/index.js";
 
 // [LAW:behavior-not-structure] These assert what an Input puts on screen — the
@@ -214,6 +214,117 @@ describe("Input rendering", () => {
     }
 
     session.unmount();
+  });
+
+  it("grows the text area monotonically as the widget widens", async () => {
+    const visible: number[] = [];
+
+    for (const width of [3, 4, 5, 6, 7, 8, 9, 10]) {
+      const session = await runTest(
+        <Box width={width} flexDirection="column">
+          <Input id={TARGET_ID} value="abcdefghij" />
+        </Box>,
+      );
+      const target = session.app.getByCssId(TARGET_ID)!;
+
+      // Anchor the window at the head, so what shows is the text area's size
+      // rather than wherever the caret happens to have scrolled it.
+      session.app.focusWidget(target.nodeId);
+      await session.app.whenIdle();
+      await session.pilot.press("home");
+
+      const valueRow = stripAnsi(session.lastFrame() ?? "").split("\n")[1] ?? "";
+      visible.push(valueRow.slice(1, -1).trim().length);
+      session.unmount();
+    }
+
+    // Padding is budgeted as a total rather than capped per side. Capping per
+    // side made the area oscillate (1, 0, 1, 0, 1, 2, 3) as the widget grew, so
+    // a wider Input could show *less* text than a narrower one.
+    for (let index = 1; index < visible.length; index += 1) {
+      expect(visible[index]).toBeGreaterThanOrEqual(visible[index - 1]);
+    }
+    // And it does eventually show text, so "monotonic" isn't satisfied by zero.
+    expect(visible.at(-1)).toBeGreaterThan(0);
+  });
+
+  it("holds the scroll window still when focus is lost", async () => {
+    const long = `HEAD${"x".repeat(112)}TAIL`;
+    const session = await runTest(<Input id={TARGET_ID} value={long} />);
+    const target = session.app.getByCssId(TARGET_ID)!;
+
+    session.app.focusWidget(target.nodeId);
+    await session.app.whenIdle();
+    const focused = stripAnsi(session.lastFrame() ?? "");
+
+    session.app.focusWidget(null);
+    await session.app.whenIdle();
+    const blurred = stripAnsi(session.lastFrame() ?? "");
+
+    // Blurring hides the cursor; it must not also snap the window back to the
+    // head of the value. Where the window sits depends on the caret, which
+    // focus does not move.
+    expect(blurred).toContain("TAIL");
+    expect(blurred).not.toContain("HEAD");
+    expect(blurred).toBe(focused);
+    session.unmount();
+  });
+
+  it("shows no suggestion suffix once the value is cleared", async () => {
+    const session = await runTest(
+      <Input id={TARGET_ID} placeholder="type here" suggester={new SuggestFromList(["hello"])} />,
+    );
+    const target = session.app.getByCssId(TARGET_ID)!;
+
+    session.app.focusWidget(target.nodeId);
+    await session.app.whenIdle();
+    await session.pilot.type("h");
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("hello");
+
+    await session.pilot.press("backspace");
+    await session.app.whenIdle();
+    const cleared = stripAnsi(session.lastFrame() ?? "");
+
+    // An empty value completes nothing, so the placeholder stands alone rather
+    // than carrying the whole stale suggestion glued to its end.
+    expect(cleared).toContain("type here");
+    expect(cleared).not.toContain("hello");
+    session.unmount();
+  });
+
+  it("never reveals a suggestion in a password field", async () => {
+    const session = await runTest(
+      <Input id={TARGET_ID} password suggester={new SuggestFromList(["hunter2secret"])} />,
+    );
+    const target = session.app.getByCssId(TARGET_ID)!;
+
+    session.app.focusWidget(target.nodeId);
+    await session.app.whenIdle();
+    await session.pilot.type("hun");
+    const frame = stripAnsi(session.lastFrame() ?? "");
+
+    // Neither the completion nor its length may show: the suffix is suppressed
+    // outright, so only the typed characters are represented.
+    expect(frame).not.toContain("ter2secret");
+    expect(frame).toContain("•••");
+    expect(frame).not.toContain("••••");
+    session.unmount();
+  });
+
+  it("honours a text-style rule from the cascade", async () => {
+    const plain = await runTest(<Input id={TARGET_ID} value="styled" />);
+    const plainFrame = plain.lastFrame() ?? "";
+    plain.unmount();
+
+    const bold = await runTest(<Input id={TARGET_ID} value="styled" />, {
+      appProps: { css: `Input { text-style: bold; }` },
+    });
+    const boldFrame = bold.lastFrame() ?? "";
+    bold.unmount();
+
+    // text-style resolves into styles.text; the widget must not discard it.
+    expect(boldFrame).not.toBe(plainFrame);
+    expect(stripAnsi(boldFrame)).toBe(stripAnsi(plainFrame));
   });
 
   it("scrolls the window so the cursor stays visible once the value overflows", async () => {
