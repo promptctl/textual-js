@@ -29,10 +29,14 @@ export interface ButtonProps extends WidgetComponentProps {
   loading?: boolean;
 }
 
+// Textual's Button is width:auto — it hugs its label rather than filling its
+// container, which is what keeps a 16-cell button from hit-testing across the
+// full screen width.
 const DEFAULT_CSS = `
   Button {
     background: #272727;
     color: #e0e0e0;
+    width: auto;
     min-width: 16;
     height: 3;
     text-align: center;

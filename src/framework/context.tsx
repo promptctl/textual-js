@@ -20,6 +20,7 @@ import type { App } from "../app/app.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { Widget } from "./widget.js";
 import type { ResolvedStyles } from "../styles/resolved-styles.js";
+import { outerBoxGeometry } from "../styles/box-geometry.js";
 import { Worker, type WorkFunction, type WorkerOptions } from "../services/worker.js";
 import type { TimerOptions } from "../services/timer.js";
 import {
@@ -393,6 +394,7 @@ export interface WidgetScopeProps extends PropsWithChildren {
 
 export const WidgetScope = observer(function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
   const layoutRef = useRef<DOMElement>(null);
+  const styles = useStyles(widget);
 
   useLayoutEffect(() => {
     // [LAW:one-source-of-truth] Widget screen regions are derived from the Ink
@@ -413,7 +415,13 @@ export const WidgetScope = observer(function WidgetScope({ widget, children }: W
   return (
     <CurrentWidgetContext.Provider value={widget}>
       <ParentWidgetContext.Provider value={widget.nodeId}>
-        <Box ref={layoutRef}>
+        {/* [LAW:one-source-of-truth] This Box IS the widget's box: it carries
+            the widget's own margin and width policy, so the rectangle measured
+            from it is the widget's placed rectangle rather than the space its
+            container happened to offer. Every widget passes through here —
+            including the seven that render no WidgetFrame — so there is one
+            measured node per widget and no per-widget ref plumbing. */}
+        <Box ref={layoutRef} {...outerBoxGeometry(styles.box)}>
           <WidgetVisibilityBoundary widget={widget}>{children}</WidgetVisibilityBoundary>
         </Box>
       </ParentWidgetContext.Provider>
