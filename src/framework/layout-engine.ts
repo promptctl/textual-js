@@ -147,9 +147,12 @@ export class LayoutEngine {
   // otherwise sit at Region.EMPTY until some later commit happened to sweep
   // it up. Running it here is O(1) per widget and owned in one place, so no
   // caller has to remember it.
+  // It runs before the insert so a reader that throws never enters the
+  // registry: registered, it could not be removed — the caller never receives
+  // the cleanup closure — and every later sweep would abort on it.
   registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {
-    this.layoutReaders.set(nodeId, reader);
     reader();
+    this.layoutReaders.set(nodeId, reader);
 
     return () => {
       if (this.layoutReaders.get(nodeId) === reader) {
