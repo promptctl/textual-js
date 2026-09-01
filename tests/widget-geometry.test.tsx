@@ -124,6 +124,26 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     session.unmount();
   });
 
+  // A width bound has to be measured on the same box as the width it bounds.
+  // Split apart, the widget was measured at its declared 5 cells while painting
+  // the 16 its `min-width` floor forced — the region/paint divergence this whole
+  // ticket exists to remove.
+  it("measures a widget at its min-width floor, not its smaller declared width", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <Button id="button" classes="small" label="hi" />
+      </Box>,
+      { appProps: { css: `Button.small { width: 5; }` } },
+    );
+
+    // Button's DEFAULT_CSS `min-width: 16` outranks the authored `width: 5`.
+    expect(regionOf(session, "button").width).toBe(16);
+    // The consequence that matters: the button is hit across every cell it paints.
+    expect(session.app.hitTest(10, 1)?.id).toBe("button");
+
+    session.unmount();
+  });
+
   it("does not hit-test a 16-cell button 54 columns to its right", async () => {
     const session = await runTest(
       <Box flexDirection="column">
