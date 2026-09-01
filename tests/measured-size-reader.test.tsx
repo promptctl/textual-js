@@ -70,6 +70,17 @@ describe("MeasuredSizeReader", () => {
     expect(seen[seen.length - 1].width).not.toBeUndefined();
   });
 
+  it("reports the width Yoga resolved, not the width the CSS asked for", async () => {
+    const seen = await record("Probe { width: 5; min-width: 16; }");
+
+    // The two disagree by construction: `styles.box.width` is what the author
+    // wrote, the measurement is what survived the bounds Yoga applied on top of
+    // it. Reading the declaration first would render five columns forever, so
+    // this is the case that makes the measurement the only width worth reading
+    // rather than merely the later one.
+    expect(seen[seen.length - 1].width).toBe(16);
+  });
+
   // What the zero arm is for, followed all the way to the screen. `renderVisual`
   // cannot accept a zero budget — rich-js throws `RangeError` at `maxWidth: 0`,
   // so the floor of 1 stays — which makes "decline to render" the consumer's job
