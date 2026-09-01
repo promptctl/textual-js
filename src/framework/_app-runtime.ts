@@ -389,22 +389,26 @@ const REVERSE_SPECIAL_KEY_NAMES = new Map<string, string>(
   Array.from(SPECIAL_KEY_NAMES.entries()).map(([character, name]) => [name, character]),
 );
 
+// [LAW:decomposition] One key name in, its canonical form out. Padding belongs
+// to the comma-separated list grammars, which strip it from their own segments
+// (`makeBindings`, `normalizeKeyList`) — trimming here too made `" "` mean
+// "empty" in a function whose SPECIAL_KEY_NAMES entry says it means "space",
+// so the space bar produced `key: ""` with no character and could name neither
+// a binding nor a character.
 export function normalizeKeyName(key: string): { key: string; character: string | null } {
-  const trimmedKey = key.trim();
-
-  if (trimmedKey.includes("+")) {
-    return { key: trimmedKey.toLowerCase(), character: null };
+  if (key.includes("+")) {
+    return { key: key.toLowerCase(), character: null };
   }
 
-  if (trimmedKey.length === 1) {
+  if (key.length === 1) {
     return {
-      key: SPECIAL_KEY_NAMES.get(trimmedKey) ?? trimmedKey.toLowerCase(),
-      character: trimmedKey,
+      key: SPECIAL_KEY_NAMES.get(key) ?? key.toLowerCase(),
+      character: key,
     };
   }
 
   return {
-    key: trimmedKey.toLowerCase(),
+    key: key.toLowerCase(),
     character: null,
   };
 }
@@ -668,7 +672,14 @@ export class AppRuntime {
         const normalized = normalizeKeyName(input);
         return {
           fullKey: composeKeyWithModifiers(normalized.key, meta),
-          character: normalized.character,
+          // [LAW:parse-dont-validate] `character` is the one statement of "the
+          // user typed this text", and it is stamped here, at the only place a
+          // Key is built. Ctrl and Meta produce a command, not a character, so
+          // they clear it; Shift produces a different character ("A"), so it
+          // does not. Without the stamp every text widget re-derives the rule
+          // from `meta` — and `ctrl+c` typed a literal "c" into a focused Input
+          // and into the command palette's query.
+          character: meta.ctrl === true || meta.meta === true ? null : normalized.character,
         };
       },
     };
