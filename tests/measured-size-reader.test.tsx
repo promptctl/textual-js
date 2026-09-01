@@ -11,6 +11,7 @@ import { Box, Text } from "ink";
 import { runTest } from "../src/testing/run-test.js";
 import { WidgetScope, useWidget } from "../src/framework/context.js";
 import { MeasuredSizeReader, type MeasuredSize } from "../src/framework/measured-size.js";
+import { Static } from "../src/widgets/index.js";
 
 // Built the way the five converted widgets are — `useWidget` + `WidgetScope`,
 // rendering immediately rather than behind `WidgetHost`'s `lifecycleReady` gate
@@ -67,5 +68,30 @@ describe("MeasuredSizeReader", () => {
     // exact conflation `Region.EMPTY` used to force on all five of them.
     expect(seen[seen.length - 1]).toEqual({ width: 0, height: 0 });
     expect(seen[seen.length - 1].width).not.toBeUndefined();
+  });
+
+  // What the zero arm is for, followed all the way to the screen. `renderVisual`
+  // cannot accept a zero budget — rich-js throws `RangeError` at `maxWidth: 0`,
+  // so the floor of 1 stays — which makes "decline to render" the consumer's job
+  // and worth pinning: painting into that floor wraps the content one glyph per
+  // row and grows the widget vertically out of a box measured at zero width.
+  it("paints nothing for a Static placed with no room", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <Static id="zero" content="ABCDEFG" />
+        <Static id="after" content="AFTER" />
+      </Box>,
+      { appProps: { css: `#zero { width: 0; }` } },
+    );
+
+    const zero = session.app.getByCssId("zero")!;
+    expect({ width: zero.screenRegion.width, height: zero.screenRegion.height }).toEqual({
+      width: 0,
+      height: 0,
+    });
+    // The row below it is not displaced, and no stray glyph column survives.
+    expect(session.lastFrame!().split("\n")[0]).toBe("AFTER");
+
+    session.unmount();
   });
 });

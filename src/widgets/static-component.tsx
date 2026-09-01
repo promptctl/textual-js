@@ -51,16 +51,21 @@ export const Static = observer(function Static({
   return (
     <WidgetScope widget={widget.handle}>
       <MeasuredSizeReader widget={widget.handle}>
-        {({ width }) => (
-          <WidgetFrame widget={widget.handle} styles={styles}>
-            {renderVisual(
-              visual,
-              styles.text,
-              `static:${widget.nodeId}`,
-              resolveVisualRenderWidth(width, styles.box),
-            )}
-          </WidgetFrame>
-        )}
+        {({ width }) => {
+          const renderWidth = resolveVisualRenderWidth(width, styles.box);
+
+          return (
+            <WidgetFrame widget={widget.handle} styles={styles}>
+              {/* Zero room means nothing to show — the same answer Rule, Input
+                  and Sparkline give at zero. Painting into the one-column floor
+                  `renderVisual` needs would wrap the content one glyph per row
+                  and grow the widget vertically out of a box measured at zero. */}
+              {renderWidth === 0
+                ? null
+                : renderVisual(visual, styles.text, `static:${widget.nodeId}`, renderWidth)}
+            </WidgetFrame>
+          );
+        }}
       </MeasuredSizeReader>
     </WidgetScope>
   );

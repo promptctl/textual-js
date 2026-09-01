@@ -170,6 +170,9 @@ function normalizeAnsiForInk(text: string): string {
 }
 
 function normalizeVisualWidth(visual: Visual, width?: number): number {
+  // Floored at one, not zero: rich-js renders into a positive budget and throws
+  // `RangeError: Invalid array length` at `maxWidth: 0`. Callers with no room to
+  // paint must decline to render rather than ask for zero columns.
   if (width !== undefined) {
     return Math.max(1, width);
   }
