@@ -33,6 +33,7 @@ import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { innerBoxGeometry } from "../styles/box-geometry.js";
 import { ExampleChanged } from "./example.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
@@ -83,7 +84,7 @@ export const Example = observer(function Example({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box {...styles.box}>{/* render rich-js or Ink content here */}</Box>
+      <Box {...innerBoxGeometry(styles.box)}>{/* render rich-js or Ink content here */}</Box>
     </WidgetScope>
   );
 });
@@ -96,7 +97,7 @@ export const Example = observer(function Example({
 - Pass `defaultCss` from a local `DEFAULT_CSS` constant when the widget has default styling.
 - Put keyboard behavior in `bindings` and `actions`; mouse behavior belongs in `handlers`.
 - Post each widget message from the owning component only.
-- Call `useStyles(widget.handle)` after registration and spread `styles.box` onto the outer Ink element.
+- Call `useStyles(widget.handle)` after registration and give your rendered Box only the inner half of the resolved styles — `innerBoxGeometry(styles.box)`, or `WidgetFrame`, which does it for you. Never spread the raw `styles.box`: `WidgetScope` already applies the outer half (margin and width) to the box it measures into `screenRegion`, so spreading the whole thing applies those twice.
 - Wrap rendered output in `<WidgetScope widget={widget.handle}>`.
 - Use `composeWidgetClasses` for authored classes plus derived state classes such as `-on` or `-primary`.
 - Keep model helpers and non-React state classes out of the public widget barrel.

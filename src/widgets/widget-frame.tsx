@@ -5,6 +5,7 @@ import { Content, renderContent } from "../content/index.js";
 import type { Widget } from "../framework/widget.js";
 import type { ResolvedStyles, BorderValue } from "../styles/index.js";
 import { colorToInkValue } from "../styles/index.js";
+import { innerBoxGeometry } from "../styles/box-geometry.js";
 
 function readNumericBoxValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -60,8 +61,11 @@ export function WidgetFrame({
   const textProps = {
     color: typeof styles.box.borderColor === "string" ? styles.box.borderColor : undefined,
   };
+  // [LAW:one-source-of-truth] Margin and width policy belong to the widget's
+  // outer box (WidgetScope), which is the node measured into screenRegion.
+  // Applying them here too would double every margin.
   const inner = (
-    <Box {...styles.box} {...boxProps}>
+    <Box {...innerBoxGeometry(styles.box)} {...boxProps}>
       {children}
     </Box>
   );

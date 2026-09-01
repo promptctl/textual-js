@@ -37,8 +37,13 @@ const VERTICAL_LINE_CHARS: Record<string, string> = {
 
 const DEFAULT_RULE_COLOR = "#004578";
 
+// [LAW:one-source-of-truth] Geometry is declared here, not hardcoded on the
+// rendered Box, so the widget's measured outer box carries it and screenRegion
+// reports the line itself rather than the line plus its surrounding gap.
 const DEFAULT_CSS = `
   Rule { color: ${DEFAULT_RULE_COLOR}; }
+  Rule.-horizontal { margin: 1 0; }
+  Rule.-vertical { width: 1; margin: 0 2; }
 `;
 
 export interface RuleProps extends WidgetComponentProps {
@@ -94,11 +99,11 @@ export const Rule = observer(function Rule({
   return (
     <WidgetScope widget={widget.handle}>
       {isHorizontal ? (
-        <Box width="100%" height={1} marginTop={1} marginBottom={1}>
+        <Box width="100%" height={1}>
           <Text color={color}>{character.repeat(Math.max(0, region.width))}</Text>
         </Box>
       ) : (
-        <Box width={1} height="100%" marginLeft={2} marginRight={2} flexDirection="column">
+        <Box height="100%" flexDirection="column">
           {Array.from({ length: Math.max(0, region.height) }, (_, index) => (
             <Text key={index} color={color}>
               {character}

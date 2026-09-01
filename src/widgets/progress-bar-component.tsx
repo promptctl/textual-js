@@ -15,10 +15,17 @@ const FILLED_CHAR = "━";
 const EMPTY_CHAR = "─";
 const PULSE_GLYPHS = "──━━━━━──";
 
+// Textual sizes the bar itself, not the ProgressBar: `Bar { width: 32 }` inside
+// a `ProgressBar { width: auto }`. The bar is therefore a fixed 32 cells and the
+// widget hugs it plus its labels — deriving the bar from the available width is
+// what made a 37-cell widget paint across all 80 columns.
+const BAR_WIDTH = 32;
+
 // [LAW:one-source-of-truth] color (filled bar) and background (rail) live
 // in DEFAULT_CSS — the cascade is the only place these defaults appear.
 const DEFAULT_CSS = `
   ProgressBar {
+    width: auto;
     height: 1;
     color: #004578;
     background: #3d3d3d;
@@ -100,13 +107,9 @@ export const ProgressBar = observer(function ProgressBar({
   const filledColor = styles.getColor("color");
   const railColor = styles.getColor("background");
 
-  const region = widget.handle.screenRegion;
-  const totalWidth = Math.max(0, region.width);
   const percentageText = formatPercentage(model.percentage);
   const etaText = "--:--:--";
-  const percentageWidth = showPercentage ? percentageText.length + 1 : 0;
-  const etaWidth = showEta ? etaText.length + 1 : 0;
-  const barWidth = showBar ? Math.max(8, totalWidth - percentageWidth - etaWidth) : 0;
+  const barWidth = showBar ? BAR_WIDTH : 0;
   const { filledWidth, pulse } = buildBarSegments(model.percentage, barWidth);
 
   const filledChars =
@@ -120,7 +123,7 @@ export const ProgressBar = observer(function ProgressBar({
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box width="100%" height={1} flexDirection="row">
+      <Box height={1} flexDirection="row">
         {showBar ? (
           <Box flexDirection="row">
             <Text color={filledColor}>{filledChars}</Text>
