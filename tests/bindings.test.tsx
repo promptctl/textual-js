@@ -792,4 +792,75 @@ describe("binding dispatch", () => {
     expect(app.runAction("screen.beta")).toBe(true);
     expect(log).toEqual(["app.alpha", "screen.beta"]);
   });
+
+  it("drops padding between keymap keys instead of binding the space bar", async () => {
+    const app = new App();
+    const fired: string[] = [];
+
+    // A trailing comma leaves an empty segment. It is padding in this grammar,
+    // not a key — the space bar must reach the widget that has focus.
+    app.setKeymap({ save: "f7, " });
+
+    const instance = render(
+      <TextualApp app={app}>
+        <WidgetHost
+          typeName="Leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f3", action: "save", id: "save" }]}
+          actions={{
+            action_save: () => {
+              fired.push("save");
+            },
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+      </TextualApp>,
+    );
+
+    await settleBindings(app);
+
+    app.postKey(" ");
+    await app.whenIdle();
+
+    expect(fired).toEqual([]);
+
+    app.postKey("f7");
+    await app.whenIdle();
+
+    expect(fired).toEqual(["save"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  it("names the space bar so a binding can claim it", async () => {
+    const app = new App();
+    const fired: string[] = [];
+
+    const instance = render(
+      <TextualApp
+        app={app}
+        bindings={[{ key: "space", action: "jump" }]}
+        actions={{
+          action_jump: () => {
+            fired.push("jump");
+          },
+        }}
+      >
+        <Text>screen</Text>
+      </TextualApp>,
+    );
+
+    await settleBindings(app);
+
+    app.postKey(" ");
+    await app.whenIdle();
+
+    expect(fired).toEqual(["jump"]);
+
+    instance.unmount();
+    instance.cleanup();
+  });
 });

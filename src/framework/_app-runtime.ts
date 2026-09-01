@@ -389,27 +389,26 @@ const REVERSE_SPECIAL_KEY_NAMES = new Map<string, string>(
   Array.from(SPECIAL_KEY_NAMES.entries()).map(([character, name]) => [name, character]),
 );
 
+// [LAW:decomposition] One key name in, its canonical form out. Padding belongs
+// to the comma-separated list grammars, which strip it from their own segments
+// (`makeBindings`, `normalizeKeyList`) — trimming here too made `" "` mean
+// "empty" in a function whose SPECIAL_KEY_NAMES entry says it means "space",
+// so the space bar produced `key: ""` with no character and could name neither
+// a binding nor a character.
 export function normalizeKeyName(key: string): { key: string; character: string | null } {
-  // Trimming strips padding from a declared binding (" tab "), but a literal
-  // space is a key, not padding — SPECIAL_KEY_NAMES maps it to "space" below,
-  // and trimming it to "" meant that entry could never be reached: the space
-  // bar produced `key: ""` with no character, so it named no binding and typed
-  // nothing.
-  const trimmedKey = key.trim() === "" ? key : key.trim();
-
-  if (trimmedKey.includes("+")) {
-    return { key: trimmedKey.toLowerCase(), character: null };
+  if (key.includes("+")) {
+    return { key: key.toLowerCase(), character: null };
   }
 
-  if (trimmedKey.length === 1) {
+  if (key.length === 1) {
     return {
-      key: SPECIAL_KEY_NAMES.get(trimmedKey) ?? trimmedKey.toLowerCase(),
-      character: trimmedKey,
+      key: SPECIAL_KEY_NAMES.get(key) ?? key.toLowerCase(),
+      character: key,
     };
   }
 
   return {
-    key: trimmedKey.toLowerCase(),
+    key: key.toLowerCase(),
     character: null,
   };
 }
