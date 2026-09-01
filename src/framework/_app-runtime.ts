@@ -1564,6 +1564,10 @@ export class AppRuntime {
     return this.layoutEngine.registerLayoutReader(nodeId, reader);
   }
 
+  syncLayoutReaders(): void {
+    this.layoutEngine.syncLayoutReaders();
+  }
+
   flushAfterRefreshCallbacks(): void {
     this.lifecycle.flushAfterRefreshCallbacks();
   }

@@ -83,7 +83,18 @@ export class LayoutEngine {
 
   recordDisplayPass(): void {
     this.deps.incrementDisplayCount();
-    this.syncWidgetLayoutReaders();
+    this.syncLayoutReaders();
+  }
+
+  // [LAW:one-source-of-truth] Ink recomputes the whole Yoga tree on every
+  // render, so one commit anywhere invalidates every widget's rectangle. This
+  // is the single re-derivation of all of them; callers supply only the
+  // trigger (a widget's own commit, or the app shell's display pass) and never
+  // their own measurement.
+  syncLayoutReaders(): void {
+    for (const reader of this.layoutReaders.values()) {
+      reader();
+    }
   }
 
   registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {
@@ -104,11 +115,4 @@ export class LayoutEngine {
     }
   }
 
-  private syncWidgetLayoutReaders(): void {
-    // [LAW:one-source-of-truth] Ink layout measurement is centralized here so
-    // stale sibling or ancestor geometry cannot become a second spatial truth.
-    for (const reader of this.layoutReaders.values()) {
-      reader();
-    }
-  }
 }

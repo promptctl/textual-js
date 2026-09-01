@@ -967,6 +967,10 @@ export class App<Result = unknown> {
     return this.layoutEngine.registerLayoutReader(nodeId, reader);
   }
 
+  syncLayoutReaders(): void {
+    this.layoutEngine.syncLayoutReaders();
+  }
+
   preventMessages<T>(targetId: string | null, messageTypes: MessageConstructor[], callback: () => T): T {
     return this.messagePump.preventMessages(targetId, messageTypes, callback);
   }

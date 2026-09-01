@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { Box } from "ink";
+import { observable, runInAction } from "mobx";
+import { observer } from "mobx-react-lite";
 
 import { runTest } from "../src/testing/run-test.js";
 import { Button, ProgressBar, Rule, Static, Switch } from "../src/widgets/index.js";
@@ -140,6 +142,34 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     expect(regionOf(session, "button").width).toBe(16);
     // The consequence that matters: the button is hit across every cell it paints.
     expect(session.app.hitTest(10, 1)?.id).toBe("button");
+
+    session.unmount();
+  });
+
+  // Re-measurement has one owner: the widget's own Ink commit. A MobX update
+  // that re-renders a single widget re-renders no ancestor, so an ancestor-owned
+  // flush never fires — the region a stale owner leaves behind looks plausible
+  // and ships. Nothing in this test asks for a measurement pass.
+  it("re-measures a widget whose own content grew, with no flush requested", async () => {
+    const content = observable.box("one");
+    const GrowingStatic = observer(function GrowingStatic(): React.JSX.Element {
+      return <Static id="growing" content={content.get()} />;
+    });
+
+    const session = await runTest(
+      <Box flexDirection="column">
+        <GrowingStatic />
+      </Box>,
+    );
+
+    expect(regionOf(session, "growing").height).toBe(1);
+
+    runInAction(() => {
+      content.set("one\ntwo\nthree\nfour");
+    });
+    await session.pilot.pause();
+
+    expect(regionOf(session, "growing").height).toBe(4);
 
     session.unmount();
   });
