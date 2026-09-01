@@ -7,6 +7,7 @@ import { Box, Text } from "ink";
 import { observer } from "mobx-react-lite";
 
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { MeasuredSizeReader } from "../framework/measured-size.js";
 import { normalizeColor } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import {
@@ -97,11 +98,11 @@ export const Sparkline = observer(function Sparkline({
   });
 
   const styles = useStyles(widget.handle);
-  const region = widget.handle.screenRegion;
-  const cssWidth = readNumericBoxValue(styles.box.width);
+  // Height stays a CSS-first read: r1k.1 left the whole height axis on the inner
+  // box, so the measured height is a consequence of `styles.box.height` rather
+  // than a restatement of it. Width has no such split — it lives on the measured
+  // outer box, so the measurement is the only width worth reading.
   const cssHeight = readNumericBoxValue(styles.box.height);
-  const width = Math.max(0, cssWidth ?? region.width);
-  const height = Math.max(1, cssHeight ?? region.height ?? 1);
   const summary = resolveSummary(summaryFunction);
 
   const minHex = minColor ?? DEFAULT_MIN_COLOR;
@@ -109,40 +110,51 @@ export const Sparkline = observer(function Sparkline({
   const minRgb = parseHex(minHex);
   const maxRgb = parseHex(maxHex);
 
-  const grid: SparklineCell[][] =
-    width === 0 ? [] : renderSparklineGrid(data, { width, height, summary });
-
   // [LAW:no-defensive-null-guards] Sparkline's DEFAULT_CSS does not set a
   // background; tryColor expresses that the rule is genuinely optional and
   // user CSS may set it to a hex.
   const backgroundColor = styles.tryColor("background");
 
+  // A sparkline is one bucket per column: with no measured width there are no
+  // buckets to compute, and an empty grid leaves the Box free to size itself on
+  // the pass that measures it.
   return (
     <WidgetScope widget={widget.handle}>
-      <Box
-        flexDirection="column"
-        width={width || undefined}
-        height={height}
-      >
-        {grid.map((row, rowIndex) => (
-          <Box key={rowIndex} flexDirection="row" width={width || undefined} height={1}>
-            {row.map((cell, cellIndex) => {
-              const color = cell.filled
-                ? blendRgb(minRgb, maxRgb, Math.max(0, Math.min(1, cell.ratio)))
-                : undefined;
-              return (
-                <Text
-                  key={cellIndex}
-                  color={color}
-                  backgroundColor={backgroundColor ?? undefined}
-                >
-                  {cell.char}
-                </Text>
-              );
-            })}
-          </Box>
-        ))}
-      </Box>
+      <MeasuredSizeReader widget={widget.handle}>
+        {({ width: measuredWidth, height: measuredHeight }) => {
+          const width = measuredWidth ?? 0;
+          const height = Math.max(1, cssHeight ?? measuredHeight ?? 1);
+          const grid: SparklineCell[][] =
+            width === 0 ? [] : renderSparklineGrid(data, { width, height, summary });
+
+          return (
+            <Box
+              flexDirection="column"
+              width={width || undefined}
+              height={height}
+            >
+              {grid.map((row, rowIndex) => (
+                <Box key={rowIndex} flexDirection="row" width={width || undefined} height={1}>
+                  {row.map((cell, cellIndex) => {
+                    const color = cell.filled
+                      ? blendRgb(minRgb, maxRgb, Math.max(0, Math.min(1, cell.ratio)))
+                      : undefined;
+                    return (
+                      <Text
+                        key={cellIndex}
+                        color={color}
+                        backgroundColor={backgroundColor ?? undefined}
+                      >
+                        {cell.char}
+                      </Text>
+                    );
+                  })}
+                </Box>
+              ))}
+            </Box>
+          );
+        }}
+      </MeasuredSizeReader>
     </WidgetScope>
   );
 });
