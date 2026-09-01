@@ -565,9 +565,13 @@ function normalizeKeymap(input: KeymapInput): Map<string, string[]> {
   return normalized;
 }
 
+// The comma-separated grammar owns its own padding, exactly as `makeBindings`
+// does for a binding declaration: a segment of `"ctrl+s, "` is empty, not a
+// space bar.
 function normalizeKeyList(source: string): string[] {
   return source
     .split(",")
-    .map((key) => normalizeKeyName(key).key)
-    .filter((key) => key.length > 0);
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0)
+    .map((key) => normalizeKeyName(key).key);
 }
