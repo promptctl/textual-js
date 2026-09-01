@@ -423,11 +423,12 @@ export const WidgetScope = observer(function WidgetScope({ widget, children }: W
   // too and there is exactly one measurement site.
   // The whole tree is re-derived, not just this widget: Ink recomputes the
   // entire Yoga layout on every render, so one widget's commit can move any
-  // other widget's rectangle. Writes are change-gated in
+  // other widget's rectangle. Every widget in a commit asks, and the pass
+  // number makes all asks after the first free. Writes are change-gated in
   // `Widget.updateScreenRegion`, which is what stops measure → observable
   // write → re-render → measure from cycling.
   useLayoutEffect(() => {
-    widget.app.syncLayoutReaders();
+    widget.app.syncLayoutReadersForPass();
   });
 
   return (

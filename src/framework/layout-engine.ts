@@ -36,6 +36,8 @@ export class LayoutEngine {
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
   private readonly layoutReaders = new Map<string, LayoutReader>();
   private afterRefreshRequester: (() => void) | null = null;
+  private layoutPass = 1;
+  private syncedLayoutPass = 0;
 
   constructor(deps: LayoutEngineDeps) {
     this.deps = deps;
@@ -46,6 +48,8 @@ export class LayoutEngine {
         afterRefreshCallbacks: false,
         layoutReaders: false,
         afterRefreshRequester: false,
+        layoutPass: false,
+        syncedLayoutPass: false,
       },
       { autoBind: true },
     );
@@ -83,7 +87,7 @@ export class LayoutEngine {
 
   recordDisplayPass(): void {
     this.deps.incrementDisplayCount();
-    this.syncLayoutReaders();
+    this.syncLayoutReadersForPass();
   }
 
   // [LAW:one-source-of-truth] Ink recomputes the whole Yoga tree on every
@@ -92,9 +96,42 @@ export class LayoutEngine {
   // trigger (a widget's own commit, or the app shell's display pass) and never
   // their own measurement.
   syncLayoutReaders(): void {
+    this.syncedLayoutPass = this.layoutPass;
+
     for (const reader of this.layoutReaders.values()) {
       reader();
     }
+  }
+
+  // [LAW:no-ambient-temporal-coupling] "the geometry may have moved" is owned
+  // state, not a timing guess: `attachLayoutPassCounter` numbers Ink's Yoga
+  // passes, and this runs the derivation once per pass however many widgets
+  // commit in it. Every widget still asks on its own commit — the epoch is
+  // what makes the M-th ask in one pass free instead of another O(N) walk.
+  syncLayoutReadersForPass(): void {
+    if (this.syncedLayoutPass === this.layoutPass) {
+      return;
+    }
+
+    this.syncLayoutReaders();
+  }
+
+  // [LAW:single-enforcer] Ink computes layout exactly once per React commit
+  // (`resetAfterCommit` -> `onComputeLayout`, ink/build/reconciler.js:68),
+  // immediately before that commit's layout effects. Chaining that hook is
+  // what makes the pass counter true rather than inferred; the wrapper defers
+  // to Ink's own handler and restores it on detach.
+  attachLayoutPassCounter(rootNode: { onComputeLayout?: () => void }): () => void {
+    const inkComputeLayout = rootNode.onComputeLayout;
+
+    rootNode.onComputeLayout = () => {
+      inkComputeLayout?.();
+      this.layoutPass += 1;
+    };
+
+    return () => {
+      rootNode.onComputeLayout = inkComputeLayout;
+    };
   }
 
   registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {

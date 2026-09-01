@@ -1568,6 +1568,14 @@ export class AppRuntime {
     this.layoutEngine.syncLayoutReaders();
   }
 
+  syncLayoutReadersForPass(): void {
+    this.layoutEngine.syncLayoutReadersForPass();
+  }
+
+  attachLayoutPassCounter(rootNode: { onComputeLayout?: () => void }): () => void {
+    return this.layoutEngine.attachLayoutPassCounter(rootNode);
+  }
+
   flushAfterRefreshCallbacks(): void {
     this.lifecycle.flushAfterRefreshCallbacks();
   }
