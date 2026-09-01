@@ -280,16 +280,29 @@ export class BindingDispatcher {
     return false;
   }
 
-  resolveDefaultDispatchTarget(): Widget | undefined {
-    // [LAW:one-source-of-truth] The focus engine owns the fact "who is focused";
-    // this resolver reads it and never substitutes a guess. The former
-    // first-focusable / first-interactive fallbacks were a second, divergable
-    // answer to that question, and they routed keys into the handlers of a
-    // widget that did not have focus. Absence is now reported as absence — see
-    // MessagePump.postToFocused, which routes an unfocused key to the
-    // screen/app binding phase rather than into an arbitrary widget.
+  // [LAW:one-source-of-truth] "Who is focused" and "who receives a message that
+  // has no focused recipient" are different questions, and answering both from
+  // one resolver is what let a guessed widget pass as the focused one. They get
+  // one resolver each.
+
+  resolveFocusedTarget(): Widget | undefined {
     const focusedNodeId = this.deps.getFocusedNodeId();
     return this.deps.listWidgets().find((entry) => entry.isInteractive && entry.nodeId === focusedNodeId);
+  }
+
+  resolveFallbackDeliveryTarget(): Widget | undefined {
+    const interactiveWidgets = this.deps.listWidgets().filter((entry) => entry.isInteractive);
+
+    // Last-resort recipient for messages with no onward route once focus is
+    // absent — paste, resize, and the pointer chain's final arm. Keys do not
+    // come here: they bubble to the screen-then-app binding phase instead, so
+    // an unfocused key never lands in an unfocused widget's handlers.
+    const focusedNodeId = this.deps.getFocusedNodeId();
+    return (
+      interactiveWidgets.find((entry) => entry.nodeId === focusedNodeId) ??
+      interactiveWidgets.find((entry) => entry.focusable) ??
+      interactiveWidgets[0]
+    );
   }
 
   // ---- Internal helpers ----

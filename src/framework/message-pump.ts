@@ -96,7 +96,8 @@ export interface MessagePumpDeps {
   dispatchScreenKeyBindings(key: string): boolean;
   dispatchBindingActionForNode(node: Widget, action: string): boolean;
   dispatchPriorityBindings(key: string): boolean;
-  resolveDefaultDispatchTarget(): Widget | undefined;
+  resolveFocusedTarget(): Widget | undefined;
+  resolveFallbackDeliveryTarget(): Widget | undefined;
   clearPendingError(): void;
   throwPendingError(): void;
   normalizeAndComposeKey(
@@ -290,7 +291,7 @@ export class MessagePump {
   }
 
   dispatchMessage(message: Message): void {
-    const target = this.deps.resolveDefaultDispatchTarget();
+    const target = this.deps.resolveFallbackDeliveryTarget();
 
     if (target === undefined) {
       return;
@@ -303,15 +304,26 @@ export class MessagePump {
   }
 
   postToFocused(message: Message): void {
-    const target = this.deps.resolveDefaultDispatchTarget();
+    const target = this.deps.resolveFallbackDeliveryTarget();
+
+    if (target !== undefined) {
+      this.postMessage(target.nodeId, message);
+    }
+  }
+
+  // [LAW:decomposition] Keys are cut away from the other focus-routed messages
+  // because only they have somewhere to go when focus is absent. Paste, resize
+  // and the mouse messages have no app-level route and stay on postToFocused's
+  // last-resort recipient; a key bubbles to the screen-then-app binding phase.
+  private postKeyToFocusRoute(message: Key): void {
+    const target = this.deps.resolveFocusedTarget();
 
     // [LAW:dataflow-not-control-flow] An absent focus selects a shorter route,
     // never a skipped dispatch. The message always enters the queue; with no
     // focused node the bubble chain is empty and dispatch lands straight on the
-    // screen-then-app binding phase, which is where Textual routes a key
-    // pressed while nothing holds focus. Dropping it here instead is what kept
-    // `tab` from ever reaching app.focus_next, so nothing could take focus by
-    // keyboard.
+    // screen-then-app phase, which is where Textual routes a key pressed while
+    // nothing holds focus. Dropping it here instead is what kept `tab` from
+    // ever reaching app.focus_next, so nothing could take focus by keyboard.
     if (target === undefined) {
       this.queue.push({ targetId: null, message });
       this.scheduleDrain();
@@ -332,7 +344,7 @@ export class MessagePump {
       return;
     }
 
-    this.postToFocused(new Key(normalized.fullKey, normalized.character, meta));
+    this.postKeyToFocusRoute(new Key(normalized.fullKey, normalized.character, meta));
   }
 
   emitBroadcast(message: Message): void {

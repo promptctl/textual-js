@@ -3,7 +3,7 @@ import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 
-import { App, Input, TextualApp, WidgetHost } from "../src/index.js";
+import { App, Input, Paste, Resize, TextualApp, WidgetHost } from "../src/index.js";
 
 // A key pressed while nothing holds focus still belongs to the screen and then
 // the app, exactly as it does in Python Textual. These tests pin the route
@@ -107,6 +107,66 @@ describe("key dispatch with nothing focused", () => {
     await harness.app.whenIdle();
 
     expect(harness.fired).toEqual(["f5"]);
+
+    harness.cleanup();
+  });
+
+  // Only keys gain the screen/app route. Paste and Resize have no app-level
+  // route to fall through to, so they keep reaching a widget when focus is
+  // absent — the key route must not quietly take them with it.
+  it("still delivers paste to a widget while nothing is focused", async () => {
+    const pasted: string[] = [];
+    const harness = mount(
+      <WidgetHost
+        typeName="Leaf"
+        id="leaf"
+        focusable
+        handlers={{
+          onPaste: (message) => {
+            pasted.push((message as Paste).text);
+          },
+        }}
+      >
+        <Text>leaf</Text>
+      </WidgetHost>,
+    );
+
+    await harness.app.whenIdle();
+    expect(harness.app.focusedNodeId).toBeNull();
+
+    harness.app.postPaste("hello");
+    await harness.app.whenIdle();
+
+    expect(pasted).toEqual(["hello"]);
+
+    harness.cleanup();
+  });
+
+  it("still delivers resize to a widget while nothing is focused", async () => {
+    const sizes: string[] = [];
+    const harness = mount(
+      <WidgetHost
+        typeName="Leaf"
+        id="leaf"
+        focusable
+        handlers={{
+          onResize: (message) => {
+            const resize = message as Resize;
+            sizes.push(`${resize.width}x${resize.height}`);
+          },
+        }}
+      >
+        <Text>leaf</Text>
+      </WidgetHost>,
+    );
+
+    await harness.app.whenIdle();
+    expect(harness.app.focusedNodeId).toBeNull();
+
+    harness.app.postResize(120, 40);
+    await harness.app.whenIdle();
+
+    expect(sizes).toEqual(["120x40"]);
 
     harness.cleanup();
   });
