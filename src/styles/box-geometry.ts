@@ -16,12 +16,24 @@ const AUTO = "auto";
 // the *inner* half paints it (padding, background, borders) and belongs to the
 // box the widget renders. Splitting here rather than at each consumer is what
 // keeps a property from reaching the DOM twice.
+//
+// `alignSelf` appears in both halves and is not a duplicate: the outer half
+// sets its own as the width-auto hug, while the cascade's (from
+// `content-align-vertical`) stays inner, because aligning a widget's content
+// is the job of the box that paints it.
 export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
   return {
     marginTop: box.marginTop,
     marginRight: box.marginRight,
     marginBottom: box.marginBottom,
     marginLeft: box.marginLeft,
+    // `display: none` has to sit on the same box as the margin it cancels:
+    // left on the painted box, it empties the widget while the outer box goes
+    // on reserving margin for it, so a hidden widget leaves blank rows.
+    // Defaulted rather than passed through because Ink keys off the property
+    // being *present* and reads any non-"flex" value, `undefined` included, as
+    // "none" (ink/build/styles.js: `style.display === 'flex' ? FLEX : NONE`).
+    display: box.display ?? "flex",
     // Textual's default width is `1fr` — fill the container — which is already
     // Yoga's default, so only the two opt-outs need saying: a concrete width
     // sizes the box directly, and `auto` hugs content via cross-axis alignment.
@@ -31,7 +43,7 @@ export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
 }
 
 export function innerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
-  const { marginTop, marginRight, marginBottom, marginLeft, width, ...inner } = box;
+  const { marginTop, marginRight, marginBottom, marginLeft, width, display, ...inner } = box;
 
   return inner;
 }

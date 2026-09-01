@@ -104,6 +104,26 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     session.unmount();
   });
 
+  // `display: none` and margin have to be applied to the same box. Split across
+  // the two halves, the widget empties while its margin is still reserved, and
+  // a hidden widget leaves blank rows behind.
+  it("removes a hidden widget's layout slot, margin included", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <Static id="top" content="TOP" />
+        <Static id="hidden" classes="gone" content="MID" />
+        <Static id="bottom" content="BOT" />
+      </Box>,
+      { appProps: { css: `Static.gone { display: none; margin: 1; }` } },
+    );
+
+    // The hidden widget occupies nothing, so the widget after it sits directly
+    // below the one before it.
+    expect(regionOf(session, "bottom").y).toBe(regionOf(session, "top").y + 1);
+
+    session.unmount();
+  });
+
   it("does not hit-test a 16-cell button 54 columns to its right", async () => {
     const session = await runTest(
       <Box flexDirection="column">

@@ -394,7 +394,11 @@ export interface WidgetScopeProps extends PropsWithChildren {
 
 export const WidgetScope = observer(function WidgetScope({ widget, children }: WidgetScopeProps): React.JSX.Element {
   const layoutRef = useRef<DOMElement>(null);
-  const styles = useStyles(widget);
+  // [LAW:single-enforcer] Read the observable directly rather than subscribing.
+  // ResolvedStyles.box is a MobX observable reassigned on every cascade
+  // recompute and this component is an observer, so a useStyles subscription
+  // here would only duplicate the render the widget's own useStyles performs.
+  const box = widget.resolvedStyles.box;
 
   useLayoutEffect(() => {
     // [LAW:one-source-of-truth] Widget screen regions are derived from the Ink
@@ -421,7 +425,7 @@ export const WidgetScope = observer(function WidgetScope({ widget, children }: W
             container happened to offer. Every widget passes through here —
             including the seven that render no WidgetFrame — so there is one
             measured node per widget and no per-widget ref plumbing. */}
-        <Box ref={layoutRef} {...outerBoxGeometry(styles.box)}>
+        <Box ref={layoutRef} {...outerBoxGeometry(box)}>
           <WidgetVisibilityBoundary widget={widget}>{children}</WidgetVisibilityBoundary>
         </Box>
       </ParentWidgetContext.Provider>
