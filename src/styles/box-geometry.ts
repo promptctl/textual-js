@@ -11,12 +11,11 @@ import type { BoxProps } from "ink";
 const AUTO = "auto";
 
 // [LAW:one-source-of-truth] A widget's resolved box splits into exactly two
-// non-overlapping halves with one owner each: the *outer* half positions and
-// sizes the widget inside its parent (margin, width policy) and belongs to the
-// measured wrapper; the *inner* half paints the widget (padding, background,
-// borders, explicit sizes) and belongs to the box the widget renders. Splitting
-// here rather than at each consumer is what keeps margin from being applied
-// twice once the wrapper starts carrying it.
+// non-overlapping halves with one owner each: the *outer* half places and sizes
+// the widget in its parent (margin, width) and belongs to the measured wrapper;
+// the *inner* half paints it (padding, background, borders) and belongs to the
+// box the widget renders. Splitting here rather than at each consumer is what
+// keeps a property from reaching the DOM twice.
 export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
   return {
     marginTop: box.marginTop,
@@ -34,5 +33,5 @@ export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
 export function innerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
   const { marginTop, marginRight, marginBottom, marginLeft, width, ...inner } = box;
 
-  return width === AUTO ? inner : { ...inner, width };
+  return inner;
 }

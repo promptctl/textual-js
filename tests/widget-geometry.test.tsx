@@ -3,7 +3,7 @@ import React from "react";
 import { Box } from "ink";
 
 import { runTest } from "../src/testing/run-test.js";
-import { Button, Rule, Static, Switch } from "../src/widgets/index.js";
+import { Button, ProgressBar, Rule, Static, Switch } from "../src/widgets/index.js";
 
 // [LAW:behavior-not-structure] These assert the contract `widget.screenRegion`
 // owes its consumers — the widget's own placed rectangle in screen coordinates,
@@ -78,6 +78,28 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     // from the region, exactly as the horizontal case excludes its margin rows.
     expect(region.x).toBe(2);
     expect(region.width).toBe(1);
+
+    session.unmount();
+  });
+
+  // ProgressBar is the widget whose overflow motivated this ticket: it derived
+  // its width from the container and painted a ~75-cell bar across 80 columns.
+  it("hugs a progress bar to its content instead of filling the container", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <ProgressBar id="progress" total={100} progress={50} showEta={false} />
+      </Box>,
+    );
+
+    // The exact total is deliberately not pinned. Python renders 37 columns
+    // (a 32-cell bar plus a percentage field right-aligned to 4, plus a 1-cell
+    // margin); textual-js renders 36 because formatPercentage does not pad --
+    // a defect owned by textual-progress-fixture-pixel-parity-qyb. Asserting 36
+    // would bake that in and break when qyb fixes it. What this ticket owns is
+    // that the region is the widget's content, not its container.
+    const { width } = regionOf(session, "progress");
+    expect(width).toBeGreaterThanOrEqual(32);
+    expect(width).toBeLessThan(80);
 
     session.unmount();
   });
