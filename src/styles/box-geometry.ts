@@ -23,10 +23,10 @@ export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
     marginRight: box.marginRight,
     marginBottom: box.marginBottom,
     marginLeft: box.marginLeft,
-    // Textual's default widget width is `1fr` — fill the container — which is
-    // already Yoga's default cross-axis behaviour, so only the opt-out needs
-    // saying. `width: auto` hugs content, and combined with the default
-    // `flexGrow: 0` that hugs on both axes regardless of the parent's direction.
+    // Textual's default width is `1fr` — fill the container — which is already
+    // Yoga's default, so only the two opt-outs need saying: a concrete width
+    // sizes the box directly, and `auto` hugs content via cross-axis alignment.
+    width: box.width === AUTO ? undefined : box.width,
     alignSelf: box.width === AUTO ? "flex-start" : undefined,
   };
 }

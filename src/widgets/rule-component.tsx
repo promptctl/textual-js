@@ -37,15 +37,13 @@ const VERTICAL_LINE_CHARS: Record<string, string> = {
 
 const DEFAULT_RULE_COLOR = "#004578";
 
-// [LAW:one-source-of-truth] Margins are declared here rather than hardcoded on
-// the rendered Box, matching Textual's own `Rule.-horizontal { margin: 1 0 }` /
-// `Rule.-vertical { margin: 0 2 }`. The cascade is the only place they appear,
-// which is what lets the widget's outer box carry them and keeps screenRegion
-// reporting the line itself rather than the line plus its surrounding gap.
+// [LAW:one-source-of-truth] Geometry is declared here, not hardcoded on the
+// rendered Box, so the widget's measured outer box carries it and screenRegion
+// reports the line itself rather than the line plus its surrounding gap.
 const DEFAULT_CSS = `
   Rule { color: ${DEFAULT_RULE_COLOR}; }
   Rule.-horizontal { margin: 1 0; }
-  Rule.-vertical { margin: 0 2; }
+  Rule.-vertical { width: 1; margin: 0 2; }
 `;
 
 export interface RuleProps extends WidgetComponentProps {
@@ -105,7 +103,7 @@ export const Rule = observer(function Rule({
           <Text color={color}>{character.repeat(Math.max(0, region.width))}</Text>
         </Box>
       ) : (
-        <Box width={1} height="100%" flexDirection="column">
+        <Box height="100%" flexDirection="column">
           {Array.from({ length: Math.max(0, region.height) }, (_, index) => (
             <Text key={index} color={color}>
               {character}

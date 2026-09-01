@@ -3,7 +3,7 @@ import React from "react";
 import { Box } from "ink";
 
 import { runTest } from "../src/testing/run-test.js";
-import { Button, Rule, Static } from "../src/widgets/index.js";
+import { Button, Rule, Static, Switch } from "../src/widgets/index.js";
 
 // [LAW:behavior-not-structure] These assert the contract `widget.screenRegion`
 // owes its consumers — the widget's own placed rectangle in screen coordinates,
@@ -44,6 +44,40 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     // Static fills its container width, so here the widget rect and the
     // container rect legitimately coincide.
     expect(regionOf(session, "static")).toEqual({ x: 0, y: 6, width: 80, height: 1 });
+
+    session.unmount();
+  });
+
+  // A widget whose CSS gives it a concrete cell width is a third case, distinct
+  // from `width: auto` (Button) and default-fill (Static): the width is neither
+  // a hug policy nor absent, and must reach the measured box as a size.
+  it("sizes a fixed-width widget from its declared width, not its container", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <Switch id="switch" />
+      </Box>,
+    );
+
+    // Switch is `width: 10; height: 3`.
+    expect(regionOf(session, "switch")).toEqual({ x: 0, y: 0, width: 10, height: 3 });
+
+    session.unmount();
+  });
+
+  // The vertical Rule measures the opposite axis from the horizontal one and
+  // decomposes its margin the other way (`margin: 0 2` vs `1 0`).
+  it("gives a vertical rule the width of its line, not of its container", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <Rule id="rule" orientation="vertical" />
+      </Box>,
+    );
+
+    const region = regionOf(session, "rule");
+    // `margin: 0 2` places the 1-column line at x=2 and excludes the margin
+    // from the region, exactly as the horizontal case excludes its margin rows.
+    expect(region.x).toBe(2);
+    expect(region.width).toBe(1);
 
     session.unmount();
   });
