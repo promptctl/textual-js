@@ -391,9 +391,14 @@ export const Input = observer(function Input({
     });
   }, [rebuildValidationController, recomputeValidationState, syncValidationClasses, validateValue, widget.handle]);
 
-  function handleInputKey(message: Key): void {
+  // [LAW:one-source-of-truth] The keys this Input owns are named exactly once,
+  // here, as the operation each one performs. Resolution is pure — it hands
+  // back the operation without running it — so the same lookup answers both
+  // "what does this key do" and "is this key ours at all".
+  function resolveInputKeyAction(message: Key): (() => boolean | void) | undefined {
     const model = modelRef.current!;
-    const keyActions = new Map<string, () => boolean | void>([
+    const character = message.character;
+    const editActions = new Map<string, () => boolean | void>([
       ["enter", () => {
         const result = applyValidation("submitted");
         widget.postMessage(new InputSubmitted(model.value, result));
@@ -407,19 +412,30 @@ export const Input = observer(function Input({
       ["backspace", () => model.deleteLeft() && postChanged()],
       ["delete", () => model.deleteRight() && postChanged()],
     ]);
-    const action = keyActions.get(message.key);
 
-    message.stop();
+    // A key carrying a character is text the user typed, so the Input owns it
+    // even when the model refuses the insert (`maxLength`, `restrict`) — the
+    // refusal is the Input's answer, not a reason to hand the key upward.
+    return editActions.get(message.key)
+      ?? (character === null ? undefined : () => model.insert(character) && postChanged());
+  }
 
-    if (action !== undefined) {
-      action();
-      forceRender();
+  function handleInputKey(message: Key): void {
+    const action = resolveInputKeyAction(message);
+
+    // [LAW:dataflow-not-control-flow] The single branch is the domain's own
+    // discriminator — a key the Input owns versus one it does not — and it
+    // decides both halves together. An unowned key is left completely
+    // untouched so it bubbles on to the screen and app bindings, which is how
+    // `tab` reaches `app.focus_next` from inside a focused Input. Stopping
+    // every key unconditionally is what trapped focus here.
+    if (action === undefined) {
       return;
     }
 
-    if (message.input.length > 0 && model.insert(message.input)) {
-      postChanged();
-    }
+    message.stop();
+    action();
+    forceRender();
   }
 
   function handleInputPaste(message: Paste): void {

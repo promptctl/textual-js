@@ -390,7 +390,12 @@ const REVERSE_SPECIAL_KEY_NAMES = new Map<string, string>(
 );
 
 export function normalizeKeyName(key: string): { key: string; character: string | null } {
-  const trimmedKey = key.trim();
+  // Trimming strips padding from a declared binding (" tab "), but a literal
+  // space is a key, not padding — SPECIAL_KEY_NAMES maps it to "space" below,
+  // and trimming it to "" meant that entry could never be reached: the space
+  // bar produced `key: ""` with no character, so it named no binding and typed
+  // nothing.
+  const trimmedKey = key.trim() === "" ? key : key.trim();
 
   if (trimmedKey.includes("+")) {
     return { key: trimmedKey.toLowerCase(), character: null };
@@ -668,7 +673,14 @@ export class AppRuntime {
         const normalized = normalizeKeyName(input);
         return {
           fullKey: composeKeyWithModifiers(normalized.key, meta),
-          character: normalized.character,
+          // [LAW:parse-dont-validate] `character` is the one statement of "the
+          // user typed this text", and it is stamped here, at the only place a
+          // Key is built. Ctrl and Meta produce a command, not a character, so
+          // they clear it; Shift produces a different character ("A"), so it
+          // does not. Without the stamp every text widget re-derives the rule
+          // from `meta` — and `ctrl+c` typed a literal "c" into a focused Input
+          // and into the command palette's query.
+          character: meta.ctrl === true || meta.meta === true ? null : normalized.character,
         };
       },
     };
