@@ -504,6 +504,37 @@ describe("command palette screen interaction", () => {
     session.unmount();
   });
 
+  it("moves the highlight backward on up, returning it to the index it started from", async () => {
+    const moves: Array<{ text: string; index: number }> = [];
+    const session = await runTest(React.createElement(Static, { content: "app" }), {
+      messageHook: (message) => {
+        if (message instanceof CommandPaletteOptionHighlighted) {
+          moves.push({ text: message.option.text, index: message.index });
+        }
+      },
+    });
+    // Three results, not two: with two, a backward move and a forward wrap land on the
+    // same index, so the assertion could not tell them apart.
+    session.app.setSystemCommandResolver(() => [
+      { name: "Open File", callback: () => undefined, discover: false },
+      { name: "Open Folder", callback: () => undefined, discover: false },
+      { name: "Open Recent", callback: () => undefined, discover: false },
+    ]);
+
+    await session.pilot.press("ctrl+p");
+    await session.pilot.type("open");
+
+    await session.pilot.press("down");
+    await session.pilot.press("up");
+
+    expect(moves).toEqual([
+      { text: "Open Folder", index: 1 },
+      { text: "Open File", index: 0 },
+    ]);
+
+    session.unmount();
+  });
+
   it("dismisses with escape and click-away without selecting an option", async () => {
     const closed: boolean[] = [];
     const session = await runTest(React.createElement(Static, { content: "app" }), {
