@@ -8,6 +8,7 @@ import { observer } from "mobx-react-lite";
 import { runInAction } from "mobx";
 
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { MeasuredSizeReader } from "../framework/measured-size.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { RuleModel, type RuleOrientation } from "./rule.js";
 
@@ -38,7 +39,7 @@ const VERTICAL_LINE_CHARS: Record<string, string> = {
 const DEFAULT_RULE_COLOR = "#004578";
 
 // [LAW:one-source-of-truth] Geometry is declared here, not hardcoded on the
-// rendered Box, so the widget's measured outer box carries it and screenRegion
+// rendered Box, so the widget's measured outer box carries it and the seam
 // reports the line itself rather than the line plus its surrounding gap.
 const DEFAULT_CSS = `
   Rule { color: ${DEFAULT_RULE_COLOR}; }
@@ -94,23 +95,28 @@ export const Rule = observer(function Rule({
   const character = isHorizontal
     ? HORIZONTAL_LINE_CHARS[model.lineStyle] ?? " "
     : VERTICAL_LINE_CHARS[model.lineStyle] ?? " ";
-  const region = widget.handle.screenRegion;
-
+  // A Rule spans its container (`width: 100%` / `height: 100%`), so it has no
+  // natural size to fall back on: before the layout places it there is simply no
+  // line to draw, and the pass that measures it needs no glyphs from us.
   return (
     <WidgetScope widget={widget.handle}>
-      {isHorizontal ? (
-        <Box width="100%" height={1}>
-          <Text color={color}>{character.repeat(Math.max(0, region.width))}</Text>
-        </Box>
-      ) : (
-        <Box height="100%" flexDirection="column">
-          {Array.from({ length: Math.max(0, region.height) }, (_, index) => (
-            <Text key={index} color={color}>
-              {character}
-            </Text>
-          ))}
-        </Box>
-      )}
+      <MeasuredSizeReader widget={widget.handle}>
+        {({ width, height }) =>
+          isHorizontal ? (
+            <Box width="100%" height={1}>
+              <Text color={color}>{character.repeat(width ?? 0)}</Text>
+            </Box>
+          ) : (
+            <Box height="100%" flexDirection="column">
+              {Array.from({ length: height ?? 0 }, (_, index) => (
+                <Text key={index} color={color}>
+                  {character}
+                </Text>
+              ))}
+            </Box>
+          )
+        }
+      </MeasuredSizeReader>
     </WidgetScope>
   );
 });

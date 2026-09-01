@@ -182,11 +182,17 @@ function readHorizontalSpacing(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+// [LAW:parse-dont-validate] `measuredWidth` arrives already discriminated from
+// `MeasuredSizeReader`: a number is a real measurement, `undefined` is "not
+// placed yet, size yourself". This used to re-check `<= 0` because the caller
+// handed it a raw region width where zero meant either thing — that question is
+// answered upstream now, and asking it again here is what let this seam and four
+// widgets each hold a different answer.
 export function resolveVisualRenderWidth(
-  containerWidth: number | undefined,
+  measuredWidth: number | undefined,
   boxProps: Partial<BoxProps> = {},
 ): number | undefined {
-  if (containerWidth === undefined || containerWidth <= 0) {
+  if (measuredWidth === undefined) {
     return undefined;
   }
 
@@ -199,7 +205,7 @@ export function resolveVisualRenderWidth(
   // [LAW:single-enforcer] Container-to-content width translation happens at
   // one seam so every visual-bearing widget renders rich content against the
   // same measured inner width instead of ad hoc callsite arithmetic.
-  return Math.max(1, containerWidth - horizontalSpacing);
+  return Math.max(1, measuredWidth - horizontalSpacing);
 }
 
 export function visualize(value: VisualInput, options: VisualizeOptions = {}): Visual {

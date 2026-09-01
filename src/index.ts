@@ -170,6 +170,8 @@ export {
   TooManyMatches,
   WrongType,
   StylesReader,
+  MeasuredSizeReader,
+  type MeasuredSize,
   WidgetScope,
   useCurrentWidget,
   useStyles,
