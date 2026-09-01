@@ -272,22 +272,25 @@ export class CommandPalette {
     }
   }
 
-  moveHighlight(delta: number): PaletteResult | null {
-    const enabledIndexes = this.results
-      .map((result, index) => (result.disabled === true ? null : index))
-      .filter((index): index is number => index !== null);
+  // [LAW:types-are-the-program] The highlighted result and its index are one fact, so
+  // they leave together or not at all. Pairing them through the enabled list — rather
+  // than returning the result and making the caller re-read `highlightedIndex` — is what
+  // deletes both the caller's second null check and the lookup arm that could disagree
+  // with the index this method just assigned.
+  moveHighlight(delta: number): { result: PaletteResult; index: number } | null {
+    const enabled = this.results
+      .map((result, index) => ({ result, index }))
+      .filter((entry) => entry.result.disabled !== true);
 
-    if (enabledIndexes.length === 0) {
+    if (enabled.length === 0) {
       this.highlightedIndex = null;
       return null;
     }
 
-    const current = this.highlightedIndex ?? enabledIndexes[0];
-    const currentPosition = Math.max(0, enabledIndexes.indexOf(current));
-    const nextPosition = (currentPosition + delta + enabledIndexes.length) % enabledIndexes.length;
-    const nextIndex = enabledIndexes[nextPosition];
-    this.highlightedIndex = nextIndex;
-    return this.results[nextIndex] ?? null;
+    const currentPosition = Math.max(0, enabled.findIndex((entry) => entry.index === this.highlightedIndex));
+    const next = enabled[(currentPosition + delta + enabled.length) % enabled.length];
+    this.highlightedIndex = next.index;
+    return next;
   }
 
   selectHighlighted(): { command: (() => void) | null; selected: boolean } {
@@ -396,6 +399,15 @@ export const CommandPaletteScreen = observer(function CommandPaletteScreen({
   );
 });
 
+// [LAW:dataflow-not-control-flow] Navigation direction is a value this table carries,
+// not a branch per key. `moveHighlight` was always parameterized by a delta; keeping the
+// key-to-delta mapping as data is what lets one move-and-announce path serve every
+// navigation key, so a new one is a new row rather than another copy of that path.
+const HIGHLIGHT_DELTAS = new Map<string, number>([
+  ["down", 1],
+  ["up", -1],
+]);
+
 function handlePaletteKey(
   app: ProviderContext["app"],
   palette: CommandPalette,
@@ -408,11 +420,13 @@ function handlePaletteKey(
     return;
   }
 
-  if (message.key === "down") {
-    const highlighted = palette.moveHighlight(1);
+  const highlightDelta = HIGHLIGHT_DELTAS.get(message.key);
 
-    if (highlighted !== null && palette.highlightedIndex !== null) {
-      app.postAppMessage(new CommandPalette.OptionHighlighted(highlighted, palette.highlightedIndex));
+  if (highlightDelta !== undefined) {
+    const highlighted = palette.moveHighlight(highlightDelta);
+
+    if (highlighted !== null) {
+      app.postAppMessage(new CommandPalette.OptionHighlighted(highlighted.result, highlighted.index));
     }
 
     return;
