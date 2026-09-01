@@ -11,6 +11,7 @@ import {
   type VisualInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { MeasuredSizeReader } from "../framework/measured-size.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
 
@@ -43,13 +44,29 @@ export const Static = observer(function Static({
   });
 
   const styles = useStyles(widget.handle);
-  const renderWidth = resolveVisualRenderWidth(widget.handle.screenRegion.width, styles.box);
 
+  // The unmeasured pass renders unconstrained rather than at zero: content wrapped
+  // to zero columns measures zero, and a widget sized from its own content would
+  // then have nothing left to grow back from.
   return (
     <WidgetScope widget={widget.handle}>
-      <WidgetFrame widget={widget.handle} styles={styles}>
-        {renderVisual(visual, styles.text, `static:${widget.nodeId}`, renderWidth)}
-      </WidgetFrame>
+      <MeasuredSizeReader widget={widget.handle}>
+        {({ width }) => {
+          const renderWidth = resolveVisualRenderWidth(width, styles.box);
+
+          return (
+            <WidgetFrame widget={widget.handle} styles={styles}>
+              {/* Zero room means nothing to show — the same answer Rule, Input
+                  and Sparkline give at zero. Painting into the one-column floor
+                  `renderVisual` needs would wrap the content one glyph per row
+                  and grow the widget vertically out of a box measured at zero. */}
+              {renderWidth === 0
+                ? null
+                : renderVisual(visual, styles.text, `static:${widget.nodeId}`, renderWidth)}
+            </WidgetFrame>
+          );
+        }}
+      </MeasuredSizeReader>
     </WidgetScope>
   );
 });

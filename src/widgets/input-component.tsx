@@ -8,6 +8,7 @@ import { observer } from "mobx-react-lite";
 import { Content, renderContent } from "../content/index.js";
 import { Key, Paste } from "../events/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { MeasuredSizeReader } from "../framework/measured-size.js";
 import type { Widget } from "../framework/widget.js";
 import { InputValidationController, type ValidateOn, type ValidationResult, type Validator } from "../validation/index.js";
 import { SuggestionController, type Suggester } from "../suggestions/index.js";
@@ -440,30 +441,6 @@ export const Input = observer(function Input({
   }
 
   const palette = readInputPalette(styles);
-  // [LAW:one-source-of-truth] The frame width is the region Ink measured for
-  // this widget (`width: 100%` stretching to the screen), not a literal copied
-  // from the terminal geometry. The first paint measures zero and the layout
-  // reader re-renders with the real width.
-  const frameWidth = widget.handle.screenRegion.width;
-  const borderCells = Math.min(INPUT_BORDER_CELLS, frameWidth);
-  const innerWidth = frameWidth - borderCells;
-  // [LAW:one-source-of-truth] Padding and text area are carved from one width
-  // budget, so `padding * 2 + area === innerWidth` holds at every width and the
-  // value row can never render wider than the border rows above and below it.
-  // Together with `borderCells`, this keeps
-  // `borderCells + leftPadding + areaWidth + rightPadding === frameWidth` true
-  // at every width.
-  // Padding is budgeted as a total, not capped per side. Capping each side at
-  // half the inner width makes the text area oscillate as the widget grows
-  // (0, 1, 0, 1, 0, 1, 2 …) because the per-side cap reaches its maximum one
-  // step before the area would have grown. Taking the padding as one budget
-  // keeps the area monotonic in the width, and matches Textual, where
-  // `padding: 0 2` is fixed and the content box simply shrinks to nothing.
-  const totalPadding = Math.min(INPUT_HORIZONTAL_PADDING * 2, innerWidth);
-  const leftPadding = Math.min(INPUT_HORIZONTAL_PADDING, totalPadding);
-  const rightPadding = totalPadding - leftPadding;
-  const areaWidth = innerWidth - totalPadding;
-
   const suggestion = suggestionControllerRef.current.suggestion;
   const suffix = resolveSuggestionSuffix(
     modelRef.current.value,
@@ -479,30 +456,59 @@ export const Input = observer(function Input({
   // [LAW:dataflow-not-control-flow] Cursor visibility is data, not a branch:
   // an index when the widget holds focus, null when it does not.
   const cursorIndex = widget.handle.isFocused ? modelRef.current.cursorPosition : null;
-  // The cascade's text style lands here, on the content between the borders —
-  // the strip Textual applies `rich_style` to — and never on the border glyphs
-  // `inputRow` composes around it.
-  const valueRow = Content.assemble(
-    " ".repeat(leftPadding),
-    buildInputArea(body, modelRef.current.cursorPosition, cursorIndex, areaWidth, palette),
-    " ".repeat(rightPadding),
-  ).stylizeBefore(contentStyle);
-  const edgeRow = (glyph: string): Content =>
-    Content.styled(glyph.repeat(innerWidth), palette.border);
-
+  // An Input spans its container (`width: 100%`), so it has no natural size to
+  // fall back on: an unplaced Input draws a zero-cell frame, and the pass that
+  // places it needs no glyphs from us to do so.
   return (
     <WidgetScope widget={widget.handle}>
-      <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
-        <Box key={`input:${widget.nodeId}:top`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), layoutProps, `input:${widget.nodeId}:top`)}
-        </Box>
-        <Box key={`input:${widget.nodeId}:value`}>
-          {renderContent(inputRow(valueRow, palette, borderCells), layoutProps, `input:${widget.nodeId}:value`)}
-        </Box>
-        <Box key={`input:${widget.nodeId}:bottom`}>
-          {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), layoutProps, `input:${widget.nodeId}:bottom`)}
-        </Box>
-      </WidgetFrame>
+      <MeasuredSizeReader widget={widget.handle}>
+        {({ width }) => {
+          const frameWidth = width ?? 0;
+          const borderCells = Math.min(INPUT_BORDER_CELLS, frameWidth);
+          const innerWidth = frameWidth - borderCells;
+          // [LAW:one-source-of-truth] Padding and text area are carved from one
+          // width budget, so `padding * 2 + area === innerWidth` holds at every
+          // width and the value row can never render wider than the border rows
+          // above and below it. Together with `borderCells`, this keeps
+          // `borderCells + leftPadding + areaWidth + rightPadding === frameWidth`
+          // true at every width.
+          // Padding is budgeted as a total, not capped per side. Capping each
+          // side at half the inner width makes the text area oscillate as the
+          // widget grows (0, 1, 0, 1, 0, 1, 2 …) because the per-side cap reaches
+          // its maximum one step before the area would have grown. Taking the
+          // padding as one budget keeps the area monotonic in the width, and
+          // matches Textual, where `padding: 0 2` is fixed and the content box
+          // simply shrinks to nothing.
+          const totalPadding = Math.min(INPUT_HORIZONTAL_PADDING * 2, innerWidth);
+          const leftPadding = Math.min(INPUT_HORIZONTAL_PADDING, totalPadding);
+          const rightPadding = totalPadding - leftPadding;
+          const areaWidth = innerWidth - totalPadding;
+          // The cascade's text style lands here, on the content between the
+          // borders — the strip Textual applies `rich_style` to — and never on
+          // the border glyphs `inputRow` composes around it.
+          const valueRow = Content.assemble(
+            " ".repeat(leftPadding),
+            buildInputArea(body, modelRef.current!.cursorPosition, cursorIndex, areaWidth, palette),
+            " ".repeat(rightPadding),
+          ).stylizeBefore(contentStyle);
+          const edgeRow = (glyph: string): Content =>
+            Content.styled(glyph.repeat(innerWidth), palette.border);
+
+          return (
+            <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
+              <Box key={`input:${widget.nodeId}:top`}>
+                {renderContent(inputRow(edgeRow(INPUT_BORDER_TOP), palette, borderCells), layoutProps, `input:${widget.nodeId}:top`)}
+              </Box>
+              <Box key={`input:${widget.nodeId}:value`}>
+                {renderContent(inputRow(valueRow, palette, borderCells), layoutProps, `input:${widget.nodeId}:value`)}
+              </Box>
+              <Box key={`input:${widget.nodeId}:bottom`}>
+                {renderContent(inputRow(edgeRow(INPUT_BORDER_BOTTOM), palette, borderCells), layoutProps, `input:${widget.nodeId}:bottom`)}
+              </Box>
+            </WidgetFrame>
+          );
+        }}
+      </MeasuredSizeReader>
     </WidgetScope>
   );
 });

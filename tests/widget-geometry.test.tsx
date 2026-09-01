@@ -203,6 +203,33 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     session.unmount();
   });
 
+  // Obligation (c) of the measured-width seam, made observable. Content wrapped
+  // to the measured width is output that feeds back into the measurement, and
+  // since r1k.2 every commit re-measures, so the loop is live rather than latent.
+  // It terminates only because `updateScreenRegion` writes on change; the seam
+  // must not launder that by handing back a width its own output moved.
+  it("settles a widget whose content is wrapped to the width it is measured at", async () => {
+    const session = await runTest(
+      <Box flexDirection="column">
+        <Static id="wrapped" content={"lorem ipsum dolor sit amet ".repeat(8)} />
+      </Box>,
+    );
+
+    const settled = regionOf(session, "wrapped");
+    expect(settled.width).toBe(80);
+    // Wrapping happened — the content is taller than one row, so the rendered
+    // output genuinely depended on the width, which is what makes this a loop.
+    expect(settled.height).toBeGreaterThan(1);
+
+    // Idle passes move nothing. A seam that re-derived the width from the wrapped
+    // output would drift here, one pass at a time.
+    await session.pilot.pause();
+    await session.pilot.pause();
+    expect(regionOf(session, "wrapped")).toEqual(settled);
+
+    session.unmount();
+  });
+
   it("does not hit-test a 16-cell button 54 columns to its right", async () => {
     const session = await runTest(
       <Box flexDirection="column">

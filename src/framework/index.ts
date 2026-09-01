@@ -55,6 +55,7 @@ export {
   type WidgetHostProps,
 } from "./context.js";
 export { DOMQuery, DeclarationError, NoMatches, TooManyMatches, WrongType, type QueryTypeConstraint } from "./dom-query.js";
+export { MeasuredSizeReader, type MeasuredSize, type MeasuredSizeReaderProps } from "./measured-size.js";
 export { OnDecoratorError, on, type OnOptions } from "./on.js";
 export {
   WidgetRegistry,

@@ -226,6 +226,7 @@ export class Widget {
   readonly resolvedStyles = new ResolvedStyles();
   readonly styles: Styles;
   screenRegion = Region.EMPTY;
+  private placed = false;
   scrollOffsetX = 0;
   scrollOffsetY = 0;
   scrollTargetX = 0;
@@ -592,7 +593,18 @@ export class Widget {
     this.lifecycleReady = false;
   }
 
+  // [LAW:types-are-the-program] The bit `screenRegion` alone cannot carry.
+  // `Region.EMPTY` is both the pre-measurement value and a legitimate
+  // measurement of a widget with no room, so `width === 0` answered two
+  // questions at once and every width-aware widget invented its own tiebreak.
+  // The layout writer knows which is which; this records it so nobody guesses.
+  get isPlaced(): boolean {
+    return this.placed;
+  }
+
   updateScreenRegion(region: Region): void {
+    this.placed = true;
+
     if (this.screenRegion.equals(region)) {
       return;
     }
