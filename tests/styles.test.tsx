@@ -560,6 +560,18 @@ describe("styles and useStyles", () => {
     expect(instance.lastFrame()).toContain("visible");
     expect(instance.lastFrame()).not.toContain("hidden");
 
+    // `#hidden` took auto-focus at registration, before the stylesheet hid it,
+    // so focus is now parked on a non-interactive widget. A visibility-hidden
+    // widget must not receive keys on the strength of that stale focus.
+    app.postKey("x");
+    await app.whenIdle();
+
+    expect(received).toEqual([]);
+
+    // Input reaches a visible widget once that widget actually holds focus.
+    app.findWidgets("VisibilityLabel").find((widget) => widget.id === "visible")!.focus();
+    await app.whenIdle();
+
     app.postKey("x");
     await app.whenIdle();
 

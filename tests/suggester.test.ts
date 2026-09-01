@@ -170,6 +170,9 @@ describe("Input suggester integration", () => {
         suggester: new SuggestFromList(["hello", "world"]),
       }),
       {
+        // Typing only reaches an Input that holds focus, so the app names it as
+        // its auto-focus target the way a Textual app's AUTO_FOCUS selector does.
+        appProps: { autoFocus: "Input" },
         messageHook: (message) => {
           if (message instanceof SuggestionReady) {
             suggestions.push(message);
@@ -198,6 +201,7 @@ describe("Input suggester integration", () => {
       React.createElement(Input, {
         suggester: new SuggestFromList(["hello"]),
       }),
+      { appProps: { autoFocus: "Input" } },
     );
 
     await session.pilot.type("help");
@@ -220,6 +224,7 @@ describe("Input suggester integration", () => {
         suggester: new SuggestFromList(["hello"]),
       }),
       {
+        appProps: { autoFocus: "Input" },
         messageHook: (message) => {
           if (message instanceof SuggestionReady) {
             suggestions.push(message);
@@ -248,6 +253,7 @@ describe("Input suggester integration", () => {
       React.createElement(Input, {
         suggester: new SuggestFromList(["hello"]),
       }),
+      { appProps: { autoFocus: "Input" } },
     );
 
     await session.pilot.type("h");
@@ -266,6 +272,7 @@ describe("Input suggester integration", () => {
       React.createElement(Input, {
         suggester: new SuggestFromList(["Scotland"], { case_sensitive: false }),
       }),
+      { appProps: { autoFocus: "Input" } },
     );
 
     await session.pilot.type("s");

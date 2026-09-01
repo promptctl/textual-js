@@ -660,7 +660,8 @@ export class AppRuntime {
       dispatchBindingActionForNode: (node, action) =>
         this.bindingDispatcher.dispatchBindingActionForNode(node, action),
       dispatchPriorityBindings: (key) => this.bindingDispatcher.dispatchPriorityBindings(key),
-      resolveDefaultDispatchTarget: () => this.bindingDispatcher.resolveDefaultDispatchTarget(),
+      resolveFocusedTarget: () => this.bindingDispatcher.resolveFocusedTarget(),
+      resolveFallbackDeliveryTarget: () => this.bindingDispatcher.resolveFallbackDeliveryTarget(),
       clearPendingError: () => this.lifecycle.clearPendingError(),
       throwPendingError: () => this.throwPendingError(),
       normalizeAndComposeKey: (input, meta) => {
@@ -706,7 +707,7 @@ export class AppRuntime {
       listWidgets: () => this.registry.list(),
       getWidget: (id) => this.registry.get(id),
       getRootChildren: () => this.registry.getChildren(null),
-      resolveDefaultDispatchTarget: () => this.bindingDispatcher.resolveDefaultDispatchTarget(),
+      resolveFallbackDeliveryTarget: () => this.bindingDispatcher.resolveFallbackDeliveryTarget(),
       ancestorsAllowFocus: (widget) => this.focusEngine.ancestorsAllowFocus(widget),
       postMessage: (id, message) => this.postMessage(id, message),
       focusWidget: (id) => this.focusWidget(id),

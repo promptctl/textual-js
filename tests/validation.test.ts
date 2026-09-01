@@ -255,6 +255,9 @@ describe("Input validation integration", () => {
         validateOn: ["changed"],
       }),
       {
+        // Typing only reaches an Input that holds focus, so the app names it as
+        // its auto-focus target the way a Textual app's AUTO_FOCUS selector does.
+        appProps: { autoFocus: "Input" },
         messageHook: (message) => {
           if (message instanceof InputChanged) {
             changed.push(message);
@@ -283,6 +286,7 @@ describe("Input validation integration", () => {
         validateOn: ["submitted"],
       }),
       {
+        appProps: { autoFocus: "Input" },
         messageHook: (message) => {
           if (message instanceof InputChanged) {
             changed.push(message);

@@ -280,11 +280,23 @@ export class BindingDispatcher {
     return false;
   }
 
-  resolveDefaultDispatchTarget(): Widget | undefined {
+  // [LAW:one-source-of-truth] "Who is focused" and "who receives a message that
+  // has no focused recipient" are different questions, and answering both from
+  // one resolver is what let a guessed widget pass as the focused one. They get
+  // one resolver each.
+
+  resolveFocusedTarget(): Widget | undefined {
+    const focusedNodeId = this.deps.getFocusedNodeId();
+    return this.deps.listWidgets().find((entry) => entry.isInteractive && entry.nodeId === focusedNodeId);
+  }
+
+  resolveFallbackDeliveryTarget(): Widget | undefined {
     const interactiveWidgets = this.deps.listWidgets().filter((entry) => entry.isInteractive);
 
-    // [LAW:one-source-of-truth] Focus/default dispatch target resolution lives
-    // in one helper so input routing and app-level dispatch share the same target choice.
+    // Last-resort recipient for messages with no onward route once focus is
+    // absent — paste, resize, and the pointer chain's final arm. Keys do not
+    // come here: they bubble to the screen-then-app binding phase instead, so
+    // an unfocused key never lands in an unfocused widget's handlers.
     const focusedNodeId = this.deps.getFocusedNodeId();
     return (
       interactiveWidgets.find((entry) => entry.nodeId === focusedNodeId) ??
