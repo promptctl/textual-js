@@ -7,7 +7,7 @@
 // left to review.
 
 import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -15,10 +15,19 @@ import { describe, expect, it } from "vitest";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const SEAM_MODULE = "src/framework/measured-size.tsx";
 
+// Walked by hand rather than with `readdirSync({ recursive: true })`: that option
+// and the `parentPath` it populates land in Node 20.1 and 20.12, while this
+// package's `engines` floor is 18.
 function sourceFilesUnder(directory: string): string[] {
-  return readdirSync(join(repoRoot, directory), { withFileTypes: true, recursive: true })
-    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
-    .map((entry) => relative(repoRoot, join(entry.parentPath, entry.name)));
+  return readdirSync(join(repoRoot, directory), { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+
+    return entry.isDirectory()
+      ? sourceFilesUnder(path)
+      : /\.tsx?$/.test(entry.name)
+        ? [path]
+        : [];
+  });
 }
 
 function linesMatching(files: string[], pattern: RegExp): string[] {
@@ -36,7 +45,11 @@ describe("measured-size seam", () => {
     expect(linesMatching(renderingLayer, /screenRegion/)).toEqual([]);
   });
 
-  it("is the only place the unmeasured case is decided", () => {
+  // Narrower than it looks, deliberately: this catches the four historical
+  // fallbacks coming back verbatim, not every tiebreak someone could invent. The
+  // general case is the sibling test above — a new tiebreak needs the observable,
+  // and the observable is unreachable outside the seam.
+  it("has not regrown any of the four fallbacks it replaced", () => {
     // The four answers this seam replaced, each written by a widget that had no
     // way to tell "zero columns" from "never measured".
     const abandonedFallbacks = /Math\.max\(0, region\.width\)|screenRegion\.width > 0 \?|cssWidth \?\? region\.width|containerWidth <= 0/;

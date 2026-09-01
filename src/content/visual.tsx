@@ -205,7 +205,10 @@ export function resolveVisualRenderWidth(
   // [LAW:single-enforcer] Container-to-content width translation happens at
   // one seam so every visual-bearing widget renders rich content against the
   // same measured inner width instead of ad hoc callsite arithmetic.
-  return Math.max(1, measuredWidth - horizontalSpacing);
+  // Floored at zero, not at one: a widget measured with no room has no content
+  // columns, and inventing one here would be this seam disagreeing with the
+  // contract it was just handed.
+  return Math.max(0, measuredWidth - horizontalSpacing);
 }
 
 export function visualize(value: VisualInput, options: VisualizeOptions = {}): Visual {

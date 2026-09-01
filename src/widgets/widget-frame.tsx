@@ -15,12 +15,17 @@ function renderAlignedLabel(
   textProps: { color?: string },
   key: string,
 ): React.JSX.Element | null {
-  if (label === null || label.plain.length === 0) {
+  // [LAW:no-ambient-temporal-coupling] Obligation (c) of the seam: a border label
+  // is decoration on a width the widget got elsewhere, never an input to it. So
+  // the unmeasured pass draws no label at all — rendering it at its natural
+  // length would let a long title stretch the very box being measured, and the
+  // widget would settle around its own caption.
+  if (label === null || label.plain.length === 0 || width === undefined) {
     return null;
   }
 
-  const availableWidth = width ?? label.cellLength;
-  const truncated = label.truncate(availableWidth, { overflow: "ellipsis" });
+  const truncated = label.truncate(width, { overflow: "ellipsis" });
+  const availableWidth = width;
   const remaining = Math.max(0, availableWidth - truncated.cellLength);
   const leftPad = align === "right" ? remaining : align === "center" ? Math.floor(remaining / 2) : 0;
   const rightPad = remaining - leftPad;

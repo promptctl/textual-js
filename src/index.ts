@@ -172,6 +172,7 @@ export {
   StylesReader,
   MeasuredSizeReader,
   type MeasuredSize,
+  type MeasuredSizeReaderProps,
   WidgetScope,
   useCurrentWidget,
   useStyles,
