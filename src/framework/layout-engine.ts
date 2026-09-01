@@ -96,11 +96,18 @@ export class LayoutEngine {
   // trigger (a widget's own commit, or the app shell's display pass) and never
   // their own measurement.
   private syncLayoutReaders(): void {
-    this.syncedLayoutPass = this.layoutPass;
+    // [LAW:no-silent-failure] The pass is recorded as derived only once the
+    // sweep has actually derived it. Recorded up front, a reader that threw
+    // would leave every reader behind it un-measured while the pass guard
+    // reported the work done — one loud failure, then permanent quiet
+    // staleness. The captured number names the pass that was swept.
+    const sweptPass = this.layoutPass;
 
     for (const reader of this.layoutReaders.values()) {
       reader();
     }
+
+    this.syncedLayoutPass = sweptPass;
   }
 
   // [LAW:no-ambient-temporal-coupling] "the geometry may have moved" is owned
