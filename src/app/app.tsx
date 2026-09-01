@@ -967,6 +967,14 @@ export class App<Result = unknown> {
     return this.layoutEngine.registerLayoutReader(nodeId, reader);
   }
 
+  syncLayoutReadersForPass(): void {
+    this.layoutEngine.syncLayoutReadersForPass();
+  }
+
+  attachLayoutPassCounter(rootNode: { onComputeLayout?: () => void }): () => void {
+    return this.layoutEngine.attachLayoutPassCounter(rootNode);
+  }
+
   preventMessages<T>(targetId: string | null, messageTypes: MessageConstructor[], callback: () => T): T {
     return this.messagePump.preventMessages(targetId, messageTypes, callback);
   }
