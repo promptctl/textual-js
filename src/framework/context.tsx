@@ -418,13 +418,9 @@ export const WidgetScope = observer(function WidgetScope({ widget, children }: W
   // [LAW:no-ambient-temporal-coupling] Re-measurement fires on this widget's
   // own Ink commit — deliberately no dependency array, so a widget-local MobX
   // update (which re-renders this widget and no ancestor) re-derives geometry
-  // without anyone asking for a pass. The registration effect above declares
-  // this widget's reader before this effect runs it, so mount measures here
-  // too and there is exactly one measurement site.
-  // The whole tree is re-derived, not just this widget: Ink recomputes the
-  // entire Yoga layout on every render, so one widget's commit can move any
-  // other widget's rectangle. Every widget in a commit asks, and the pass
-  // number makes all asks after the first free. Writes are change-gated in
+  // without anyone asking for a pass. It re-derives the whole tree because Ink
+  // recomputes the entire Yoga layout per commit, so this widget's commit can
+  // move any other widget's rectangle. Writes are change-gated in
   // `Widget.updateScreenRegion`, which is what stops measure → observable
   // write → re-render → measure from cycling.
   useLayoutEffect(() => {

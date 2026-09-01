@@ -95,7 +95,7 @@ export class LayoutEngine {
   // is the single re-derivation of all of them; callers supply only the
   // trigger (a widget's own commit, or the app shell's display pass) and never
   // their own measurement.
-  syncLayoutReaders(): void {
+  private syncLayoutReaders(): void {
     this.syncedLayoutPass = this.layoutPass;
 
     for (const reader of this.layoutReaders.values()) {
@@ -134,8 +134,15 @@ export class LayoutEngine {
     };
   }
 
+  // [LAW:single-enforcer] A reader is current from the moment it exists. The
+  // pass sync cannot supply that: layout effects run in tree order, so a
+  // sibling registering after another widget already synced the pass would
+  // otherwise sit at Region.EMPTY until some later commit happened to sweep
+  // it up. Running it here is O(1) per widget and owned in one place, so no
+  // caller has to remember it.
   registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {
     this.layoutReaders.set(nodeId, reader);
+    reader();
 
     return () => {
       if (this.layoutReaders.get(nodeId) === reader) {

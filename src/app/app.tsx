@@ -967,10 +967,6 @@ export class App<Result = unknown> {
     return this.layoutEngine.registerLayoutReader(nodeId, reader);
   }
 
-  syncLayoutReaders(): void {
-    this.layoutEngine.syncLayoutReaders();
-  }
-
   syncLayoutReadersForPass(): void {
     this.layoutEngine.syncLayoutReadersForPass();
   }

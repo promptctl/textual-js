@@ -174,6 +174,35 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
     session.unmount();
   });
 
+  // The load-bearing half of that design: one widget's commit re-derives the
+  // widgets it displaced, which never re-rendered and so have no commit of
+  // their own to measure on. A stale `y` here is the plausible-looking wrong
+  // rectangle that hit tests would then trust.
+  it("moves a sibling the grown widget displaced, though the sibling never re-rendered", async () => {
+    const content = observable.box("one");
+    const GrowingStatic = observer(function GrowingStatic(): React.JSX.Element {
+      return <Static id="growing" content={content.get()} />;
+    });
+
+    const session = await runTest(
+      <Box flexDirection="column">
+        <GrowingStatic />
+        <Static id="below" content="below" />
+      </Box>,
+    );
+
+    expect(regionOf(session, "below").y).toBe(1);
+
+    runInAction(() => {
+      content.set("one\ntwo\nthree\nfour");
+    });
+    await session.pilot.pause();
+
+    expect(regionOf(session, "below").y).toBe(4);
+
+    session.unmount();
+  });
+
   it("does not hit-test a 16-cell button 54 columns to its right", async () => {
     const session = await runTest(
       <Box flexDirection="column">
