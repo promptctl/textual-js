@@ -150,12 +150,6 @@
     "reason": "Pre-seeded Python baseline for Stage 10 HelpPanel implementation"
   },
   {
-    "name": "input_focused",
-    "stage": "future",
-    "component": "Input",
-    "reason": "NOT an Input rendering gap — Input focus styling is done and verified. `Input:focus` resolves border #0178d4, background #272727, placeholder #797979 and the reverse-video block cursor (#121212 on #e0e0e0); rendering the focused frame directly matches visual-tests/snapshots/python/input_focused.json at 240/240 cells, and tests/input-render.test.tsx asserts the focused frame differs from the blurred one. The blocker is framework key dispatch: postToFocused in src/framework/message-pump.ts (~line 305) drops the message when resolveDefaultDispatchTarget() returns undefined, and postKey (~line 313) routes every non-priority key through it. With AUTO_FOCUS = null (which this fixture sets, matching the Python fixture) nothing is focused, the Key message is discarded, and the app-level `{ key: 'tab', action: 'app.focus_next' }` binding at src/framework/_app-runtime.ts:459 never runs. Verified by probe: app.focusNext() focuses the Input correctly, but pilot.press('tab') leaves app.focusedNodeId null, and a custom app-level f5 binding does not fire either — no key reaches app bindings while nothing is focused. Textual routes unfocused keys to the Screen/App so app bindings still fire. Fix belongs in the framework, not in Input. Secondary, Input-side: handleInputKey in src/widgets/input-component.tsx calls message.stop() on every key including tab, so once focused the Input swallows Tab and focus cannot advance."
-  },
-  {
     "name": "key_panel_default",
     "stage": "10",
     "component": "KeyPanel",

@@ -305,9 +305,20 @@ export class MessagePump {
   postToFocused(message: Message): void {
     const target = this.deps.resolveDefaultDispatchTarget();
 
-    if (target !== undefined) {
-      this.postMessage(target.nodeId, message);
+    // [LAW:dataflow-not-control-flow] An absent focus selects a shorter route,
+    // never a skipped dispatch. The message always enters the queue; with no
+    // focused node the bubble chain is empty and dispatch lands straight on the
+    // screen-then-app binding phase, which is where Textual routes a key
+    // pressed while nothing holds focus. Dropping it here instead is what kept
+    // `tab` from ever reaching app.focus_next, so nothing could take focus by
+    // keyboard.
+    if (target === undefined) {
+      this.queue.push({ targetId: null, message });
+      this.scheduleDrain();
+      return;
     }
+
+    this.postMessage(target.nodeId, message);
   }
 
   postKey(input: string, meta: { ctrl?: boolean; shift?: boolean; meta?: boolean; paste?: boolean } = {}): void {

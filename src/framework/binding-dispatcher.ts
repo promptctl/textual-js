@@ -281,16 +281,15 @@ export class BindingDispatcher {
   }
 
   resolveDefaultDispatchTarget(): Widget | undefined {
-    const interactiveWidgets = this.deps.listWidgets().filter((entry) => entry.isInteractive);
-
-    // [LAW:one-source-of-truth] Focus/default dispatch target resolution lives
-    // in one helper so input routing and app-level dispatch share the same target choice.
+    // [LAW:one-source-of-truth] The focus engine owns the fact "who is focused";
+    // this resolver reads it and never substitutes a guess. The former
+    // first-focusable / first-interactive fallbacks were a second, divergable
+    // answer to that question, and they routed keys into the handlers of a
+    // widget that did not have focus. Absence is now reported as absence — see
+    // MessagePump.postToFocused, which routes an unfocused key to the
+    // screen/app binding phase rather than into an arbitrary widget.
     const focusedNodeId = this.deps.getFocusedNodeId();
-    return (
-      interactiveWidgets.find((entry) => entry.nodeId === focusedNodeId) ??
-      interactiveWidgets.find((entry) => entry.focusable) ??
-      interactiveWidgets[0]
-    );
+    return this.deps.listWidgets().find((entry) => entry.isInteractive && entry.nodeId === focusedNodeId);
   }
 
   // ---- Internal helpers ----
