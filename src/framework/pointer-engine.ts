@@ -48,7 +48,7 @@ export interface PointerEngineDeps {
   listWidgets(): Widget[];
   getWidget(nodeId: string): Widget | undefined;
   getRootChildren(): Widget[];
-  resolveDefaultDispatchTarget(): Widget | undefined;
+  resolveFallbackDeliveryTarget(): Widget | undefined;
   ancestorsAllowFocus(widget: Widget): boolean;
   postMessage(targetId: string, message: Message): boolean;
   focusWidget(nodeId: string | null): void;
@@ -253,7 +253,7 @@ export class PointerEngine {
   }
 
   private resolvePointerDispatchTarget(targetNode: Widget | undefined): Widget | undefined {
-    return targetNode ?? this.resolveActiveScreenRootTarget() ?? this.deps.resolveDefaultDispatchTarget();
+    return targetNode ?? this.resolveActiveScreenRootTarget() ?? this.deps.resolveFallbackDeliveryTarget();
   }
 
   private resolveActiveScreenRootTarget(): Widget | undefined {
