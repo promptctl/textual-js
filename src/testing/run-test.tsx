@@ -365,10 +365,6 @@ async function settleApp(app: App): Promise<void> {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    // Re-sync layout readers so widget regions reflect the latest Ink
-    // measurement after staged child mounts. Without this, parent regions
-    // captured before children rendered remain stale.
-    app.recordDisplayPass();
     const widgets = app.findWidgets("*");
     const signature = widgets
       .map((w) => `${w.nodeId}:${w.screenRegion.width}x${w.screenRegion.height}`)

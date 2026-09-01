@@ -36,6 +36,8 @@ export class LayoutEngine {
   private readonly afterRefreshCallbacks: AfterRefreshCallback[] = [];
   private readonly layoutReaders = new Map<string, LayoutReader>();
   private afterRefreshRequester: (() => void) | null = null;
+  private layoutPass = 1;
+  private syncedLayoutPass = 0;
 
   constructor(deps: LayoutEngineDeps) {
     this.deps = deps;
@@ -46,6 +48,8 @@ export class LayoutEngine {
         afterRefreshCallbacks: false,
         layoutReaders: false,
         afterRefreshRequester: false,
+        layoutPass: false,
+        syncedLayoutPass: false,
       },
       { autoBind: true },
     );
@@ -83,10 +87,71 @@ export class LayoutEngine {
 
   recordDisplayPass(): void {
     this.deps.incrementDisplayCount();
-    this.syncWidgetLayoutReaders();
+    this.syncLayoutReadersForPass();
   }
 
+  // [LAW:one-source-of-truth] Ink recomputes the whole Yoga tree on every
+  // render, so one commit anywhere invalidates every widget's rectangle. This
+  // is the single re-derivation of all of them; callers supply only the
+  // trigger (a widget's own commit, or the app shell's display pass) and never
+  // their own measurement.
+  private syncLayoutReaders(): void {
+    // [LAW:no-silent-failure] The pass is recorded as derived only once the
+    // sweep has actually derived it. Recorded up front, a reader that threw
+    // would leave every reader behind it un-measured while the pass guard
+    // reported the work done — one loud failure, then permanent quiet
+    // staleness. The captured number names the pass that was swept.
+    const sweptPass = this.layoutPass;
+
+    for (const reader of this.layoutReaders.values()) {
+      reader();
+    }
+
+    this.syncedLayoutPass = sweptPass;
+  }
+
+  // [LAW:no-ambient-temporal-coupling] "the geometry may have moved" is owned
+  // state, not a timing guess: `attachLayoutPassCounter` numbers Ink's Yoga
+  // passes, and this runs the derivation once per pass however many widgets
+  // commit in it. Every widget still asks on its own commit — the epoch is
+  // what makes the M-th ask in one pass free instead of another O(N) walk.
+  syncLayoutReadersForPass(): void {
+    if (this.syncedLayoutPass === this.layoutPass) {
+      return;
+    }
+
+    this.syncLayoutReaders();
+  }
+
+  // [LAW:single-enforcer] Ink computes layout exactly once per React commit
+  // (`resetAfterCommit` -> `onComputeLayout`, ink/build/reconciler.js:68),
+  // immediately before that commit's layout effects. Chaining that hook is
+  // what makes the pass counter true rather than inferred; the wrapper defers
+  // to Ink's own handler and restores it on detach.
+  attachLayoutPassCounter(rootNode: { onComputeLayout?: () => void }): () => void {
+    const inkComputeLayout = rootNode.onComputeLayout;
+
+    rootNode.onComputeLayout = () => {
+      inkComputeLayout?.();
+      this.layoutPass += 1;
+    };
+
+    return () => {
+      rootNode.onComputeLayout = inkComputeLayout;
+    };
+  }
+
+  // [LAW:single-enforcer] A reader is current from the moment it exists. The
+  // pass sync cannot supply that: layout effects run in tree order, so a
+  // sibling registering after another widget already synced the pass would
+  // otherwise sit at Region.EMPTY until some later commit happened to sweep
+  // it up. Running it here is O(1) per widget and owned in one place, so no
+  // caller has to remember it.
+  // It runs before the insert so a reader that throws never enters the
+  // registry: registered, it could not be removed — the caller never receives
+  // the cleanup closure — and every later sweep would abort on it.
   registerLayoutReader(nodeId: string, reader: LayoutReader): () => void {
+    reader();
     this.layoutReaders.set(nodeId, reader);
 
     return () => {
@@ -104,11 +169,4 @@ export class LayoutEngine {
     }
   }
 
-  private syncWidgetLayoutReaders(): void {
-    // [LAW:one-source-of-truth] Ink layout measurement is centralized here so
-    // stale sibling or ancestor geometry cannot become a second spatial truth.
-    for (const reader of this.layoutReaders.values()) {
-      reader();
-    }
-  }
 }

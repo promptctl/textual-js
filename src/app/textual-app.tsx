@@ -54,8 +54,8 @@
 // alternate path from props to framework state and no second renderer.
 
 import { Buffer } from "node:buffer";
-import React, { useEffect, useLayoutEffect, useState, type PropsWithChildren } from "react";
-import { Box, useStdin, useStdout } from "ink";
+import React, { useEffect, useLayoutEffect, useRef, useState, type PropsWithChildren } from "react";
+import { Box, useStdin, useStdout, type DOMElement } from "ink";
 import { observer } from "mobx-react-lite";
 import { Padding } from "rich-js";
 
@@ -440,8 +440,26 @@ function shouldDispatchHostKey(key: HostKey, exitOnCtrlC: boolean): boolean {
   return !(key.input === "c" && key.ctrl && exitOnCtrlC);
 }
 
+// [LAW:parse-dont-validate] Returns the Ink root, or fails where the breakage
+// is: a layout effect runs after React attaches refs, so a null here is a
+// broken assumption about the commit phase, not a state to render around.
+function inkRootOf(node: DOMElement | null): DOMElement {
+  if (node === null) {
+    throw new Error("AppShell's layout ref was not attached before its layout effect ran");
+  }
+
+  let current = node;
+
+  while (current.parentNode !== undefined) {
+    current = current.parentNode;
+  }
+
+  return current;
+}
+
 const AppShell = observer(function AppShell({ children }: PropsWithChildren): React.JSX.Element {
   const app = useTextual();
+  const rootRef = useRef<DOMElement>(null);
   const { setRawMode, internal_eventEmitter, internal_exitOnCtrlC } = useStdin();
   const { stdout } = useStdout();
   const [, requestAfterRefresh] = useState(0);
@@ -517,6 +535,14 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
     });
   }, [app]);
 
+  // [LAW:one-source-of-truth] Ink's Yoga pass is what makes widget geometry
+  // stale, so it is what numbers the passes. Chaining `onComputeLayout` on the
+  // Ink root is the app-level wiring for that; widgets consume the number and
+  // never install their own hook.
+  useLayoutEffect(() => {
+    return app.attachLayoutPassCounter(inkRootOf(rootRef.current));
+  }, [app]);
+
   useLayoutEffect(() => {
     app.recordDisplayPass();
     app.flushAfterRefreshCallbacks();
@@ -526,6 +552,7 @@ const AppShell = observer(function AppShell({ children }: PropsWithChildren): Re
 
   return (
     <Box
+      ref={rootRef}
       flexDirection="column"
       position="relative"
       width={app.terminalSize.width}
