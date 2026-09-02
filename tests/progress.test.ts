@@ -59,10 +59,30 @@ describe("renderBar", () => {
     ]);
   });
 
+  // Every range here still covers ground once snapped. The ranges that do not
+  // are the next test's subject, and they are the only ones that overrun.
   it("keeps the bar exactly as wide as it was asked to be", () => {
-    for (const end of [0, 0.2, 1, 7.5, 16, 31.5, 32]) {
-      expect(renderBar(32, [0, end], FILL, RAIL).plain).toHaveLength(32);
+    for (const start of [0, 3, 7.5, 16]) {
+      for (const end of [start + 1, start + 7.5, 31.5, 32]) {
+        expect(renderBar(32, [start, end], FILL, RAIL).plain).toHaveLength(32);
+      }
     }
+  });
+
+  // Textual overruns here too, so the port does: the empty range's two boundary
+  // glyphs each claim half a cell and neither yields. Recorded as intended so
+  // it is not "fixed" into a divergence from the bar this module ports. Every
+  // string below is what real Textual emits for the same range.
+  //
+  // What decides it is the range being empty *after* snapping, not the caller
+  // passing equal endpoints -- (7.5, 7.7) collapses onto one half cell and
+  // overruns, while (3, 3) is empty on a whole cell and does not.
+  it("reproduces Textual's overrun for a range left empty on a half cell", () => {
+    expect(renderBar(10, [2.5, 2.5], FILL, RAIL).plain).toBe("━━╺╸━━━━━━━");
+    expect(renderBar(32, [7.5, 7.7], FILL, RAIL).plain).toBe(
+      `${"━".repeat(7)}╺╸${"━".repeat(24)}`,
+    );
+    expect(renderBar(10, [3, 3], FILL, RAIL).plain).toBe("━━╸╺━━━━━━");
   });
 
   // Every fixture sits on 0%, 50% or 100%, all exact half-cell multiples, so
