@@ -1,5 +1,19 @@
-// Architectural guard for the typed style-accessor invariant
-// (textual-style-accessor-typing-306):
+// Architectural guards over `src/widgets/**`. Two invariants, one scanner:
+// every rule below is a regex plus a message, so adding an invariant is adding
+// a value rather than adding a script.
+//
+// --- Invariant 1: colour reaches the screen through one bridge ---
+//
+// A widget paints colour by handing a Content to `renderContent`, which emits
+// truecolour itself. Passing `color` / `backgroundColor` to Ink's <Text>
+// instead resolves the colour through chalk, whose depth is decided by
+// terminal detection — and inside the visual-test xterm it settles at level 1
+// and quantises every colour to the 16-colour ANSI palette. #0178D4 arrives as
+// #0000EE. The defect is invisible until a fixture happens to use a colour
+// with no close ANSI neighbour, which is why it needs a mechanical check
+// rather than review attention.
+//
+// --- Invariant 2: the typed style accessors (textual-style-accessor-typing-306) ---
 //
 // Widgets read CSS-resolved values through typed accessors on
 // ResolvedStyles (`getColor`, `tryColor`, `getCustomColor`,
@@ -33,6 +47,14 @@ interface Pattern {
 }
 
 const PATTERNS: Pattern[] = [
+  {
+    name: "ink-text-color",
+    // `[^>]` spans newlines, so a multi-line <Text> opening tag is covered
+    // while the scan still stops at the tag that ends it.
+    regex: /<Text\b[^>]*?\b(?:color|backgroundColor)\s*=/g,
+    message:
+      "`<Text color=...>` / `<Text backgroundColor=...>` is forbidden in src/widgets/. Ink resolves colour depth through chalk, which quantises to 16 colours wherever terminal detection lands on level 1. Build a Content (`Content.assemble([text, \"#hex\"], ...)`) and render it through `renderContent`, the single visual-to-Ink bridge, which emits truecolour itself.",
+  },
   {
     name: "as-never",
     regex: /\bas\s+never\b/g,
@@ -153,7 +175,7 @@ async function main(): Promise<void> {
   try {
     await stat(absRoot);
   } catch {
-    console.error(`check-widget-style-casts: cannot read ${SCAN_ROOT}`);
+    console.error(`check-widget-source-rules: cannot read ${SCAN_ROOT}`);
     process.exit(1);
   }
   for await (const filePath of walk(absRoot)) {
@@ -163,12 +185,12 @@ async function main(): Promise<void> {
   }
 
   if (violations.length === 0) {
-    console.log("check-widget-style-casts: OK");
+    console.log("check-widget-source-rules: OK");
     return;
   }
 
   console.error(
-    `check-widget-style-casts: FAIL — ${violations.length} forbidden style-cast pattern${violations.length === 1 ? "" : "s"} in src/widgets/:\n`,
+    `check-widget-source-rules: FAIL — ${violations.length} forbidden pattern${violations.length === 1 ? "" : "s"} in src/widgets/:\n`,
   );
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}  [${v.pattern}]  ${v.match}`);
