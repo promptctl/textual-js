@@ -83,10 +83,10 @@ function formatPercentage(percentage: number | null): string {
   return percentage === null ? "--%" : `${Math.floor(percentage * 100)}%`;
 }
 
-// Textual quantises the bar's percentage to half cells before the bar ever sees
-// it (`Bar._validate_percentage`), so a progress change too small to move a
-// glyph cannot move one. Reproducing it here keeps the highlight range on the
-// same lattice Python's rounding lands on.
+// Textual truncates the bar's percentage onto the half-cell lattice before the
+// bar ever sees it (`Bar._validate_percentage`, whose `int()` floors), so a
+// progress change too small to move a glyph cannot move one. 53% lands on
+// 33/64, not 34/64 -- rounding here would paint half a cell too many.
 function highlightRange(percentage: number | null): readonly [number, number] {
   return percentage === null
     ? INDETERMINATE_RANGE

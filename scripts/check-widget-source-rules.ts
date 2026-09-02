@@ -2,16 +2,22 @@
 // every rule below is a regex plus a message, so adding an invariant is adding
 // a value rather than adding a script.
 //
-// --- Invariant 1: colour reaches the screen through one bridge ---
+// --- Invariant 1: widgets paint through one bridge ---
 //
-// A widget paints colour by handing a Content to `renderContent`, which emits
-// truecolour itself. Passing `color` / `backgroundColor` to Ink's <Text>
-// instead resolves the colour through chalk, whose depth is decided by
-// terminal detection — and inside the visual-test xterm it settles at level 1
-// and quantises every colour to the 16-colour ANSI palette. #0178D4 arrives as
-// #0000EE. The defect is invisible until a fixture happens to use a colour
-// with no close ANSI neighbour, which is why it needs a mechanical check
-// rather than review attention.
+// A widget paints by handing a Content to `renderContent`, which emits
+// truecolour ANSI itself. Ink's <Text> resolves colour depth through chalk
+// instead, and chalk's depth comes from terminal detection — inside the
+// visual-test xterm it settles at level 1 and quantises every colour to the
+// 16-colour ANSI palette, so #0178D4 arrives as #0000EE. The defect is
+// invisible until a fixture happens to use a colour with no close ANSI
+// neighbour, which is why it needs a mechanical check rather than review
+// attention.
+//
+// The rule forbids the import rather than the `color` prop: a widget with no
+// way to name the component cannot reach any of the styles it carries, and
+// there is no opening tag to parse, so no `>` inside an attribute expression
+// can slip a violation past the scan. Ink's <Box> is untouched — layout is
+// Ink's job, painting is the bridge's.
 //
 // --- Invariant 2: the typed style accessors (textual-style-accessor-typing-306) ---
 //
@@ -48,12 +54,14 @@ interface Pattern {
 
 const PATTERNS: Pattern[] = [
   {
-    name: "ink-text-color",
-    // `[^>]` spans newlines, so a multi-line <Text> opening tag is covered
-    // while the scan still stops at the tag that ends it.
-    regex: /<Text\b[^>]*?\b(?:color|backgroundColor)\s*=/g,
+    name: "ink-text-import",
+    // The module is deliberately not part of the match: `stripCommentsAndStrings`
+    // blanks the specifier, and a `Text` component painted from anywhere else
+    // bypasses the bridge just as thoroughly. `\bText\b` leaves `type TextProps`
+    // alone — the type is how a widget hands style *to* `renderContent`.
+    regex: /import\s*(?:type\s+)?\{[^}]*\bText\b[^}]*\}/g,
     message:
-      "`<Text color=...>` / `<Text backgroundColor=...>` is forbidden in src/widgets/. Ink resolves colour depth through chalk, which quantises to 16 colours wherever terminal detection lands on level 1. Build a Content (`Content.assemble([text, \"#hex\"], ...)`) and render it through `renderContent`, the single visual-to-Ink bridge, which emits truecolour itself.",
+      "Importing a `Text` component is forbidden in src/widgets/. Ink's <Text> resolves colour depth through chalk, which quantises to 16 colours wherever terminal detection lands on level 1. Build a Content (`Content.assemble([text, \"#hex\"], ...)`) and render it through `renderContent`, the single visual-to-Ink bridge, which emits truecolour itself. Ink's `Box` is still yours for layout, and `type TextProps` is how you hand style to the bridge.",
   },
   {
     name: "as-never",
