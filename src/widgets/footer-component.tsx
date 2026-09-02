@@ -54,7 +54,13 @@ const DEFAULT_CSS = `
 // segment of the bar can end up painted on a different colour than its
 // neighbours.
 function footerGlyphs(text: string, style: Partial<TextProps>): React.JSX.Element {
-  return renderContent(Content.fromText(text), { backgroundColor: FOOTER_BACKGROUND, ...style });
+  // markup: false — these are already-formatted display glyphs, not markup
+  // source. A description reading "Save [Ctrl+S]", or a binding on the "["
+  // key, would otherwise be parsed as tag syntax.
+  return renderContent(Content.fromText(text, { markup: false }), {
+    backgroundColor: FOOTER_BACKGROUND,
+    ...style,
+  });
 }
 
 export interface FooterProps extends WidgetComponentProps {

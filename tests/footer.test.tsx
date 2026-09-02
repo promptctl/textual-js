@@ -183,6 +183,34 @@ describe("footer active bindings", () => {
     session.unmount();
   });
 
+  // A description is app-authored display text, not markup source. Without
+  // that distinction a tag-shaped substring is consumed by the markup parser,
+  // so the chip renders fewer cells than chipDisplayWidth measured and the
+  // 80-column bar shifts.
+  it("renders a tag-shaped description literally instead of as markup", async () => {
+    const session = await runTest(
+      <>
+        <WidgetHost
+          typeName="Leaf"
+          id="leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f1", action: "save", description: "Toggle [b]old" }]}
+          actions={{
+            action_save: () => undefined,
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+        <Footer />
+      </>,
+    );
+
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("f1 Toggle [b]old");
+
+    session.unmount();
+  });
+
   it("renders compact mode without descriptions", async () => {
     const session = await runTest(
       <>
