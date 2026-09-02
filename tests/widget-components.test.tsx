@@ -12,6 +12,7 @@ import {
   RadioButton,
   RadioSet,
   RadioSetChanged,
+  Sparkline,
   Static,
   SwitchChanged,
   Switch,
@@ -265,6 +266,49 @@ describe("Button", () => {
 
     expect(ids).toContain("a");
     expect(ids).toContain("b");
+
+    session.unmount();
+  });
+});
+
+// Sparkline paints forty per-cell colours through one Content, so a regression
+// in span construction shows up as colours flattening rather than as a crash.
+// Both expectations are read off visual-tests/snapshots/python/sparkline_basic.json,
+// the same ground truth the pixel gate compares against.
+describe("Sparkline", () => {
+  const DATA = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const CSS = "Sparkline { width: 40; height: 3; }";
+
+  it("renders Python's glyph grid", async () => {
+    const session = await runTest(<Sparkline id="sl" data={DATA} />, {
+      appProps: { css: CSS },
+    });
+
+    expect(stripAnsi(session.lastFrame() ?? "").split("\n").slice(0, 3)).toEqual([
+      "                            ▂▂▂▂▅▅▅▅████",
+      "                ▃▃▃▃▅▅▅▅████████████████",
+      "▁▁▁▁▃▃▃▃▆▆▆▆████████████████████████████",
+    ]);
+
+    session.unmount();
+  });
+
+  it("gives each bucket its own truecolour, not a quantised palette", async () => {
+    const session = await runTest(<Sparkline id="sl" data={DATA} />, {
+      appProps: { css: CSS },
+    });
+
+    const bottomRow = (session.lastFrame() ?? "").split("\n")[2];
+
+    // The min and max ends of the blend, emitted as 24-bit ANSI. Ink's <Text>
+    // would have reached chalk and landed both on the 16-colour palette.
+    expect(bottomRow).toContain("[38;2;12;48;76m");
+    expect(bottomRow).toContain("[38;2;1;120;212m");
+
+    // Ten buckets, ten distinct colours — a row painted in one colour would
+    // still pass the glyph assertion above.
+    const colours = new Set(bottomRow.match(/\[38;2;\d+;\d+;\d+m/g) ?? []);
+    expect(colours.size).toBe(10);
 
     session.unmount();
   });

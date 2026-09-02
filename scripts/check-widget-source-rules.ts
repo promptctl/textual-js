@@ -13,11 +13,11 @@
 // neighbour, which is why it needs a mechanical check rather than review
 // attention.
 //
-// The rule forbids the import rather than the `color` prop: a widget with no
-// way to name the component cannot reach any of the styles it carries, and
-// there is no opening tag to parse, so no `>` inside an attribute expression
-// can slip a violation past the scan. Ink's <Box> is untouched — layout is
-// Ink's job, painting is the bridge's.
+// The rules forbid naming the component rather than passing it a `color`: with
+// no opening tag to parse, no `>` inside an attribute expression can slip a
+// violation past the scan. Both ways of naming it are covered — a named import
+// and a namespace binding. Ink's <Box> is untouched; layout is Ink's job,
+// painting is the bridge's.
 //
 // --- Invariant 2: the typed style accessors (textual-style-accessor-typing-306) ---
 //
@@ -62,6 +62,16 @@ const PATTERNS: Pattern[] = [
     regex: /import\s*(?:type\s+)?\{[^}]*\bText\b[^}]*\}/g,
     message:
       "Importing a `Text` component is forbidden in src/widgets/. Ink's <Text> resolves colour depth through chalk, which quantises to 16 colours wherever terminal detection lands on level 1. Build a Content (`Content.assemble([text, \"#hex\"], ...)`) and render it through `renderContent`, the single visual-to-Ink bridge, which emits truecolour itself. Ink's `Box` is still yours for layout, and `type TextProps` is how you hand style to the bridge.",
+  },
+  {
+    name: "widget-namespace-import",
+    // Named imports are checkable one binding at a time; a namespace binding
+    // grants every export at once, so `Ink.Text` reaches the same <Text> the
+    // rule above forbids and no import line records it. check-framework-imports
+    // rejects namespace imports for exactly this reason.
+    regex: /import\s*\*\s*as\s+[A-Za-z_$][\w$]*\s*from/g,
+    message:
+      "`import * as X from ...` is forbidden in src/widgets/. A namespace binding grants every export of the module, including a `Text` component, which puts it beyond the reach of a per-binding check. Import the named bindings you need — `Box` from \"ink\" is the usual one.",
   },
   {
     name: "as-never",

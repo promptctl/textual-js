@@ -34,11 +34,14 @@ function roundHalfToEven(value: number): number {
 }
 
 /**
- * Draw a `width`-cell bar with `[rangeStart, rangeEnd]` highlighted.
+ * Draw a bar of `width` cells with `[rangeStart, rangeEnd]` highlighted.
  *
  * The range is measured in cells and may be fractional: the bar snaps it to the
  * nearest half cell and spends the leftover half on `╺` / `╸`, which is how a
- * 50%-of-33-cells bar reads as half full rather than rounding visibly.
+ * 50%-of-33-cells bar reads as half full rather than rounding visibly. An empty
+ * range landing on a half cell overruns `width` by one, because its two
+ * boundary glyphs each claim half a cell and neither yields; Python does the
+ * same, so the port keeps it.
  */
 export function renderBar(
   width: number,
