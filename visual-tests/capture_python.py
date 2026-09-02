@@ -17,11 +17,25 @@ import asyncio
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-import textual  # noqa: F401
+# [LAW:one-source-of-truth] The two committed baselines for a fixture -- the
+# PNG the gate compares against and the JSON that documents it cell by cell --
+# have to be the same frame, and an animating widget only holds still if
+# Textual's animations are off. render-fixture-xvfb.sh sets this for the PNG
+# path; without the same setting here the two paths capture different frames of
+# the same fixture and quietly disagree. They did: progress_indeterminate's JSON
+# recorded an unhighlighted rail while its PNG recorded a fully highlighted bar,
+# and CLAUDE.md sends every diagnosis to the JSON first.
+#
+# Set before importing textual so the value is in place when Textual reads the
+# environment at import time.
+os.environ.setdefault("TEXTUAL_ANIMATIONS", "none")
+
+import textual  # noqa: E402,F401
 from rich.cells import cell_len
 from rich.style import Style
 

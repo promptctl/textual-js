@@ -1,19 +1,22 @@
 // [LAW:one-way-deps] Component consumes framework services (useWidget, useStyles).
-// [LAW:one-source-of-truth] Validation lives in ProgressBarModel; this component
-// reflects validated state into the Ink render.
+// [LAW:one-source-of-truth] Validation lives in ProgressBarModel; the bar's
+// shape lives in renderBar; this component only joins them to the cascade.
+// [LAW:single-enforcer] Every glyph leaves through renderContent, the one
+// visual-to-Ink bridge. Colours passed to Ink's <Text> instead go through
+// chalk, whose depth is decided per-terminal — inside the visual-test xterm it
+// resolves to 1 and quantises #0178d4 to ANSI blue. The bridge emits truecolour
+// itself, so the bar's palette survives wherever every other widget's does.
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 import { runInAction } from "mobx";
 
+import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
+import { renderBar } from "./bar-renderable.js";
 import { ProgressBarModel } from "./progress-bar.js";
-
-const FILLED_CHAR = "━";
-const EMPTY_CHAR = "─";
-const PULSE_GLYPHS = "──━━━━━──";
 
 // Textual sizes the bar itself, not the ProgressBar: `Bar { width: 32 }` inside
 // a `ProgressBar { width: auto }`. The bar is therefore a fixed 32 cells and the
@@ -21,14 +24,42 @@ const PULSE_GLYPHS = "──━━━━━──";
 // what made a 37-cell widget paint across all 80 columns.
 const BAR_WIDTH = 32;
 
-// [LAW:one-source-of-truth] color (filled bar) and background (rail) live
-// in DEFAULT_CSS — the cascade is the only place these defaults appear.
+// Textual's `PercentageStatus { width: 5 }` and `ETAStatus { width: 9 }`, both
+// `content-align-horizontal: right`. The widths are what make every baseline
+// exactly 37 columns wide at `show_eta=False`; padding here is that alignment.
+const PERCENTAGE_WIDTH = 5;
+const ETA_WIDTH = 9;
+
+// An indeterminate bar has no progress to point at, so Textual animates a pulse
+// across it — and collapses that animation to a fully highlighted bar wherever
+// animations are off (`Bar.render_indeterminate`, the `animation_level == "none"`
+// branch). textual-js has no animation system, so the still frame is the only
+// frame it can be, and it is the one the visual harness compares against:
+// render-fixture-xvfb.sh runs Python under TEXTUAL_ANIMATIONS=none.
+const INDETERMINATE_RANGE: readonly [number, number] = [0, BAR_WIDTH];
+
+// [LAW:one-source-of-truth] Textual styles the bar through the component
+// classes `bar--bar`, `bar--complete` and `bar--indeterminate`; the cascade is
+// the only place these defaults appear, and the state classes the component
+// already composes are what select between them. `color` stays the widget's
+// text colour — the percentage and ETA readouts — exactly as it is in Textual,
+// where those are Labels inheriting the screen's foreground.
+//
+// Each hex is what Textual's `get_component_rich_style` *resolves* to, not what
+// the theme declares: the indeterminate bar's `$error` is declared #ba3c5b and
+// arrives as #b93c5b. One unit of red, and it paints the whole bar wrong.
 const DEFAULT_CSS = `
   ProgressBar {
     width: auto;
     height: 1;
-    color: #004578;
-    background: #3d3d3d;
+    --bar-color: #0178d4;
+    --bar-rail-color: #1e1e1e;
+  }
+  ProgressBar.-complete {
+    --bar-color: #4ebf71;
+  }
+  ProgressBar.-indeterminate {
+    --bar-color: #b93c5b;
   }
 `;
 
@@ -40,21 +71,26 @@ export interface ProgressBarProps extends WidgetComponentProps {
   showEta?: boolean;
 }
 
+// markup: false — these are formatted readouts, not markup source. Nothing in
+// "50%" or "--:--:--" is tag syntax today, but routing widget-generated display
+// text through the markup parser is how a description reading "Save [Ctrl+S]"
+// loses its brackets, and the readouts have no reason to be the exception.
+function field(text: string, width: number): Content {
+  return Content.fromText(text.padStart(width), { markup: false });
+}
+
 function formatPercentage(percentage: number | null): string {
-  // [LAW:dataflow-not-control-flow] Branch selects which formatted string the
-  // renderer consumes; both branches always run through the same render path.
   return percentage === null ? "--%" : `${Math.floor(percentage * 100)}%`;
 }
 
-function buildBarSegments(
-  percentage: number | null,
-  width: number,
-): { filledWidth: number; pulse: string | null } {
-  // Indeterminate progress is encoded by a pulse glyph string the renderer
-  // overlays; determinate progress is encoded by an integer fill width.
-  const pulse = percentage === null ? PULSE_GLYPHS : null;
-  const filledWidth = percentage === null ? 0 : Math.round(percentage * width);
-  return { filledWidth, pulse };
+// Textual quantises the bar's percentage to half cells before the bar ever sees
+// it (`Bar._validate_percentage`), so a progress change too small to move a
+// glyph cannot move one. Reproducing it here keeps the highlight range on the
+// same lattice Python's rounding lands on.
+function highlightRange(percentage: number | null): readonly [number, number] {
+  return percentage === null
+    ? INDETERMINATE_RANGE
+    : [0, Math.trunc(percentage * BAR_WIDTH * 2) / 2];
 }
 
 export const ProgressBar = observer(function ProgressBar({
@@ -104,43 +140,26 @@ export const ProgressBar = observer(function ProgressBar({
     return <WidgetScope widget={widget.handle}><></></WidgetScope>;
   }
 
-  const filledColor = styles.getColor("color");
-  const railColor = styles.getColor("background");
-
-  const percentageText = formatPercentage(model.percentage);
-  const etaText = "--:--:--";
-  const barWidth = showBar ? BAR_WIDTH : 0;
-  const { filledWidth, pulse } = buildBarSegments(model.percentage, barWidth);
-
-  const filledChars =
-    pulse === null
-      ? FILLED_CHAR.repeat(filledWidth)
-      : pulse.slice(0, Math.min(pulse.length, barWidth));
-  const emptyChars =
-    pulse === null
-      ? EMPTY_CHAR.repeat(Math.max(0, barWidth - filledWidth))
-      : EMPTY_CHAR.repeat(Math.max(0, barWidth - filledChars.length));
+  // The whole widget is one row of text, so it is one Content and one trip
+  // across the bridge. The bar's runs carry their own colours and rich-js lays
+  // the cascade's text style underneath them, which leaves the percentage and
+  // ETA readouts styled by `color` and the bar untouched by it.
+  const row = Content.assemble(
+    showBar
+      ? renderBar(
+          BAR_WIDTH,
+          highlightRange(model.percentage),
+          styles.getCustomColor("--bar-color"),
+          styles.getCustomColor("--bar-rail-color"),
+        )
+      : new Content(""),
+    showPercentage ? field(formatPercentage(model.percentage), PERCENTAGE_WIDTH) : new Content(""),
+    showEta ? field("--:--:--", ETA_WIDTH) : new Content(""),
+  );
 
   return (
     <WidgetScope widget={widget.handle}>
-      <Box height={1} flexDirection="row">
-        {showBar ? (
-          <Box flexDirection="row">
-            <Text color={filledColor}>{filledChars}</Text>
-            <Text color={railColor}>{emptyChars}</Text>
-          </Box>
-        ) : null}
-        {showPercentage ? (
-          <Box marginLeft={1}>
-            <Text>{percentageText}</Text>
-          </Box>
-        ) : null}
-        {showEta ? (
-          <Box marginLeft={1}>
-            <Text>{etaText}</Text>
-          </Box>
-        ) : null}
-      </Box>
+      <Box height={1}>{renderContent(row, styles.text, `progress:${widget.nodeId}`)}</Box>
     </WidgetScope>
   );
 });
