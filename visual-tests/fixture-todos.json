@@ -120,18 +120,6 @@
     "reason": "Pre-seeded Python baseline for Stage 9 DirectoryTree implementation"
   },
   {
-    "name": "footer_empty",
-    "stage": "future",
-    "component": "Footer",
-    "reason": "Wrong palette in src/widgets/footer-component.tsx: FOOTER_BACKGROUND is hardcoded to `#212B32`, but Python Textual's footer bar bg is `#242f38` (verified in visual-tests/snapshots/python/footer_empty.json — every cell on the bar row has background `#242f38`). xterm in Docker faithfully renders both colors; there is no truecolor rendering bug. Fix: change the constant. The earlier diagnosis (`xterm renders #212B32 as pure black`, with candidates around Ink's whitespace BG emission / xterm-direct terminfo / scroll-erase) was symptom-blaming — none of those candidates were verified, and consulting the Python baseline JSON immediately disproves them."
-  },
-  {
-    "name": "footer_with_bindings",
-    "stage": "future",
-    "component": "Footer",
-    "reason": "Three independent palette/format gaps in src/widgets/footer-component.tsx and src/framework/app-framework.ts (verified against visual-tests/snapshots/python/footer_with_bindings.json):\n  1. Bar background: JS `FOOTER_BACKGROUND = '#212B32'` vs Python `#242f38` (same as footer_empty).\n  2. Chip key color: JS `FOOTER_KEY_COLOR = '#fea62b'` vs Python `#ffa62b` (typo: `fe` should be `ff`).\n  3. Palette separator (`▏`) color: JS uses default fg `#e0e0e0` vs Python's dimmer `#495259`.\n  4. Key formatting: JS `getKeyDisplay` emits `ctrl+r` vs Python's caret form `^r` — locatable in src/framework/app-framework.ts.\nNo truecolor/xterm rendering bug exists; the previous diagnosis was symptom-blaming."
-  },
-  {
     "name": "header_default",
     "stage": "7",
     "component": "Header",
