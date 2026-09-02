@@ -93,15 +93,13 @@ describe("widget screenRegion matches Python Textual's Widget.region", () => {
       </Box>,
     );
 
-    // The exact total is deliberately not pinned. Python renders 37 columns
-    // (a 32-cell bar plus a percentage field right-aligned to 4, plus a 1-cell
-    // margin); textual-js renders 36 because formatPercentage does not pad --
-    // a defect owned by textual-progress-fixture-pixel-parity-qyb. Asserting 36
-    // would bake that in and break when qyb fixes it. What this ticket owns is
-    // that the region is the widget's content, not its container.
+    // 37 columns: a 32-cell bar plus the percentage field, which Textual sizes
+    // at 5 and right-aligns. Pinning the number is what this test can now do --
+    // it used to allow a range because textual-js rendered 36, having left the
+    // percentage unpadded. What this test owns either way is that the region is
+    // the widget's content and not its container.
     const { width } = regionOf(session, "progress");
-    expect(width).toBeGreaterThanOrEqual(32);
-    expect(width).toBeLessThan(80);
+    expect(width).toBe(37);
 
     session.unmount();
   });

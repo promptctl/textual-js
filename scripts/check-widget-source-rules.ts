@@ -1,5 +1,25 @@
-// Architectural guard for the typed style-accessor invariant
-// (textual-style-accessor-typing-306):
+// Architectural guards over `src/widgets/**`. Two invariants, one scanner:
+// every rule below is a regex plus a message, so adding an invariant is adding
+// a value rather than adding a script.
+//
+// --- Invariant 1: widgets paint through one bridge ---
+//
+// A widget paints by handing a Content to `renderContent`, which emits
+// truecolour ANSI itself. Ink's <Text> resolves colour depth through chalk
+// instead, and chalk's depth comes from terminal detection — inside the
+// visual-test xterm it settles at level 1 and quantises every colour to the
+// 16-colour ANSI palette, so #0178D4 arrives as #0000EE. The defect is
+// invisible until a fixture happens to use a colour with no close ANSI
+// neighbour, which is why it needs a mechanical check rather than review
+// attention.
+//
+// The rules forbid naming the component rather than passing it a `color`: with
+// no opening tag to parse, no `>` inside an attribute expression can slip a
+// violation past the scan. Both ways of naming it are covered — a named import
+// and a namespace binding. Ink's <Box> is untouched; layout is Ink's job,
+// painting is the bridge's.
+//
+// --- Invariant 2: the typed style accessors (textual-style-accessor-typing-306) ---
 //
 // Widgets read CSS-resolved values through typed accessors on
 // ResolvedStyles (`getColor`, `tryColor`, `getCustomColor`,
@@ -33,6 +53,29 @@ interface Pattern {
 }
 
 const PATTERNS: Pattern[] = [
+  {
+    name: "ink-text-import",
+    // The module is deliberately not part of the match: `stripCommentsAndStrings`
+    // blanks the specifier, and a `Text` component painted from anywhere else
+    // bypasses the bridge just as thoroughly. `\bText\b` leaves `type TextProps`
+    // alone — the type is how a widget hands style *to* `renderContent`.
+    regex: /import\s*(?:type\s+)?\{[^}]*\bText\b[^}]*\}/g,
+    message:
+      "Importing a `Text` component is forbidden in src/widgets/. Ink's <Text> resolves colour depth through chalk, which quantises to 16 colours wherever terminal detection lands on level 1. Build a Content (`Content.assemble([text, \"#hex\"], ...)`) and render it through `renderContent`, the single visual-to-Ink bridge, which emits truecolour itself. Ink's `Box` is still yours for layout, and `type TextProps` is how you hand style to the bridge.",
+  },
+  {
+    name: "widget-namespace-import",
+    // Named imports are checkable one binding at a time; a namespace binding
+    // grants every export at once, so `Ink.Text` reaches the same <Text> the
+    // rule above forbids and no import line records it. check-framework-imports
+    // rejects namespace imports for exactly this reason.
+    // The optional leading binding is `import Default, * as Ink from "ink"`,
+    // valid ES and the second spelling to get past a rule whose comment claimed
+    // this class was closed.
+    regex: /import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\*\s*as\s+[A-Za-z_$][\w$]*\s*from/g,
+    message:
+      "`import * as X from ...` is forbidden in src/widgets/. A namespace binding grants every export of the module, including a `Text` component, which puts it beyond the reach of a per-binding check. Import the named bindings you need — `Box` from \"ink\" is the usual one.",
+  },
   {
     name: "as-never",
     regex: /\bas\s+never\b/g,
@@ -153,7 +196,7 @@ async function main(): Promise<void> {
   try {
     await stat(absRoot);
   } catch {
-    console.error(`check-widget-style-casts: cannot read ${SCAN_ROOT}`);
+    console.error(`check-widget-source-rules: cannot read ${SCAN_ROOT}`);
     process.exit(1);
   }
   for await (const filePath of walk(absRoot)) {
@@ -163,12 +206,12 @@ async function main(): Promise<void> {
   }
 
   if (violations.length === 0) {
-    console.log("check-widget-style-casts: OK");
+    console.log("check-widget-source-rules: OK");
     return;
   }
 
   console.error(
-    `check-widget-style-casts: FAIL — ${violations.length} forbidden style-cast pattern${violations.length === 1 ? "" : "s"} in src/widgets/:\n`,
+    `check-widget-source-rules: FAIL — ${violations.length} forbidden pattern${violations.length === 1 ? "" : "s"} in src/widgets/:\n`,
   );
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}  [${v.pattern}]  ${v.match}`);

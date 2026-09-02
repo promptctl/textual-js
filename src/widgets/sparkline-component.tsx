@@ -3,9 +3,10 @@
 // the component reflects validated grid output into the Ink render.
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 
+import { Content, renderContent } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { MeasuredSizeReader } from "../framework/measured-size.js";
 import { normalizeColor } from "../styles/index.js";
@@ -69,6 +70,22 @@ function blendRgb(a: RGB, b: RGB, ratio: number): string {
   const g = Math.trunc(a.g + (b.g - a.g) * ratio);
   const blue = Math.trunc(a.b + (b.b - a.b) * ratio);
   return `#${[r, g, blue].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// [LAW:single-enforcer] A row is one run of glyphs whose colour varies per
+// cell, so it is one Content with a span per cell and one trip across
+// renderContent — the single visual-to-Ink bridge. A <Text color=...> per cell
+// resolves colour depth through chalk instead, which settles at 16 colours
+// inside the visual-test terminal and repaints #0178d4 as ANSI blue.
+function rowContent(row: readonly SparklineCell[], minRgb: RGB, maxRgb: RGB): Content {
+  return Content.assemble(
+    ...row.map((cell): [string, string?] => [
+      cell.char,
+      cell.filled
+        ? blendRgb(minRgb, maxRgb, Math.max(0, Math.min(1, cell.ratio)))
+        : undefined,
+    ]),
+  );
 }
 
 function resolveSummary(fn?: SparklineSummaryName | SummaryFunction): SummaryFunction {
@@ -135,20 +152,11 @@ export const Sparkline = observer(function Sparkline({
             >
               {grid.map((row, rowIndex) => (
                 <Box key={rowIndex} flexDirection="row" width={width || undefined} height={1}>
-                  {row.map((cell, cellIndex) => {
-                    const color = cell.filled
-                      ? blendRgb(minRgb, maxRgb, Math.max(0, Math.min(1, cell.ratio)))
-                      : undefined;
-                    return (
-                      <Text
-                        key={cellIndex}
-                        color={color}
-                        backgroundColor={backgroundColor ?? undefined}
-                      >
-                        {cell.char}
-                      </Text>
-                    );
-                  })}
+                  {renderContent(
+                    rowContent(row, minRgb, maxRgb),
+                    { backgroundColor },
+                    `sparkline:${rowIndex}`,
+                  )}
                 </Box>
               ))}
             </Box>
