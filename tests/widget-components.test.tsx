@@ -477,6 +477,23 @@ describe("ProgressBar", () => {
     session.unmount();
   });
 
+  // The subtlest frame in the widget, and the one that was built wrong first:
+  // a stale local baseline recorded a leading `╺` over rail, where Textual with
+  // animations off paints the whole bar in $error. Only the pixel gate caught
+  // that, so the wiring from `percentage === null` to a full-width highlight is
+  // pinned here too.
+  it("paints an indeterminate bar fully highlighted", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={null} showEta={false} />,
+    );
+
+    const frame = session.lastFrame() ?? "";
+    expect(stripAnsi(frame).split("\n")[0]).toBe(`${"━".repeat(32)}  --%`);
+    expect(frame).toContain("[38;2;185;60;91m");
+
+    session.unmount();
+  });
+
   it("applies the -indeterminate class when total is null", async () => {
     const session = await runTest(
       <ProgressBar id="pb" total={null} showEta={false} />,
