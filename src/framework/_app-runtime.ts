@@ -459,12 +459,18 @@ function keyNameAliases(key: string): string[] {
   return [normalizedKey.replace(/\+/g, "_")];
 }
 
+// [LAW:one-source-of-truth] The key the command palette answers to is stated
+// once, here, and read by everything that shows or dispatches it. The Footer's
+// palette chip derives its label from this constant through getKeyDisplay, so
+// rebinding the palette cannot leave the Footer advertising a stale key.
+export const COMMAND_PALETTE_KEY = "ctrl+p";
+
 const APP_NAVIGATION_BINDINGS: BindingDeclaration[] = [
   { key: "tab", action: "app.focus_next" },
   { key: "shift+tab", action: "app.focus_previous" },
   { key: "ctrl+q", action: "app.quit", priority: true },
   { key: "ctrl+c", action: "app.quit" },
-  { key: "ctrl+p", action: "app.command_palette" },
+  { key: COMMAND_PALETTE_KEY, action: "app.command_palette" },
 ];
 
 export class AppRuntime {

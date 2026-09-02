@@ -1,6 +1,7 @@
 import { App } from "../src/index.js";
 import React from "react";
 import { Text } from "ink";
+import stripAnsi from "strip-ansi";
 import { describe, expect, it } from "vitest";
 
 import { Footer, WidgetHost, runTest } from "../src/index.js";
@@ -41,7 +42,7 @@ describe("footer active bindings", () => {
       },
     );
 
-    const frame = session.lastFrame() ?? "";
+    const frame = stripAnsi(session.lastFrame() ?? "");
     expect(frame).toContain("f1 Leaf");
     expect(frame).toContain("f2 Parent");
     expect(frame).toContain("f3 App");
@@ -92,7 +93,7 @@ describe("footer active bindings", () => {
       },
     );
 
-    const frame = session.lastFrame() ?? "";
+    const frame = stripAnsi(session.lastFrame() ?? "");
     const activeBindings = session.app.getActiveBindings();
 
     expect(frame).toContain("f1 Quit");
@@ -140,18 +141,72 @@ describe("footer active bindings", () => {
       { appProps: { app: new App() } },
     );
 
-    expect(session.lastFrame()).toContain("f1 First");
-    expect(session.lastFrame()).not.toContain("f2 Second");
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("f1 First");
+    expect(stripAnsi(session.lastFrame() ?? "")).not.toContain("f2 Second");
 
     session.app.focusWidget(session.app.getByCssId("second")!.nodeId);
     await session.pilot.pause();
 
-    expect(session.lastFrame()).toContain("f2 Second");
-    expect(session.lastFrame()).not.toContain("f1 First");
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("f2 Second");
+    expect(stripAnsi(session.lastFrame() ?? "")).not.toContain("f1 First");
 
     await session.pilot.click("FooterKey");
     await session.pilot.click("FooterKey");
     expect(calls).toEqual(["second", "second"]);
+
+    session.unmount();
+  });
+
+  it("shows a modifier binding in its caret display form, not its raw key name", async () => {
+    const session = await runTest(
+      <>
+        <WidgetHost
+          typeName="Leaf"
+          id="leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "ctrl+r", action: "reload", description: "Reload" }]}
+          actions={{
+            action_reload: () => undefined,
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+        <Footer />
+      </>,
+    );
+
+    const frame = stripAnsi(session.lastFrame() ?? "");
+    expect(frame).toContain("^r Reload");
+    expect(frame).not.toContain("ctrl+r");
+
+    session.unmount();
+  });
+
+  // A description is app-authored display text, not markup source. Without
+  // that distinction a tag-shaped substring is consumed by the markup parser,
+  // so the chip renders fewer cells than chipDisplayWidth measured and the
+  // 80-column bar shifts.
+  it("renders a tag-shaped description literally instead of as markup", async () => {
+    const session = await runTest(
+      <>
+        <WidgetHost
+          typeName="Leaf"
+          id="leaf"
+          focusable
+          autoFocus
+          bindings={[{ key: "f1", action: "save", description: "Toggle [b]old" }]}
+          actions={{
+            action_save: () => undefined,
+          }}
+        >
+          <Text>leaf</Text>
+        </WidgetHost>
+        <Footer />
+      </>,
+    );
+
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("f1 Toggle [b]old");
 
     session.unmount();
   });
@@ -175,8 +230,8 @@ describe("footer active bindings", () => {
       </>,
     );
 
-    expect(session.lastFrame()).toContain("f1");
-    expect(session.lastFrame()).not.toContain("Leaf");
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("f1");
+    expect(stripAnsi(session.lastFrame() ?? "")).not.toContain("Leaf");
 
     session.unmount();
   });
