@@ -69,7 +69,10 @@ const PATTERNS: Pattern[] = [
     // grants every export at once, so `Ink.Text` reaches the same <Text> the
     // rule above forbids and no import line records it. check-framework-imports
     // rejects namespace imports for exactly this reason.
-    regex: /import\s*\*\s*as\s+[A-Za-z_$][\w$]*\s*from/g,
+    // The optional leading binding is `import Default, * as Ink from "ink"`,
+    // valid ES and the second spelling to get past a rule whose comment claimed
+    // this class was closed.
+    regex: /import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\*\s*as\s+[A-Za-z_$][\w$]*\s*from/g,
     message:
       "`import * as X from ...` is forbidden in src/widgets/. A namespace binding grants every export of the module, including a `Text` component, which puts it beyond the reach of a per-binding check. Import the named bindings you need — `Box` from \"ink\" is the usual one.",
   },
