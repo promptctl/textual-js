@@ -1,12 +1,20 @@
 // [LAW:one-way-deps] Footer consumes the framework's derived binding view.
 // It does not re-derive binding precedence or mutate framework internals.
+// [LAW:single-enforcer] Every styled glyph leaves through renderContent, the
+// one visual-to-Ink bridge. Passing colours to Ink's <Text> instead routes them
+// through chalk, whose level is decided per-terminal — inside the visual-test
+// xterm it resolves to 1, which silently quantises #ffa62b to ANSI yellow and
+// #242f38 to black. The bridge emits truecolour itself, so the Footer's palette
+// survives wherever every other widget's palette does.
 // [LAW:dataflow-not-control-flow] The bar always renders. The chip count
 // (zero or more) lives in the data, not in branching renders. An empty
 // bindings list produces a bar with no chips — never an absent bar.
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box, type TextProps } from "ink";
 import { observer } from "mobx-react-lite";
+
+import { Content, renderContent } from "../content/index.js";
 
 import {
   WidgetScope,
@@ -14,12 +22,19 @@ import {
   useStyles,
   useWidget,
 } from "../framework/context.js";
-import type { ActiveBinding } from "../framework/_app-runtime.js";
+import {
+  COMMAND_PALETTE_KEY,
+  getKeyDisplay,
+  type ActiveBinding,
+} from "../framework/_app-runtime.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
-const FOOTER_BACKGROUND = "#212B32";
+// Textual's own footer palette, cell-for-cell. Ground truth for every value
+// here is visual-tests/snapshots/python/footer_with_bindings.json.
+const FOOTER_BACKGROUND = "#242f38";
 const FOOTER_FOREGROUND = "#e0e0e0";
-const FOOTER_KEY_COLOR = "#fea62b";
+const FOOTER_KEY_COLOR = "#ffa62b";
+const FOOTER_SEPARATOR_COLOR = "#495259";
 const FOOTER_PALETTE_SEPARATOR = "▏";
 
 const DEFAULT_CSS = `
@@ -33,6 +48,20 @@ const DEFAULT_CSS = `
     height: 1;
   }
 `;
+
+// [LAW:one-source-of-truth] Every glyph in the bar sits on the bar's
+// background. It is stated once here instead of at each call site, so no
+// segment of the bar can end up painted on a different colour than its
+// neighbours.
+function footerGlyphs(text: string, style: Partial<TextProps>): React.JSX.Element {
+  // markup: false — these are already-formatted display glyphs, not markup
+  // source. A description reading "Save [Ctrl+S]", or a binding on the "["
+  // key, would otherwise be parsed as tag syntax.
+  return renderContent(Content.fromText(text, { markup: false }), {
+    backgroundColor: FOOTER_BACKGROUND,
+    ...style,
+  });
+}
 
 export interface FooterProps extends WidgetComponentProps {
   compact?: boolean;
@@ -52,15 +81,17 @@ interface ChipSegments {
   after: string;
 }
 
+// [LAW:one-source-of-truth] getKeyDisplay owns the key -> display-form mapping
+// (ctrl+r -> ^r, delete -> del). The chip reads it here, where the same segments
+// feed both the rendered text and chipDisplayWidth, so the bar's measured width
+// can never disagree with the glyphs it draws.
 function buildChipSegments(binding: ActiveBinding, compact: boolean): ChipSegments {
-  const showDescription =
-    !compact && binding.description !== undefined && binding.description.length > 0;
   return {
     before: " ",
-    key: binding.key,
+    key: getKeyDisplay(binding.key),
     betweenKeyAndDescription: " ",
-    description: showDescription ? (binding.description ?? "") : "",
-    after: showDescription ? " " : " ",
+    description: compact ? "" : (binding.description ?? ""),
+    after: " ",
   };
 }
 
@@ -74,8 +105,10 @@ function chipDisplayWidth(segments: ChipSegments): number {
   );
 }
 
-const PALETTE_LABEL = " palette";
-const PALETTE_KEY = "^p";
+// The label's trailing space is the bar's final cell — Textual pads the palette
+// chip on both sides, so the label spans through column 80.
+const PALETTE_LABEL = " palette ";
+const PALETTE_KEY = getKeyDisplay(COMMAND_PALETTE_KEY);
 
 function paletteDisplayWidth(): number {
   return FOOTER_PALETTE_SEPARATOR.length + PALETTE_KEY.length + PALETTE_LABEL.length;
@@ -100,15 +133,12 @@ export const FooterKey = observer(function FooterKey({
   return (
     <WidgetScope widget={widget.handle}>
       <Box flexDirection="row">
-        <Text backgroundColor={FOOTER_BACKGROUND}>{segments.before}</Text>
-        <Text color={FOOTER_KEY_COLOR} backgroundColor={FOOTER_BACKGROUND} bold>
-          {segments.key}
-        </Text>
-        <Text backgroundColor={FOOTER_BACKGROUND}>{segments.betweenKeyAndDescription}</Text>
-        <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
-          {segments.description}
-        </Text>
-        <Text backgroundColor={FOOTER_BACKGROUND}>{segments.after}</Text>
+        {footerGlyphs(
+          `${segments.before}${segments.key}${segments.betweenKeyAndDescription}`,
+          { color: FOOTER_KEY_COLOR, bold: true },
+        )}
+        {footerGlyphs(segments.description, { color: FOOTER_FOREGROUND })}
+        {footerGlyphs(segments.after, {})}
       </Box>
     </WidgetScope>
   );
@@ -173,18 +203,12 @@ export const Footer = observer(function Footer({
               compact={compact}
             />
           ))}
-          <Text backgroundColor={FOOTER_BACKGROUND}>{" ".repeat(fillWidth)}</Text>
+          {footerGlyphs(" ".repeat(fillWidth), {})}
           {showCommandPalette ? (
             <>
-              <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
-                {FOOTER_PALETTE_SEPARATOR}
-              </Text>
-              <Text color={FOOTER_KEY_COLOR} backgroundColor={FOOTER_BACKGROUND} bold>
-                {PALETTE_KEY}
-              </Text>
-              <Text color={FOOTER_FOREGROUND} backgroundColor={FOOTER_BACKGROUND}>
-                {PALETTE_LABEL}
-              </Text>
+              {footerGlyphs(FOOTER_PALETTE_SEPARATOR, { color: FOOTER_SEPARATOR_COLOR })}
+              {footerGlyphs(PALETTE_KEY, { color: FOOTER_KEY_COLOR, bold: true })}
+              {footerGlyphs(PALETTE_LABEL, { color: FOOTER_FOREGROUND })}
             </>
           ) : null}
         </Box>
