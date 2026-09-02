@@ -20,7 +20,7 @@
     "test:watch": "vitest",
     "demo": "tsx examples/kitchen-sink.tsx",
     "demo:smoke": "tsx examples/kitchen-sink.tsx --smoke",
-    "lint": "tsc --noEmit && tsx scripts/check-framework-imports.ts && tsx scripts/check-widget-style-casts.ts",
+    "lint": "tsc --noEmit && tsx scripts/check-framework-imports.ts && tsx scripts/check-widget-source-rules.ts",
     "clean": "rm -rf dist",
     "visual": "bash visual-tests/run.sh",
     "visual:update-python": "bash visual-tests/update-python-baselines.sh"

@@ -1,5 +1,6 @@
 import React from "react";
 import { Segment, type Measurable, type RenderOptions, type Renderable } from "rich-js";
+import stripAnsi from "strip-ansi";
 import { describe, expect, it, vi } from "vitest";
 
 import * as textual from "../src/index.js";
@@ -11,6 +12,7 @@ import {
   RadioButton,
   RadioSet,
   RadioSetChanged,
+  Sparkline,
   Static,
   SwitchChanged,
   Switch,
@@ -269,6 +271,49 @@ describe("Button", () => {
   });
 });
 
+// Sparkline paints forty per-cell colours through one Content, so a regression
+// in span construction shows up as colours flattening rather than as a crash.
+// Both expectations are read off visual-tests/snapshots/python/sparkline_basic.json,
+// the same ground truth the pixel gate compares against.
+describe("Sparkline", () => {
+  const DATA = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const CSS = "Sparkline { width: 40; height: 3; }";
+
+  it("renders Python's glyph grid", async () => {
+    const session = await runTest(<Sparkline id="sl" data={DATA} />, {
+      appProps: { css: CSS },
+    });
+
+    expect(stripAnsi(session.lastFrame() ?? "").split("\n").slice(0, 3)).toEqual([
+      "                            ▂▂▂▂▅▅▅▅████",
+      "                ▃▃▃▃▅▅▅▅████████████████",
+      "▁▁▁▁▃▃▃▃▆▆▆▆████████████████████████████",
+    ]);
+
+    session.unmount();
+  });
+
+  it("gives each bucket its own truecolour, not a quantised palette", async () => {
+    const session = await runTest(<Sparkline id="sl" data={DATA} />, {
+      appProps: { css: CSS },
+    });
+
+    const bottomRow = (session.lastFrame() ?? "").split("\n")[2];
+
+    // The min and max ends of the blend, emitted as 24-bit ANSI. Ink's <Text>
+    // would have reached chalk and landed both on the 16-colour palette.
+    expect(bottomRow).toContain("[38;2;12;48;76m");
+    expect(bottomRow).toContain("[38;2;1;120;212m");
+
+    // Ten buckets, ten distinct colours — a row painted in one colour would
+    // still pass the glyph assertion above.
+    const colours = new Set(bottomRow.match(/\[38;2;\d+;\d+;\d+m/g) ?? []);
+    expect(colours.size).toBe(10);
+
+    session.unmount();
+  });
+});
+
 describe("Switch", () => {
   it("renders with initial off state", async () => {
     const session = await runTest(<Switch id="sw" />);
@@ -432,6 +477,23 @@ describe("ProgressBar", () => {
     session.unmount();
   });
 
+  // The subtlest frame in the widget, and the one that was built wrong first:
+  // a stale local baseline recorded a leading `╺` over rail, where Textual with
+  // animations off paints the whole bar in $error. Only the pixel gate caught
+  // that, so the wiring from `percentage === null` to a full-width highlight is
+  // pinned here too.
+  it("paints an indeterminate bar fully highlighted", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={null} showEta={false} />,
+    );
+
+    const frame = session.lastFrame() ?? "";
+    expect(stripAnsi(frame).split("\n")[0]).toBe(`${"━".repeat(32)}  --%`);
+    expect(frame).toContain("[38;2;185;60;91m");
+
+    session.unmount();
+  });
+
   it("applies the -indeterminate class when total is null", async () => {
     const session = await runTest(
       <ProgressBar id="pb" total={null} showEta={false} />,
@@ -439,6 +501,20 @@ describe("ProgressBar", () => {
 
     const widget = session.app.getByCssId("pb");
     expect(widget!.classes).toContain("-indeterminate");
+
+    session.unmount();
+  });
+
+  // Pins the quantization end to end, where the renderBar tests only pin the
+  // rendering: Textual truncates 53% onto 33/64, so the fill stops mid-cell on
+  // a `╸` at column 16 rather than filling 17 whole cells.
+  it("truncates a fractional percentage onto Textual's half-cell lattice", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={100} progress={53} showEta={false} />,
+    );
+
+    const row = stripAnsi(session.lastFrame() ?? "").split("\n")[0];
+    expect(row).toBe(`${"━".repeat(16)}╸${"━".repeat(15)}  53%`);
 
     session.unmount();
   });
