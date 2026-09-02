@@ -64,6 +64,25 @@ describe("renderBar", () => {
       expect(renderBar(32, [0, end], FILL, RAIL).plain).toHaveLength(32);
     }
   });
+
+  // Every fixture sits on 0%, 50% or 100%, all exact half-cell multiples, so
+  // nothing else pins what a bar does between the lattice points. These three
+  // are read off real Textual: at width 32 it truncates the percentage onto
+  // sixty-fourths, so 53% is 33/64 and the bar ends mid-cell on a highlighted
+  // `╸`. Rounding instead of truncating moves every one of them half a cell.
+  it.each([
+    [53, 33, `${"━".repeat(16)}╸`, "━".repeat(15)],
+    [33, 21, `${"━".repeat(10)}╸`, "━".repeat(21)],
+    [99, 63, `${"━".repeat(31)}╸`, ""],
+  ])("renders %i%% as Textual does, at %i sixty-fourths", (percent, sixtyFourths, fill, rail) => {
+    expect(Math.trunc((percent / 100) * 64)).toBe(sixtyFourths);
+
+    const expected: [string, string | undefined][] = [[fill, FILL]];
+    if (rail.length > 0) {
+      expected.push([rail, RAIL]);
+    }
+    expect(runs(renderBar(32, [0, sixtyFourths / 2], FILL, RAIL))).toEqual(expected);
+  });
 });
 
 describe("ProgressBar model", () => {

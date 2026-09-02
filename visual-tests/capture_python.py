@@ -31,9 +31,10 @@ from typing import Any
 # recorded an unhighlighted rail while its PNG recorded a fully highlighted bar,
 # and CLAUDE.md sends every diagnosis to the JSON first.
 #
-# Set before importing textual so the value is in place when Textual reads the
-# environment at import time.
-os.environ.setdefault("TEXTUAL_ANIMATIONS", "none")
+# Unconditional, not setdefault: a shell already exporting TEXTUAL_ANIMATIONS
+# would otherwise reopen the divergence silently, and the PNG path overrides it
+# the same way. Set before importing textual, which reads it at import time.
+os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import textual  # noqa: E402,F401
 from rich.cells import cell_len

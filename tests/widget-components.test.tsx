@@ -1,5 +1,6 @@
 import React from "react";
 import { Segment, type Measurable, type RenderOptions, type Renderable } from "rich-js";
+import stripAnsi from "strip-ansi";
 import { describe, expect, it, vi } from "vitest";
 
 import * as textual from "../src/index.js";
@@ -439,6 +440,20 @@ describe("ProgressBar", () => {
 
     const widget = session.app.getByCssId("pb");
     expect(widget!.classes).toContain("-indeterminate");
+
+    session.unmount();
+  });
+
+  // Pins the quantization end to end, where the renderBar tests only pin the
+  // rendering: Textual truncates 53% onto 33/64, so the fill stops mid-cell on
+  // a `╸` at column 16 rather than filling 17 whole cells.
+  it("truncates a fractional percentage onto Textual's half-cell lattice", async () => {
+    const session = await runTest(
+      <ProgressBar id="pb" total={100} progress={53} showEta={false} />,
+    );
+
+    const row = stripAnsi(session.lastFrame() ?? "").split("\n")[0];
+    expect(row).toBe(`${"━".repeat(16)}╸${"━".repeat(15)}  53%`);
 
     session.unmount();
   });
