@@ -149,7 +149,17 @@ jobs:
           # monorepo leaks every `packages/*/dist/**` bundle into the review, which is
           # exactly the ~700K-token no-signal read described above. Do not "simplify"
           # this to `**/dist/**`; that is the regression, not the cleanup.
-          EXCLUDE_PATTERNS: "dist/**,**/dist/**,build/**,**/build/**,*.lock,package-lock.json,yarn.lock,pnpm-lock.yaml"
+          #
+          # visual-tests/snapshots/** is committed capture output and belongs to the
+          # same class for the same reason. Each baseline is a frame a real terminal
+          # drew from a fixture the reviewer is already reading; nobody hand-edits
+          # one, and Gate 4 compares them at AE == 0 far more exactly than a reader
+          # can. Measured here: the first two review runs on this PR both died, the
+          # second with a compaction boundary at 195K input tokens, reading 118
+          # generated baselines. The .ansi files are the trap — they carry few
+          # newlines and enormous lines, so a diffstat reporting 4,096 insertions
+          # hides roughly 1 MB of escape bytes.
+          EXCLUDE_PATTERNS: "dist/**,**/dist/**,build/**,**/build/**,visual-tests/snapshots/**,**/snapshots/**,*.lock,package-lock.json,yarn.lock,pnpm-lock.yaml"
 
       # The transcript is the only artifact that can explain a review that failed,
       # hung, or misbehaved — the exact prompt, the raw engine output including
