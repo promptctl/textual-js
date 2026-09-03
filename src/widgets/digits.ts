@@ -8,7 +8,7 @@ import { Content } from "../content/index.js";
 /**
  * Three horizontal strips of cells.
  *
- * // [LAW:one-type-per-behavior] One character's glyph and a fully rendered
+ * [LAW:one-type-per-behavior] One character's glyph and a fully rendered
  * value are the same shape, because the font is 3 rows tall and stays 3 rows
  * tall however many characters you set side by side. Sharing the type is what
  * lets `digitsRows` be a row-wise fold with `["", "", ""]` as its identity,
@@ -25,7 +25,7 @@ export type DigitsRows = readonly [string, string, string];
 // by eye, because a mistranscribed glyph is the one defect a port like this is
 // most likely to ship.
 //
-// // [LAW:one-source-of-truth] Upstream keeps the character set and the glyph
+// [LAW:one-source-of-truth] Upstream keeps the character set and the glyph
 // blob in two separate strings, joined at read time by `DIGITS.index(ch) * 3`.
 // Holding both in one literal means a character can no longer point at the
 // wrong glyph, because there is no index left to get wrong.
@@ -106,7 +106,7 @@ function glyphFor(character: string): DigitsRows {
 /**
  * Draw `value` in the 3x3 font.
  *
- * // [LAW:dataflow-not-control-flow] Every character takes the same path: look
+ * [LAW:dataflow-not-control-flow] Every character takes the same path: look
  * up a glyph, append its three strips. The empty value is not a case — it is
  * the fold's starting value, returned untouched.
  */
@@ -124,7 +124,7 @@ export function digitsRows(value: string): DigitsRows {
 /**
  * The drawn value as content a widget can display.
  *
- * // [LAW:parse-dont-validate] `Content` is the stamp. Handing the rows across
+ * [LAW:parse-dont-validate] `Content` is the stamp. Handing the rows across
  * as a plain string would leave them unparsed, and every content widget runs an
  * unparsed string through `Content.fromMarkup` — so a value of `"[3]"` would
  * come out as an opening tag rather than three glyphs. Returning a `Content`

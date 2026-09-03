@@ -16,7 +16,7 @@ import { CHARSET_VALUES } from "../visual-tests/fixtures/digits_charset.tsx";
 // The two row-triples are transcribed cell-for-cell from the committed Python
 // baselines, visual-tests/snapshots/python/digits_basic.txt and
 // digits_large.txt, rather than assembled from the same font table the
-// implementation reads. A test that rebuilt the rows from GLYPH_TABLE would
+// implementation reads. A test that rebuilt the rows from GLYPHS would
 // agree with the implementation by construction and could never catch a
 // mistranscribed glyph — which is the single most likely defect in a port whose
 // whole job is copying a font.
@@ -35,7 +35,7 @@ const BASELINE_CLOCK: readonly string[] = [
 // The rows real Textual drew for the digits_charset fixture, read from its
 // committed baseline rather than copied into a literal here.
 //
-// // [LAW:one-source-of-truth] CLAUDE.md: derive from the committed baseline
+// [LAW:one-source-of-truth] CLAUDE.md: derive from the committed baseline
 // instead of storing a second copy, so the expectation cannot disagree with the
 // frame Gate 4 measures. Deriving also makes this the one assertion in the file
 // that a bad glyph table could not satisfy by construction — the two row-triples
