@@ -1,9 +1,13 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import React from "react";
 import stripAnsi from "strip-ansi";
 import { describe, expect, it } from "vitest";
 
 import { Digits, runTest, type TestSession } from "../src/index.js";
 import { digitsContent, digitsRows } from "../src/widgets/digits.js";
+import { CHARSET_VALUES } from "../visual-tests/fixtures/digits_charset.tsx";
 
 // [LAW:behavior-not-structure] Every expectation below is glyphs a reader could
 // see on screen, or a widget they could query — never a call the component
@@ -28,6 +32,20 @@ const BASELINE_CLOCK: readonly string[] = [
   "╶┴╴╰─╴   ╶─╯  ╵",
 ];
 
+// The rows real Textual drew for the digits_charset fixture, read from its
+// committed baseline rather than copied into a literal here.
+//
+// // [LAW:one-source-of-truth] CLAUDE.md: derive from the committed baseline
+// instead of storing a second copy, so the expectation cannot disagree with the
+// frame Gate 4 measures. Deriving also makes this the one assertion in the file
+// that a bad glyph table could not satisfy by construction — the two row-triples
+// above are hand-transcribed for the same reason, and this covers the 21
+// characters they do not reach.
+const CHARSET_BASELINE_ROWS = readFileSync(
+  fileURLToPath(new URL("../visual-tests/snapshots/python/digits_charset.txt", import.meta.url)),
+  "utf8",
+).split("\n");
+
 function screenRows(session: TestSession, count: number): string[] {
   return stripAnsi(session.lastFrame() ?? "")
     .split("\n")
@@ -48,6 +66,24 @@ describe("digits font", () => {
     // The one character substitution the font makes, and the reason "3.14"
     // above is 10 cells rather than 12.
     expect(digitsRows(".")).toEqual([" ", " ", "•"]);
+  });
+
+  it("draws every character in the font exactly as Python Textual drew it", () => {
+    // The whole 27-character font, checked against real Textual output. A
+    // literal table here would have been pasted from the same generator that
+    // produced GLYPHS, so it would have agreed with the implementation however
+    // wrong both were; the baseline was drawn by upstream and cannot.
+    //
+    // Trailing spaces are trimmed on both sides because the baseline capture
+    // trims them. Only the last glyph on each line is affected, and the cells it
+    // loses carry no ink — the paired PNG covers them.
+    CHARSET_VALUES.forEach((value, index) => {
+      const expected = CHARSET_BASELINE_ROWS.slice(index * 3, index * 3 + 3);
+
+      expect(digitsRows(value).map((row) => row.trimEnd())).toEqual(
+        expected.map((row) => row.trimEnd()),
+      );
+    });
   });
 
   it("gives every character the font knows exactly three cells", () => {
