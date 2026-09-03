@@ -200,12 +200,14 @@ export class App<Result = unknown> {
       showTooltips: options.showTooltips,
     };
     this.setUrlOpener(options.openUrl);
-    // Textual's `App.TITLE or self.__class__.__name__` — `||`, not `??`, so an
-    // empty or otherwise falsy TITLE falls back exactly as Python's `or` does.
-    // The guarantee is about construction: a later `app.title = ""` sets `""`,
-    // in Textual too.
-    this.title = options.title || this.constructor.name;
-    this.subTitle = options.subTitle ?? "";
+    // Textual's `App.TITLE or self.__class__.__name__`, with the constructor
+    // option ahead of the class attribute — the precedence `SCREENS`, `MODES`
+    // and `AUTO_FOCUS` already use, and the one `createScreen` uses for a
+    // screen's own TITLE. `||`, not `??`, so an empty or otherwise falsy TITLE
+    // falls back as Python's `or` does. The guarantee is about construction: a
+    // later `app.title = ""` sets `""`, in Textual too.
+    this.title = options.title || this.resolveStaticTitle() || this.constructor.name;
+    this.subTitle = options.subTitle ?? this.resolveStaticSubTitle() ?? "";
   }
 
   protected compose(): React.ReactNode {
@@ -1225,6 +1227,14 @@ export class App<Result = unknown> {
 
   private resolveAutoFocus(): string | null | undefined {
     return (this.constructor as { AUTO_FOCUS?: string | null }).AUTO_FOCUS;
+  }
+
+  private resolveStaticTitle(): unknown {
+    return (this.constructor as { TITLE?: unknown }).TITLE;
+  }
+
+  private resolveStaticSubTitle(): unknown {
+    return (this.constructor as { SUB_TITLE?: unknown }).SUB_TITLE;
   }
 
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {

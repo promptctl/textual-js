@@ -55,6 +55,12 @@ export interface ScreenStackDeps {
   readCommandProvidersFromElement(element: React.ReactElement): ReadonlySet<ProviderConstructor>;
 }
 
+// [LAW:single-enforcer] The owner's view of a Screen's title. `Screen` declares
+// both fields `readonly` so no caller holding one from `App.screen` can write
+// them and skip the version bump; this alias reinstates the write for the one
+// method allowed to make it, and is deliberately not exported.
+type RetitlableScreen = { -readonly [K in "title" | "subTitle"]: Screen[K] };
+
 let nextScreenId = 1;
 
 export function createImplicitEntry(): Screen {
@@ -295,7 +301,7 @@ export class ScreenStackService {
     return screen;
   }
 
-  private retitleActiveScreen(write: (screen: Screen) => void): void {
+  private retitleActiveScreen(write: (screen: RetitlableScreen) => void): void {
     write(this.requireActiveScreen());
     this.screenStackVersion += 1;
   }

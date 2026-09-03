@@ -99,6 +99,8 @@ export {
 export {
   type ActiveBinding,
   ActiveModeError,
+  type ResolvedTitle,
+  type TitleOverride,
   type AppDriver,
   type ActionTargetDescriptor,
   type AnimationLevel,
@@ -135,6 +137,7 @@ export {
   keyToCharacter,
   on,
   useBindings,
+  useResolvedTitle,
   useTextual,
   useTimer,
   useWorker,

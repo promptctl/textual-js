@@ -145,6 +145,27 @@ describe("Header title resolution", () => {
     session.unmount();
   });
 
+  it("lets an empty screen sub-title clear the app's, on screen", async () => {
+    // The rendered counterpart of the `resolveTitle` unit test above. Without
+    // it, `override.subTitle || app.subTitle` passes everything that draws a
+    // Header, and only the pure test stands between that and a silent
+    // regression — which is thin cover for the distinction the whole
+    // `string | null` override type exists to make.
+    const session = await mountHeader({
+      title: "My Application",
+      subTitle: "Status: ready",
+    });
+    expect(headerRow(session)).toContain("Status: ready");
+
+    session.app.screenSubTitle = "";
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("My Application");
+    expect(headerRow(session)).not.toContain("Status: ready");
+    expect(headerRow(session)).not.toContain("—");
+    session.unmount();
+  });
+
   it("prefers the screen sub-title over the app sub-title", async () => {
     const session = await mountHeader({
       title: "My Application",
@@ -218,6 +239,26 @@ describe("screen title API", () => {
 
     expect(new BlankTitleApp({ title: "" }).title).toBe("BlankTitleApp");
   });
+
+  it("takes TITLE and SUB_TITLE declared on the App subclass", () => {
+    class DeclaredTitleApp extends App {
+      static TITLE = "Declared";
+      static SUB_TITLE = "From the class";
+    }
+
+    const app = new DeclaredTitleApp();
+    expect(app.title).toBe("Declared");
+    expect(app.subTitle).toBe("From the class");
+  });
+
+  it("lets a constructor option beat the App's declared TITLE", () => {
+    class DeclaredTitleApp extends App {
+      static TITLE = "Declared";
+    }
+
+    expect(new DeclaredTitleApp({ title: "Passed in" }).title).toBe("Passed in");
+  });
+
 });
 
 describe("Header reactive updates", () => {

@@ -17,7 +17,8 @@ Stage 0 follows JavaScript conventions where Python behavior cannot or should no
 
 - Python writes a screen's title as `app.screen.title = "..."`. Here that is `app.screenTitle` (and `app.screenSubTitle`), because `Screen` is a plain record held in a deliberately non-observable map: assigning the field directly would change the value and notify no observer. The accessors route the write through `ScreenStackService`, the single owner, which keeps the reactive marker in step.
 - Both read back `null` when the screen defers to the app. `null` and `""` are distinct: `""` is a screen overriding the app's value with nothing, not a screen declining to answer.
-- `App.title` defaults to the app class name (Textual's `TITLE or self.__class__.__name__`), not to `""`, so a `Header` always has a title to paint.
+- `App.title` resolves at construction as `options.title || static TITLE || the app class name` (Textual's `TITLE or self.__class__.__name__`), not to `""`. The guarantee holds at construction only: assigning `app.title = ""` later sets `""` and a `Header` paints a blank title region, in Textual too.
+- The class-name fallback reads `this.constructor.name`, which minifiers mangle. Downstream consumers who bundle their app with default terser/esbuild settings (`keep_classnames` / `keepNames` off) will see a mangled name if they rely on that last fallback; set a `TITLE` or pass `options.title` rather than depending on it. This library itself ships unminified.
 
 ## Truthiness
 
