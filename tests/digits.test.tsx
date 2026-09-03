@@ -39,8 +39,8 @@ const BASELINE_CLOCK: readonly string[] = [
 // instead of storing a second copy, so the expectation cannot disagree with the
 // frame Gate 4 measures. Deriving also makes this the one assertion in the file
 // that a bad glyph table could not satisfy by construction — the two row-triples
-// above are hand-transcribed for the same reason, and this covers the 21
-// characters they do not reach.
+// above are hand-transcribed for the same reason, and this covers the characters
+// they do not reach.
 const CHARSET_BASELINE_ROWS = readFileSync(
   fileURLToPath(new URL("../visual-tests/snapshots/python/digits_charset.txt", import.meta.url)),
   "utf8",
@@ -98,6 +98,24 @@ describe("digits font", () => {
     // Degrading to the raw character keeps an unexpected value readable instead
     // of dropping it, and is how the bullet above reaches the screen at all.
     expect(digitsRows("?")).toEqual([" ", " ", "?"]);
+  });
+
+  it("stays three lines even when the value contains a line break", () => {
+    // The one place this port deliberately parts company with Textual, which
+    // draws the newline verbatim on the bottom row and emits four lines.
+    // DigitsRows promises three, and a widget painting a fourth row lands
+    // outside the box Ink measured it into — so line terminators are drawn
+    // blank instead.
+    expect(digitsContent("1\n2").plain.split("\n")).toHaveLength(3);
+    expect(digitsRows("1\r\n2").join("")).not.toContain("\n");
+  });
+
+  it("draws a wide character verbatim, exactly as Textual does", () => {
+    // Upstream's fallback puts the raw character on the bottom row whatever its
+    // width, so `文` runs two columns under two rows of one space and the rows
+    // fall out of step. Pinned rather than corrected: substituting a placeholder
+    // Textual does not draw is what would make this port diverge.
+    expect(digitsRows("文")).toEqual([" ", " ", "文"]);
   });
 
   it("stays three rows tall for the empty value", () => {

@@ -4,7 +4,7 @@ import { FixtureScreen, VISUAL_SCREEN_FOREGROUND } from "../fixture-screen.tsx";
 
 // Every character of the 3x3 font, split so each row fits 80 columns. Paired
 // with digits_charset.py: Gate 4 diffing these two is what proves the glyph
-// table was transcribed correctly, for the 21 characters no other fixture draws.
+// table was transcribed correctly, for the characters no other fixture draws.
 export const appProps = {
   css: `
     Digits {

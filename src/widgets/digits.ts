@@ -70,16 +70,32 @@ const GLYPHS = new Map<string, DigitsRows>(Object.entries({
 
 // Upstream's `REPLACEMENTS = str.maketrans({".": "•"})`: a period is drawn as a
 // bullet sitting on the baseline rather than given a glyph of its own.
-const REPLACEMENTS = new Map<string, string>([[".", "•"]]);
+//
+// The line terminators are this port's own addition, and a deliberate
+// divergence: `Digits("1\n2")` upstream really does emit four lines, because
+// the newline reaches the bottom row verbatim. Textual can afford that — it
+// yields segments and promises nothing. `DigitsRows` promises three rows, so a
+// row carrying a line break would make the type false and paint the widget
+// outside the box Ink measured it into. Drawing them blank keeps the promise.
+const REPLACEMENTS = new Map<string, string>([
+  [".", "•"],
+  ["\n", " "],
+  ["\r", " "],
+]);
 
 /**
  * The glyph for one character — every character, including the ones the font
  * has never heard of.
  *
  * Upstream reaches the same place through `except ValueError`. Unmapped
- * characters are drawn verbatim on the bottom row and occupy a single cell,
- * which is both how the bullet above actually reaches the screen and how a
- * stray character degrades into something readable instead of vanishing.
+ * characters are drawn verbatim on the bottom row, which is how the bullet
+ * above reaches the screen and how a stray character degrades into something
+ * readable instead of vanishing. A wide character stays wide and pushes its
+ * row out of step with the two above it — upstream does the same, and drawing
+ * a placeholder Textual does not draw would be the real divergence.
+ *
+ * This is the only place a raw character reaches a row, so it is also the only
+ * place the three-row invariant could be broken. REPLACEMENTS closes that.
  */
 function glyphFor(character: string): DigitsRows {
   const drawn = REPLACEMENTS.get(character) ?? character;
