@@ -13,6 +13,7 @@ import {
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetOptions } from "../framework/context.js";
 import { MeasuredSizeReader, type MeasuredSize } from "../framework/measured-size.js";
+import type { ResolvedStyles } from "../styles/index.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
 
@@ -61,6 +62,46 @@ export interface ContentWidgetProps extends ContentProps {
 
 // No DEFAULT_CSS needed — Ink's flexbox auto-sizes by default.
 
+/**
+ * The painted content, resolved against the box it will be painted into.
+ *
+ * A component rather than a few lines inside the render prop above, because the
+ * resolved size is only known inside that prop and a memo needs a component to
+ * live in. Without one, every re-render re-parses markup for every Static,
+ * Label and Link on screen — `visualize` of a string is `Content.fromMarkup`,
+ * not a cheap dispatch.
+ */
+const ContentBody = observer(function ContentBody({
+  nodeId,
+  styles,
+  content,
+  measured,
+}: {
+  nodeId: string;
+  styles: ResolvedStyles;
+  content: ContentSource | undefined;
+  measured: MeasuredSize;
+}): React.JSX.Element | null {
+  // The content area on both axes: what gets painted, and what a size-reading
+  // widget must be told. Handing over the raw measured region would have a
+  // bordered widget build its content two columns too wide and then lose them
+  // to the crop below.
+  const width = resolveVisualRenderWidth(measured.width, styles.box);
+  const height = resolveVisualRenderHeight(measured.height, styles.box);
+
+  const visual = React.useMemo(
+    () => visualize(typeof content === "function" ? content({ width, height }) : content),
+    [content, width, height],
+  );
+
+  // Zero room means nothing to show — the same answer Rule, Input and Sparkline
+  // give at zero. Painting into the one-column floor `renderVisual` needs would
+  // wrap the content one glyph per row and grow the widget vertically out of a
+  // box measured at zero. The height axis needs no such guard: it has no floor,
+  // and a zero-row content renders as an empty Text that Ink gives no line to.
+  return width === 0 ? null : renderVisual(visual, styles.text, `content:${nodeId}`, width);
+});
+
 export const ContentWidget = observer(function ContentWidget({
   identity,
   id,
@@ -69,9 +110,6 @@ export const ContentWidget = observer(function ContentWidget({
   borderTitle,
   borderSubtitle,
 }: ContentWidgetProps): React.JSX.Element {
-  // Normalised once, at the seam, so the render body below reads one shape.
-  const contentOf = typeof content === "function" ? content : () => content;
-
   const widget = useWidget({
     ...identity,
     id,
@@ -88,33 +126,16 @@ export const ContentWidget = observer(function ContentWidget({
   return (
     <WidgetScope widget={widget.handle}>
       <MeasuredSizeReader widget={widget.handle}>
-        {(measured) => {
-          // The content area on both axes, which is both what gets painted and
-          // what a size-reading widget must be told: handing it the raw
-          // measured region would have a bordered widget build its content two
-          // columns too wide and then lose them to the crop below.
-          const contentArea = {
-            width: resolveVisualRenderWidth(measured.width, styles.box),
-            height: resolveVisualRenderHeight(measured.height, styles.box),
-          };
-          // Visualising inside the measured pass rather than around it: content
-          // that reads the box has to be resolved after the box is known, and
-          // `visualize` is a dispatch over the value's type, not work worth
-          // memoising past it.
-          const visual = visualize(contentOf(contentArea));
-
-          return (
-            <WidgetFrame widget={widget.handle} styles={styles}>
-              {/* Zero room means nothing to show — the same answer Rule, Input
-                  and Sparkline give at zero. Painting into the one-column floor
-                  `renderVisual` needs would wrap the content one glyph per row
-                  and grow the widget vertically out of a box measured at zero. */}
-              {contentArea.width === 0
-                ? null
-                : renderVisual(visual, styles.text, `content:${widget.nodeId}`, contentArea.width)}
-            </WidgetFrame>
-          );
-        }}
+        {(measured) => (
+          <WidgetFrame widget={widget.handle} styles={styles}>
+            <ContentBody
+              nodeId={widget.nodeId}
+              styles={styles}
+              content={content}
+              measured={measured}
+            />
+          </WidgetFrame>
+        )}
       </MeasuredSizeReader>
     </WidgetScope>
   );

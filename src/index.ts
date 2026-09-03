@@ -89,6 +89,7 @@ export {
   measureVisual,
   renderContent,
   renderVisual,
+  resolveVisualRenderHeight,
   resolveVisualRenderWidth,
   visualize,
   type Visual,

@@ -8,6 +8,7 @@
 import React from "react";
 
 import { useTextual } from "../framework/context.js";
+import type { MeasuredSize } from "../framework/measured-size.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { ContentWidget, type ContentWidgetIdentity } from "./content-widget.js";
 import {
@@ -55,9 +56,20 @@ export function Placeholder({
 }: PlaceholderProps): React.JSX.Element {
   const app = useTextual();
 
-  // Consecutive placeholders in one app get consecutive colours, so the index
-  // is claimed once when this instance first renders and never recomputed.
-  const [colorIndex] = React.useState(() => nextPlaceholderColorIndex(app));
+  // Consecutive placeholders in one app get consecutive colours, so this
+  // instance claims one index and keeps it.
+  //
+  // [LAW:effects-at-boundaries] Claiming advances a counter the whole app
+  // shares, which is a side effect, and React reserves the right to invoke a
+  // render more than once — StrictMode does it deliberately. So the claim is
+  // made idempotent rather than merely made early: the ref survives a repeated
+  // invocation and the second one reuses the index instead of burning another.
+  // An effect would be the other way to satisfy the rule and is worse here — it
+  // would paint the first frame with no palette class at all, which for a
+  // widget that exists to be a coloured block is a visible flash.
+  const claimedIndex = React.useRef<number | undefined>(undefined);
+  claimedIndex.current ??= nextPlaceholderColorIndex(app);
+  const colorIndex = claimedIndex.current;
 
   // What a click accumulates is *steps around the cycle*, not the variant
   // itself. Storing the variant would make it a second source of truth
@@ -67,6 +79,15 @@ export function Placeholder({
   const [cycleSteps, setCycleSteps] = React.useState(0);
 
   const activeVariant = cyclePlaceholderVariant(parsePlaceholderVariant(variant), cycleSteps);
+
+  // Held stable across renders so the content memo downstream can hit: a fresh
+  // closure every render would re-wrap the lorem, grapheme by grapheme, for
+  // every unrelated re-render.
+  const content = React.useCallback(
+    (size: MeasuredSize) =>
+      placeholderContent(activeVariant, { label: placeholderLabel(label, id), size }),
+    [activeVariant, label, id],
+  );
 
   const identity: ContentWidgetIdentity = {
     typeName: "Placeholder",
@@ -89,9 +110,7 @@ export function Placeholder({
         placeholderColorClass(colorIndex),
       )}
       identity={identity}
-      content={(size) =>
-        placeholderContent(activeVariant, { label: placeholderLabel(label, id), size })
-      }
+      content={content}
     />
   );
 }

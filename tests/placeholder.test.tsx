@@ -292,10 +292,13 @@ describe("Placeholder widget", () => {
     session.unmount();
   });
 
-  it("fills a bordered, padded box edge to edge, with the label still centred", async () => {
-    // The no-holes guarantee has to survive ordinary styling. Building the
-    // content against the outer region instead of the content area would push
-    // the block off centre and drop the trailing columns' background.
+  it("centres against the content area when border and padding shrink it", async () => {
+    // Scoped deliberately: this covers the region Placeholder itself paints.
+    // The CSS padding columns outside it are *not* covered and are not painted
+    // — Ink applies them on a Box, which carries no background — so a padded
+    // Placeholder really does have a background hole in its padding. Filed as
+    // textual-styles-6v5; it belongs to every widget with a background, not to
+    // this one.
     const session = await runTest(<Placeholder label="Mid" />, {
       appProps: {
         css: "Placeholder { width: 20; height: 5; padding: 1 2; border: round red; }",
@@ -315,6 +318,13 @@ describe("Placeholder widget", () => {
     // Building the block against the outer 20 instead would put it at 8 and
     // then crop the overhang — which is exactly what this used to do.
     expect(painted).toEqual([" ".repeat(18), "       Mid        ", " ".repeat(18)]);
+
+    // And those cells carry the background rather than merely occupying space:
+    // asserting on stripped text alone cannot tell a painted cell from a hole,
+    // which is how the padding gap above went unnoticed.
+    expect(session.lastFrame() ?? "").toContain(
+      ansiBackground(PLACEHOLDER_PALETTE[0].background),
+    );
 
     session.unmount();
   });
@@ -386,6 +396,29 @@ describe("Placeholder widget", () => {
     await session.app.whenIdle();
 
     expect(screenText(session)).toContain("80 x 5");
+
+    session.unmount();
+  });
+
+  it("keeps its colour across re-renders, claiming one index and not one per render", async () => {
+    // Claiming advances a counter the whole app shares, so a claim that ran
+    // again on re-render would hand this instance a different palette entry and
+    // silently skip a colour for the next placeholder. Clicking cycles the
+    // variant, which is a state change and therefore a re-render — the caption
+    // must change and the background must not.
+    const session = await runTest(<Placeholder label="Sidebar" />, {
+      appProps: { css: "Placeholder { height: 5; }" },
+    });
+    await session.app.whenIdle();
+
+    const firstColour = ansiBackground(PLACEHOLDER_PALETTE[0].background);
+    expect(session.lastFrame() ?? "").toContain(firstColour);
+
+    await session.pilot.click("Placeholder");
+    await session.app.whenIdle();
+
+    expect(screenText(session)).toContain("80 x 5");
+    expect(session.lastFrame() ?? "").toContain(firstColour);
 
     session.unmount();
   });

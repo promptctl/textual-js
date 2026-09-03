@@ -411,24 +411,51 @@ describe("Content wrap", () => {
     expect(new Content("文a").wrap(1).map((line) => line.plain)).toEqual(["文", "a"]);
   });
 
-  it("takes the whole run of spaces at a break, not one of them", () => {
-    // Rich and Textual both answer ["hello", "world"] here. Consuming a single
-    // space leaves the second one as leading content of the next line, which
-    // shifts every following character by one against a pinned baseline.
-    expect(new Content("hello  world").wrap(5).map((line) => line.plain)).toEqual([
-      "hello",
-      "world",
-    ]);
-    expect(new Content("hello   world").wrap(5).map((line) => line.plain)).toEqual([
-      "hello",
-      "world",
-    ]);
+  it("breaks where Rich breaks, across the whole space-run family", () => {
+    // Every expectation here is Rich's own output, read off
+    // `Text(s).wrap(Console(), w)` rather than reasoned about — the rule is
+    // narrow and easy to state wrongly. It is: a line keeps every character
+    // that fits, trailing spaces included, and the next line starts at the next
+    // non-space. Note how the same input gives three different first lines at
+    // widths 5, 6 and 7; a rule that collapsed whitespace, or that dropped the
+    // last space that fit, would agree with exactly one of them.
+    const wrapped = (text: string, width: number): string[] =>
+      new Content(text).wrap(width).map((line) => line.plain);
+
+    expect(wrapped("hello  world", 5)).toEqual(["hello", "world"]);
+    expect(wrapped("hello  world", 6)).toEqual(["hello ", "world"]);
+    expect(wrapped("hello  world", 7)).toEqual(["hello  ", "world"]);
+    expect(wrapped("hello  world", 8)).toEqual(["hello  ", "world"]);
+    expect(wrapped("hello   world", 6)).toEqual(["hello ", "world"]);
+    expect(wrapped("abcdef ghij", 8)).toEqual(["abcdef ", "ghij"]);
+    expect(wrapped("abcdef ghij", 7)).toEqual(["abcdef ", "ghij"]);
+    expect(wrapped("abcdef ghij", 6)).toEqual(["abcdef", "ghij"]);
+    expect(wrapped("a b c d", 3)).toEqual(["a b", "c d"]);
+    expect(wrapped("one two", 7)).toEqual(["one two"]);
+    expect(wrapped("one two", 3)).toEqual(["one", "two"]);
   });
 
   it("keeps a double space that is not at a break", () => {
     // The rule is scoped to the break point; Rich preserves "a  b" whole at
     // width 10, so this is not a general whitespace collapse.
     expect(new Content("a  b").wrap(10).map((line) => line.plain)).toEqual(["a  b"]);
+  });
+
+  it("never breaks inside a grapheme cluster", () => {
+    // A family emoji is seven code points that each measure two cells and
+    // together measure two. Measuring per code point both calls the cluster
+    // four times too wide and lets a break land inside it, so this used to
+    // return ["👨‍👩‍", "👧‍👦", "ab"] — one glyph torn into two.
+    const family = "👨‍👩‍👧‍👦";
+
+    expect(new Content(`${family} ab`).wrap(4).map((line) => line.plain)).toEqual([
+      `${family} `,
+      "ab",
+    ]);
+    expect(new Content(`${family}${family}`).wrap(2).map((line) => line.plain)).toEqual([
+      family,
+      family,
+    ]);
   });
 });
 

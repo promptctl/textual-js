@@ -449,12 +449,16 @@ function wrapOffsets(text: string, width: number): [number, number][] {
 }
 
 function paragraphOffsets(paragraph: string, offset: number, width: number): [number, number][] {
+  const clusters = graphemeClusters(paragraph);
   const lines: [number, number][] = [];
   let start = 0;
 
-  while (start < paragraph.length) {
-    const [end, next] = nextLineBreak(paragraph, start, width);
-    lines.push([offset + start, offset + end]);
+  while (start < clusters.length) {
+    const [end, next] = nextLineBreak(clusters, start, width);
+    lines.push([
+      offset + clusters[start].index,
+      offset + (clusters[end]?.index ?? paragraph.length),
+    ]);
     start = next;
   }
 
@@ -463,51 +467,82 @@ function paragraphOffsets(paragraph: string, offset: number, width: number): [nu
   return lines.length === 0 ? [[offset, offset]] : lines;
 }
 
-/** Where a line starting at `start` ends, and where the next one begins. */
-function nextLineBreak(paragraph: string, start: number, width: number): [number, number] {
+/**
+ * One user-perceived character: where it starts, how wide it prints, and
+ * whether it is the space that breaks a line.
+ *
+ * Grapheme clusters rather than code points, because a family emoji is seven
+ * code points that each measure two cells and together measure two. Walking
+ * code points both mis-measures that cluster as eight cells and lets a break
+ * land inside it, splitting one glyph across two lines.
+ */
+interface GraphemeCluster {
+  readonly index: number;
+  readonly cells: number;
+  readonly isSpace: boolean;
+}
+
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemeClusters(paragraph: string): GraphemeCluster[] {
+  return [...GRAPHEME_SEGMENTER.segment(paragraph)].map(({ index, segment }) => ({
+    index,
+    cells: cellLen(segment),
+    isSpace: segment === " ",
+  }));
+}
+
+/**
+ * Where the line starting at cluster `start` ends, and which cluster the next
+ * line begins at. Both are cluster indices; `end` is the first cluster the line
+ * does not include.
+ *
+ * Rich's rule, which these follow: a line keeps every character that fits,
+ * trailing spaces included, and the next line starts at the next non-space.
+ * "hello  world" is "hello"/"world" at width 5, "hello "/"world" at 6, and
+ * "hello  "/"world" at 7 — the spaces that fit stay put, and only the run at
+ * the break is skipped.
+ */
+function nextLineBreak(
+  clusters: readonly GraphemeCluster[],
+  start: number,
+  width: number,
+): [number, number] {
   let cells = 0;
   let lastSpace = -1;
   let index = start;
 
-  while (index < paragraph.length) {
-    const character = String.fromCodePoint(paragraph.codePointAt(index)!);
-    const characterCells = cellLen(character);
+  while (index < clusters.length) {
+    const cluster = clusters[index];
 
-    if (cells + characterCells > width) {
-      // Whitespace at a break belongs to neither line. Two consequences: a line
-      // whose last word ends exactly on the width still fits, because the space
-      // that overflowed is the break rather than part of the next line; and the
-      // whole run of spaces goes, not one of them, so "hello  world" at width 5
-      // gives "hello" and "world" rather than a line starting with a space.
-      // Both match Rich and Textual, which is what the pinned baselines expect.
-      const space = character === " " ? index : lastSpace > start ? lastSpace : -1;
+    if (cells + cluster.cells > width) {
+      // Ending the line: at the overflowing space itself, or back at the start
+      // of the word being split. A word longer than the whole line has no space
+      // to retreat to and is cut where the width ran out — and a cluster wider
+      // than the whole line leaves nothing to cut, so it takes the line alone
+      // rather than yielding an empty one the caller would loop on forever.
+      const end = cluster.isSpace
+        ? index
+        : lastSpace >= start
+          ? lastSpace + 1
+          : Math.max(index, start + 1);
 
-      if (space >= 0) {
-        return [space, skipSpaces(paragraph, space)];
-      }
-
-      // No space to break at: a word longer than the line is cut where the
-      // width ran out. A character wider than the whole line leaves nothing to
-      // cut, so it takes the line by itself — an empty line here would return
-      // the caller its own `start` and spin forever.
-      const cut = index === start ? index + character.length : index;
-
-      return [cut, cut];
+      return [end, skipSpaceClusters(clusters, end)];
     }
 
-    lastSpace = character === " " ? index : lastSpace;
-    cells += characterCells;
-    index += character.length;
+    lastSpace = cluster.isSpace ? index : lastSpace;
+    cells += cluster.cells;
+    index += 1;
   }
 
-  return [paragraph.length, paragraph.length];
+  return [clusters.length, clusters.length];
 }
 
-/** The first index at or after `from` that is not a space. */
-function skipSpaces(paragraph: string, from: number): number {
+/** The first cluster at or after `from` that is not a space. */
+function skipSpaceClusters(clusters: readonly GraphemeCluster[], from: number): number {
   let index = from;
 
-  while (paragraph[index] === " ") {
+  while (clusters[index]?.isSpace === true) {
     index += 1;
   }
 
