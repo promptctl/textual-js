@@ -80,26 +80,49 @@ export function urlOpenCommand(platform: string, url: URL): UrlOpenCommand {
   return { ...(URL_OPEN_COMMANDS[platform] ?? XDG_OPEN), args: [url.href] };
 }
 
+// How long a launcher gets to fail before we call it launched. These programs
+// return in milliseconds unless they have exec'd into something long-lived —
+// `$BROWSER` set to a text browser, a `mailto:` handler that is a CLI mail
+// client — which is a launch that worked, not one still in doubt.
+const LAUNCH_FAILURE_WINDOW_MS = 2000;
+
 // [LAW:no-silent-failure] Both ways a launcher fails — never starting, or
 // starting and then giving up — reject. Rejecting rather than throwing from an
 // unlistened `error` event is what keeps a missing binary from taking the whole
 // TUI down over a hyperlink; App turns the rejection into something the user
 // reads.
 //
+// [LAW:no-ambient-temporal-coupling] The window is a stated policy with a name
+// and an owner, not a sleep: it bounds how long we wait to *learn* of failure.
+// It resolves rather than rejects, because a launcher that outlives it has
+// succeeded — rejecting would report "could not open" over a cold browser that
+// is opening correctly, and a false error costs more than a missing one. It
+// also settles the promise before a foreground browser quit an hour later can
+// reject it and notify about a long-forgotten click.
+//
 // Split from `spawnUrlOpener` so this outcome handling can be driven against a
 // command chosen by the test rather than by `process.platform`, which on a
 // developer's machine would mean actually opening a browser.
-export function runUrlOpenCommand({
-  command,
-  args,
-  exitCodeReportsFailure,
-}: UrlOpenCommand): Promise<void> {
+export function runUrlOpenCommand(
+  { command, args, exitCodeReportsFailure }: UrlOpenCommand,
+  failureWindowMs: number = LAUNCH_FAILURE_WINDOW_MS,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(command, [...args], { detached: true, stdio: "ignore" });
     child.unref();
 
-    child.once("error", reject);
+    // unref so a launcher still running at shutdown cannot hold the app open.
+    const stopWaiting = setTimeout(resolve, failureWindowMs);
+    stopWaiting.unref();
+
+    child.once("error", (error) => {
+      clearTimeout(stopWaiting);
+      reject(error);
+    });
+
     child.once("exit", (code) => {
+      clearTimeout(stopWaiting);
+
       if (exitCodeReportsFailure && code !== 0) {
         reject(new Error(`${command} exited with code ${code}`));
         return;

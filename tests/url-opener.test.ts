@@ -108,6 +108,26 @@ describe("runUrlOpenCommand", () => {
     ).resolves.toBeUndefined();
   });
 
+  // $BROWSER set to a text browser, or a mailto: handler that is a CLI mail
+  // client: the launcher runs until the user quits it. That is a launch that
+  // worked, so it must not leave the caller waiting for an outcome forever.
+  it("resolves once a launcher outlives the failure window", async () => {
+    // The child must outlive this test, not merely the window — a child that
+    // exits during the test would settle the promise by its own exit event and
+    // prove nothing about the window. It is detached and unref'd, so it holds
+    // nothing open and reaps itself.
+    await expect(
+      runUrlOpenCommand(
+        {
+          command: process.execPath,
+          args: ["-e", "setTimeout(() => {}, 15000)"],
+          exitCodeReportsFailure: true,
+        },
+        50,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("rejects when the launcher binary is missing", async () => {
     await expect(
       runUrlOpenCommand({
