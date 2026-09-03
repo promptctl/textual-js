@@ -1,8 +1,9 @@
-// [LAW:effects-at-boundaries] Opening a URL is an OS effect. This module splits
-// it in three: `parseOpenableUrl` decides whether a string may be handed to the
-// OS at all, `urlOpenCommand` decides which program opens it, and
-// `spawnUrlOpener` is the single place that performs it. Widgets never reach
-// here directly — they ask App, which owns the capability.
+// [LAW:effects-at-boundaries] Opening a URL is an OS effect, taken apart so that
+// only the last step touches the OS: `parseOpenableUrl` decides whether a string
+// may be handed over at all, `urlOpenCommand` decides which program opens it,
+// `runUrlOpenCommand` performs one such command, and `spawnUrlOpener` is those
+// three composed. Widgets never reach here — they ask App, which owns the
+// capability.
 
 import { spawn } from "node:child_process";
 
