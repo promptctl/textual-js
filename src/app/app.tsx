@@ -33,6 +33,7 @@ import type { Message, MessageConstructor } from "../events/message.js";
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationContent, type NotificationSeverity } from "../services/notifications.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
+import { spawnUrlOpener, type UrlOpener } from "../services/url-opener.js";
 import { Worker, WorkerManager, getCurrentWorker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import type { Signal } from "../services/signal.js";
 import type { TimerCallback, TimerOptions } from "../services/timer.js";
@@ -70,6 +71,9 @@ export interface AppOptions {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
+  // The initial value of App's url opener, applied by the constructor. Unlike
+  // env/driver below, App keeps it — `setUrlOpener` replaces it thereafter.
+  openUrl?: UrlOpener;
   // [LAW:one-source-of-truth] env and driver are runtime-construction inputs
   // that App forwards to its owned framework. They are not separately stored
   // on App; the framework is the authority for their effects.
@@ -147,6 +151,14 @@ export class App<Result = unknown> {
   private readonly appOptions: StoredAppOptions;
   private appTitle = "";
   private appSubTitle = "";
+  // [LAW:single-enforcer] One URL-opening capability for the whole app. Widgets
+  // that offer a link (Link, Markdown) name the intent; only this performs it.
+  //
+  // [LAW:one-source-of-truth] This field is the authority, and `AppOptions
+  // .openUrl` is only its initial value. `render()` deliberately does not pass
+  // it down to TextualApp: App would be sending the value to itself through
+  // React, and the return leg would overwrite anything set in between.
+  private urlOpener: UrlOpener = spawnUrlOpener;
 
   constructor(options: AppOptions = {}) {
     const framework = new AppRuntime({
@@ -188,6 +200,7 @@ export class App<Result = unknown> {
       tooltipDelay: options.tooltipDelay,
       showTooltips: options.showTooltips,
     };
+    this.setUrlOpener(options.openUrl);
     this.title = options.title ?? "";
     this.subTitle = options.subTitle ?? "";
   }
@@ -508,6 +521,34 @@ export class App<Result = unknown> {
 
   clearNotifications(): void {
     this.notificationService.clearNotifications();
+  }
+
+  // Replaces the platform opener — the seam a host (or a test) uses to observe
+  // or redirect link activation instead of launching a real browser.
+  //
+  // [LAW:one-source-of-truth] Absent means "no opinion", not "reset to the
+  // default": TextualApp syncs this prop on every mount, and treating a missing
+  // prop as a reset would silently discard an opener a host set before render.
+  // `setUrlOpener(spawnUrlOpener)` is how you deliberately go back.
+  setUrlOpener(opener: UrlOpener | null | undefined): void {
+    this.urlOpener = opener ?? this.urlOpener;
+  }
+
+  openUrl(url: string): void {
+    // [LAW:no-silent-failure] The person who asked for the browser is told when
+    // it did not open. Reporting it beats an uncaught exception: a missing
+    // opener should not tear down a running TUI over one hyperlink.
+    // The call goes *inside* the chain: `UrlOpener` permits a synchronous
+    // opener, and a synchronous opener throws. Invoking it as an argument to
+    // `Promise.resolve` would unwind before any catch was attached.
+    void Promise.resolve().then(() => this.urlOpener(url)).catch((error: unknown) => {
+      // markup:false — the message embeds an externally-sourced URL, and
+      // brackets are ordinary in one (an IPv6 literal host, a query key).
+      this.notify(`Could not open ${url}: ${String(error)}`, {
+        severity: "error",
+        markup: false,
+      });
+    });
   }
 
   _unnotify(notification: Notification): void {

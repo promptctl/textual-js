@@ -10,6 +10,7 @@ import {
   Checkbox,
   Color,
   Label,
+  Link,
   ProgressBar,
   RadioButton,
   RadioSet,
@@ -194,6 +195,174 @@ describe("Label", () => {
     const session = await runTest(<Label id="unfocusable" content="text" />);
 
     expect(session.app.getByCssId("unfocusable")!.canFocus).toBe(false);
+
+    session.unmount();
+  });
+});
+
+describe("Link", () => {
+  it("renders its text", async () => {
+    const session = await runTest(<Link text="Textual docs" url="https://textual.textualize.io" />);
+
+    expect(stripAnsi(session.lastFrame() ?? "").trimEnd()).toBe("Textual docs");
+
+    session.unmount();
+  });
+
+  // Textual builds Link's Static base with markup=False, so brackets are text.
+  it("renders its text literally rather than as Rich markup", async () => {
+    const session = await runTest(<Link text="[bold]docs[/]" url="https://example.com" />);
+
+    expect(stripAnsi(session.lastFrame() ?? "").trimEnd()).toBe("[bold]docs[/]");
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName Link", async () => {
+    const session = await runTest(<Link id="docs" text="docs" url="https://example.com" />);
+
+    expect(session.app.getByCssId("docs")!.typeName).toBe("Link");
+
+    session.unmount();
+  });
+
+  it("is targetable by a Link type selector", async () => {
+    const session = await runTest(<Link id="styled" text="docs" url="https://example.com" />, {
+      appProps: { css: "Link { color: magenta; }" },
+    });
+
+    expect(session.app.getByCssId("styled")!.resolvedStyles.getRule("color")).toEqual(
+      Color.parse("magenta"),
+    );
+
+    session.unmount();
+  });
+
+  // Textual's Link subclasses Static, so a Static rule cascades onto it.
+  it("inherits CSS written against its Static base type", async () => {
+    const session = await runTest(<Link id="inheriting" text="docs" url="https://example.com" />, {
+      appProps: { css: "Static { color: cyan; }" },
+    });
+
+    expect(session.app.getByCssId("inheriting")!.resolvedStyles.getRule("color")).toEqual(
+      Color.parse("cyan"),
+    );
+
+    session.unmount();
+  });
+
+  it("styles itself with the accent color and an underline by default", async () => {
+    const session = await runTest(<Link id="styled" text="docs" url="https://example.com" />);
+
+    const styles = session.app.getByCssId("styled")!.resolvedStyles;
+    expect(styles.getRule("color")).toEqual(Color.parse("#ffc473"));
+    expect(styles.getRule("text-style")).toMatchObject({ underline: true, bold: false });
+
+    session.unmount();
+  });
+
+  it("takes focus", async () => {
+    const session = await runTest(<Link id="focusable" text="docs" url="https://example.com" />);
+
+    expect(session.app.getByCssId("focusable")!.canFocus).toBe(true);
+
+    session.unmount();
+  });
+
+  // Textual's `&:focus { text-style: bold reverse; }` replaces the underline
+  // rather than adding to it, which is why underline goes false here.
+  it("switches to bold reverse while focused", async () => {
+    const session = await runTest(<Link id="focusable" text="docs" url="https://example.com" />);
+
+    session.app.focusWidget(session.app.getByCssId("focusable")!.nodeId);
+    await session.pilot.pause();
+
+    expect(session.app.getByCssId("focusable")!.resolvedStyles.getRule("text-style")).toMatchObject({
+      bold: true,
+      reverse: true,
+      underline: false,
+    });
+
+    session.unmount();
+  });
+
+  it("opens its url on enter", async () => {
+    const opened: string[] = [];
+    const session = await runTest(
+      <Link id="docs" text="Textual docs" url="https://textual.textualize.io" />,
+      { appProps: { openUrl: (url: string) => opened.push(url) } },
+    );
+
+    session.app.focusWidget(session.app.getByCssId("docs")!.nodeId);
+    await session.pilot.pause();
+    await session.pilot.press("enter");
+
+    expect(opened).toEqual(["https://textual.textualize.io"]);
+
+    session.unmount();
+  });
+
+  it("opens its url on click", async () => {
+    const opened: string[] = [];
+    const session = await runTest(
+      <Link id="docs" text="Textual docs" url="https://textual.textualize.io" />,
+      { appProps: { openUrl: (url: string) => opened.push(url) } },
+    );
+
+    await session.pilot.pause();
+    await session.pilot.click("#docs");
+
+    expect(opened).toEqual(["https://textual.textualize.io"]);
+
+    session.unmount();
+  });
+
+  // Textual: `url = text if url is None else url`.
+  it("falls back to its text when no url is given", async () => {
+    const opened: string[] = [];
+    const session = await runTest(<Link id="bare" text="https://example.com" />, {
+      appProps: { openUrl: (url: string) => opened.push(url) },
+    });
+
+    session.app.focusWidget(session.app.getByCssId("bare")!.nodeId);
+    await session.pilot.pause();
+    await session.pilot.press("enter");
+
+    expect(opened).toEqual(["https://example.com"]);
+
+    session.unmount();
+  });
+
+  // `text` is required, so a Link with nothing at all cannot be written. An
+  // empty string still can, and the platform opener refuses it at the border
+  // rather than each call site testing for its own favourite kind of bad.
+  it("refuses to open an empty target, and says so", async () => {
+    const session = await runTest(<Link id="blank" text="" />, {
+      transients: { notifications: true },
+    });
+
+    session.app.focusWidget(session.app.getByCssId("blank")!.nodeId);
+    await session.pilot.pause();
+    await session.pilot.press("enter");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // No spy opener here on purpose: the refusal lives in the platform opener,
+    // so installing one would route around the very check under test.
+    const notification = session.app.notifications.list()[0];
+    expect(notification?.severityClass).toBe("-error");
+    expect(String(notification?.message)).toContain("Not a URL");
+
+    session.unmount();
+  });
+
+  it("declares the enter binding that opens the link", async () => {
+    const session = await runTest(<Link id="docs" text="docs" url="https://example.com" />);
+
+    const bindings = session.app.getByCssId("docs")!.bindings;
+    expect(bindings.map((binding) => [binding.key, binding.action])).toContainEqual([
+      "enter",
+      "open_link",
+    ]);
 
     session.unmount();
   });
