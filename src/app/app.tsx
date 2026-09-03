@@ -506,14 +506,10 @@ export class App<Result = unknown> {
   /**
    * The active screen's own title, or `null` when it defers to the app's.
    *
-   * [LAW:one-source-of-truth] Both sides go through ScreenStackService — writes
-   * through the one owner of screen state, reads through `activeTitleOverride`
-   * for the reason documented there. Reading `this.screen.title` here instead
-   * would type-check and return the right string, and would still be a second,
-   * silently non-reactive path to a fact that already has a working one.
-   * Textual spells this `app.screen.title = ...`; `Screen` here is a plain
-   * record in a deliberately non-observable map, so a direct field write would
-   * update the value and tell no one.
+   * [LAW:one-source-of-truth] Both sides go through ScreenStackService, the one
+   * owner of screen state. Textual spells this `app.screen.title = ...`, which
+   * has no counterpart here on purpose: `Screen` carries no title at all — see
+   * `TitledScreen` — so this pair is the only way to ask.
    */
   get screenTitle(): string | null {
     return this.screenStack.activeTitleOverride.title;

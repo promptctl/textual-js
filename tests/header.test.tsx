@@ -4,11 +4,20 @@ import { observer } from "mobx-react-lite";
 import stripAnsi from "strip-ansi";
 import { describe, expect, it } from "vitest";
 
-import { App, Header, Static, runTest, useTextual, type TestSession } from "../src/index.js";
+// Imported from the package entry point, not from framework/title-resolution.js:
+// these two are exported so a consumer can reuse the precedence rule instead of
+// reimplementing it, and importing them by their internal path would leave that
+// export claimed but unexercised.
 import {
+  App,
+  Header,
   NO_TITLE_OVERRIDE,
   resolveTitle,
-} from "../src/framework/title-resolution.js";
+  Static,
+  runTest,
+  useTextual,
+  type TestSession,
+} from "../src/index.js";
 
 // [LAW:behavior-not-structure] Every expectation below is a row of glyphs a
 // user could read off the screen, or a widget they could query — never a call
