@@ -55,7 +55,7 @@ import type { AsyncResourceManager } from "../framework/async-resource-manager.j
 import type { LayoutEngine } from "../framework/layout-engine.js";
 import type { TooltipService } from "../framework/tooltip-service.js";
 import type { MessagePump } from "../framework/message-pump.js";
-import type { ScreenStackService } from "../framework/screen-stack-service.js";
+import type { ScreenStackService, TitledScreen } from "../framework/screen-stack-service.js";
 import type { WidgetTypeRegistry } from "../framework/widget-type-registry.js";
 
 export interface AppOptions {
@@ -200,13 +200,18 @@ export class App<Result = unknown> {
       showTooltips: options.showTooltips,
     };
     this.setUrlOpener(options.openUrl);
-    // Textual's `App.TITLE or self.__class__.__name__`, with the constructor
-    // option ahead of the class attribute — the precedence `SCREENS`, `MODES`
-    // and `AUTO_FOCUS` already use, and the one `createScreen` uses for a
-    // screen's own TITLE. `||`, not `??`, so an empty or otherwise falsy TITLE
-    // falls back as Python's `or` does. The guarantee is about construction: a
-    // later `app.title = ""` sets `""`, in Textual too.
+    // Constructor option ahead of class attribute — the precedence `SCREENS`,
+    // `MODES` and `AUTO_FOCUS` already use, and the one `createScreen` uses for
+    // a screen's own TITLE.
+    //
+    // `title` uses `||` to reproduce `App.TITLE or self.__class__.__name__`: a
+    // falsy TITLE falls through to the class name, as Python's `or` does. The
+    // guarantee is about construction; a later `app.title = ""` sets `""`, in
+    // Textual too.
     this.title = options.title || this.resolveStaticTitle() || this.constructor.name;
+    // `subTitle` uses `??` instead, and the asymmetry is deliberate: it has no
+    // third fallback, so `new App({ subTitle: "" })` means "show none" and must
+    // survive a declared SUB_TITLE rather than fall through to it.
     this.subTitle = options.subTitle ?? this.resolveStaticSubTitle() ?? "";
   }
 
@@ -421,7 +426,7 @@ export class App<Result = unknown> {
   private makeScreenEntry(
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
-  ): Screen {
+  ): TitledScreen {
     return this.screenStack.createScreen(element, options, (result) => {
       this.popScreen(result);
     });

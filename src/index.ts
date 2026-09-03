@@ -99,6 +99,8 @@ export {
 export {
   type ActiveBinding,
   ActiveModeError,
+  NO_TITLE_OVERRIDE,
+  resolveTitle,
   type ResolvedTitle,
   type TitleOverride,
   type AppDriver,

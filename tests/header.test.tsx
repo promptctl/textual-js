@@ -55,6 +55,14 @@ describe("resolveTitle", () => {
     expect(resolveTitle(NO_TITLE_OVERRIDE, app)).toEqual(app);
   });
 
+  it("treats an empty screen title as an override, not as silence", () => {
+    // Both fields go through the same `??`, so covering only one of them lets a
+    // regression on the other through every test in this file.
+    expect(
+      resolveTitle({ title: "", subTitle: null }, { title: "My Application", subTitle: "" }),
+    ).toEqual({ title: "", subTitle: "" });
+  });
+
   it("treats an empty screen sub-title as an override, not as silence", () => {
     // The distinction the `string | null` type exists to preserve: a screen
     // that deliberately shows no sub-title must be able to clear the app's,
@@ -142,6 +150,19 @@ describe("Header title resolution", () => {
 
     expect(session.app.screenTitle).toBeNull();
     expect(headerRow(session)).toContain("My Application");
+    session.unmount();
+  });
+
+  it("lets an empty screen title clear the app's, on screen", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    expect(headerRow(session)).toContain("My Application");
+
+    session.app.screenTitle = "";
+    await session.app.whenIdle();
+
+    // A blank title region, not a fall back to the app's title.
+    expect(headerRow(session)).not.toContain("My Application");
+    expect([...headerRow(session)]).toHaveLength(BAR_WIDTH);
     session.unmount();
   });
 
@@ -257,6 +278,26 @@ describe("screen title API", () => {
     }
 
     expect(new DeclaredTitleApp({ title: "Passed in" }).title).toBe("Passed in");
+  });
+
+  it("lets a constructor option beat the App's declared SUB_TITLE", () => {
+    class DeclaredSubTitleApp extends App {
+      static SUB_TITLE = "Declared";
+    }
+
+    expect(new DeclaredSubTitleApp({ subTitle: "Passed in" }).subTitle).toBe("Passed in");
+  });
+
+  it("keeps an explicitly empty subTitle rather than falling back to SUB_TITLE", () => {
+    // This is the asymmetry with `title`, which uses `||` and would fall
+    // through here. `subTitle` has no third fallback, so an explicit `""` is a
+    // decision to show none — and it is the only thing stopping someone from
+    // "harmonizing" the two lines.
+    class DeclaredSubTitleApp extends App {
+      static SUB_TITLE = "Declared";
+    }
+
+    expect(new DeclaredSubTitleApp({ subTitle: "" }).subTitle).toBe("");
   });
 
 });

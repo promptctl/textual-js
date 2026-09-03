@@ -96,6 +96,7 @@ import {
   DEFAULT_MODE,
   normalizePushArgs,
   type ScreenStackDeps,
+  type TitledScreen,
 } from "./screen-stack-service.js";
 import {
   MessagePump,
@@ -231,13 +232,6 @@ export interface ScreenOptions {
 export interface Screen {
   id: string;
   name: string | null;
-  // A screen's own title, or `null` for "no opinion — use the app's".
-  // [LAW:types-are-the-program] `readonly` because `app.screen.title = "X"` is
-  // a write that changes the value and notifies nobody; ScreenStackService owns
-  // the only mutable view. Saying so in a comment instead left the bad write
-  // compiling.
-  readonly title: string | null;
-  readonly subTitle: string | null;
   element: React.ReactElement | null;
   bindings: Binding[];
   actions: WidgetActions | undefined;
@@ -1868,7 +1862,7 @@ export class AppRuntime {
   private makeScreenEntry(
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
-  ): Screen {
+  ): TitledScreen {
     return this.screenStack.createScreen(element, options, (result) => {
       this.dismissScreen(result);
     });
