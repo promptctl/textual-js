@@ -5,7 +5,7 @@
 
 import React from "react";
 
-import { Content, type ContentInput } from "../content/index.js";
+import { Content } from "../content/index.js";
 import { useTextual } from "../framework/context.js";
 import {
   ContentWidget,
@@ -14,7 +14,9 @@ import {
 } from "./content-widget.js";
 
 export interface LinkProps extends Omit<ContentProps, "content"> {
-  text?: ContentInput;
+  // Required, as Textual's `Link(text, *, url=None)` makes it: a link with no
+  // text has nothing to show and nothing to fall back to for its url.
+  text: string | Content;
   url?: string;
 }
 

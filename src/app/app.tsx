@@ -531,7 +531,10 @@ export class App<Result = unknown> {
     // [LAW:no-silent-failure] The person who asked for the browser is told when
     // it did not open. Reporting it beats an uncaught exception: a missing
     // opener should not tear down a running TUI over one hyperlink.
-    void Promise.resolve(this.urlOpener(url)).catch((error: unknown) => {
+    // The call goes *inside* the chain: `UrlOpener` permits a synchronous
+    // opener, and a synchronous opener throws. Invoking it as an argument to
+    // `Promise.resolve` would unwind before any catch was attached.
+    void Promise.resolve().then(() => this.urlOpener(url)).catch((error: unknown) => {
       this.notify(`Could not open ${url}: ${String(error)}`, "error");
     });
   }

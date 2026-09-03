@@ -333,6 +333,26 @@ describe("Link", () => {
     session.unmount();
   });
 
+  // `text` is required, so a Link with nothing at all cannot be written. An
+  // empty string still can, and the platform opener refuses it at the border
+  // rather than each call site testing for its own favourite kind of bad.
+  it("refuses to open an empty target, and says so", async () => {
+    const opened: string[] = [];
+    const session = await runTest(<Link id="blank" text="" />, {
+      transients: { notifications: true },
+    });
+
+    session.app.focusWidget(session.app.getByCssId("blank")!.nodeId);
+    await session.pilot.pause();
+    await session.pilot.press("enter");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(opened).toEqual([]);
+    expect(session.app.notifications.list()[0]?.severityClass).toBe("-error");
+
+    session.unmount();
+  });
+
   it("declares the enter binding that opens the link", async () => {
     const session = await runTest(<Link id="docs" text="docs" url="https://example.com" />);
 
