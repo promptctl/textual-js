@@ -72,6 +72,7 @@ import type { BindingDeclaration } from "../bindings/index.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
 import type { ProviderConstructor } from "../commands/index.js";
 import type { Notification } from "../services/notifications.js";
+import type { UrlOpener } from "../services/url-opener.js";
 import { Color } from "../styles/color.js";
 import type { App } from "./app.js";
 
@@ -94,6 +95,9 @@ export interface TextualAppProps extends PropsWithChildren {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
+  // Absent means the platform opener; a host supplies this to route link
+  // activation somewhere else (an embedded browser, a test recorder).
+  openUrl?: UrlOpener;
 }
 
 function buildTooltipVisual(tooltip: ActiveTooltip) {
@@ -583,6 +587,7 @@ export const TextualApp = observer(function TextualApp({
   autoFocus,
   tooltipDelay,
   showTooltips,
+  openUrl,
 }: TextualAppProps): React.JSX.Element {
   // [LAW:one-source-of-truth] App reference captured once for the life of
   // this React subtree.
@@ -605,6 +610,10 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedApp.setTheme(theme ?? "default");
   }, [ownedApp, theme]);
+
+  useLayoutEffect(() => {
+    ownedApp.setUrlOpener(openUrl);
+  }, [openUrl, ownedApp]);
 
   useLayoutEffect(() => {
     ownedApp.setAppBindings(bindings ?? []);

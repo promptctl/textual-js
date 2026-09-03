@@ -185,6 +185,7 @@ export {
   type NotificationSeverity,
 } from "./services/notifications.js";
 export { RLock } from "./services/concurrency.js";
+export { spawnUrlOpener, urlOpenCommand, type UrlOpenCommand, type UrlOpener } from "./services/url-opener.js";
 export { Signal, SignalError, type SignalCallback } from "./services/signal.js";
 export {
   ANSI_THEME_DARK,
@@ -357,6 +358,7 @@ export {
   InvalidLineStyle,
   InvalidRuleOrientation,
   Label,
+  Link,
   ProgressBar,
   RadioButton,
   RadioSet,
@@ -377,6 +379,7 @@ export {
   type InputProps,
   type InputHandle,
   type LabelProps,
+  type LinkProps,
   type ProgressBarProps,
   type RadioButtonProps,
   type RadioSetButtonSpec,

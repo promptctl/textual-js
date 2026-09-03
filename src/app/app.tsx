@@ -33,6 +33,7 @@ import type { Message, MessageConstructor } from "../events/message.js";
 import { Size } from "../geometry/index.js";
 import { Notification, Notifications, type NotificationContent, type NotificationSeverity } from "../services/notifications.js";
 import { ThemeManager, type ActiveTheme, type AnsiTheme, type ThemeDefinition } from "../services/theme.js";
+import { spawnUrlOpener, type UrlOpener } from "../services/url-opener.js";
 import { Worker, WorkerManager, getCurrentWorker, type WorkerCallable, type WorkerOptions } from "../services/worker.js";
 import type { Signal } from "../services/signal.js";
 import type { TimerCallback, TimerOptions } from "../services/timer.js";
@@ -147,6 +148,9 @@ export class App<Result = unknown> {
   private readonly appOptions: StoredAppOptions;
   private appTitle = "";
   private appSubTitle = "";
+  // [LAW:single-enforcer] One URL-opening capability for the whole app. Widgets
+  // that offer a link (Link, Markdown) name the intent; only this performs it.
+  private urlOpener: UrlOpener = spawnUrlOpener;
 
   constructor(options: AppOptions = {}) {
     const framework = new AppRuntime({
@@ -508,6 +512,18 @@ export class App<Result = unknown> {
 
   clearNotifications(): void {
     this.notificationService.clearNotifications();
+  }
+
+  // Replaces the platform opener — the seam a host (or a test) uses to observe
+  // or redirect link activation instead of launching a real browser. Absent
+  // means "the platform default", so hosts can pass an optional prop straight
+  // through rather than restating `spawnUrlOpener` at the call site.
+  setUrlOpener(opener: UrlOpener | null | undefined): void {
+    this.urlOpener = opener ?? spawnUrlOpener;
+  }
+
+  openUrl(url: string): void {
+    this.urlOpener(url);
   }
 
   _unnotify(notification: Notification): void {
