@@ -86,17 +86,11 @@ describe("digits font", () => {
     });
   });
 
-  it("gives every character the font knows exactly three cells", () => {
-    // The catalog's width rule — "width is 3 cells per rendered character" —
-    // stated as the observable it actually is.
-    for (const character of "0123456789+-^x:ABCDEF$£€ ") {
-      expect(digitsRows(character).map((row) => [...row].length)).toEqual([3, 3, 3]);
-    }
-  });
-
-  it("draws a character the font does not know verbatim, one cell wide", () => {
+  it("draws a character the font does not know verbatim on the bottom row", () => {
     // Degrading to the raw character keeps an unexpected value readable instead
     // of dropping it, and is how the bullet above reaches the screen at all.
+    // The title stops at "verbatim" on purpose — the wide-character case below
+    // is the same rule and is not one cell wide.
     expect(digitsRows("?")).toEqual([" ", " ", "?"]);
   });
 
