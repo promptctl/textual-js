@@ -1,0 +1,169 @@
+import React from "react";
+import stripAnsi from "strip-ansi";
+import { describe, expect, it } from "vitest";
+
+import { Digits, runTest, type TestSession } from "../src/index.js";
+import { digitsContent, digitsRows } from "../src/widgets/digits.js";
+
+// [LAW:behavior-not-structure] Every expectation below is glyphs a reader could
+// see on screen, or a widget they could query — never a call the component
+// happens to make on the way there.
+//
+// The two row-triples are transcribed cell-for-cell from the committed Python
+// baselines, visual-tests/snapshots/python/digits_basic.txt and
+// digits_large.txt, rather than assembled from the same font table the
+// implementation reads. A test that rebuilt the rows from GLYPH_TABLE would
+// agree with the implementation by construction and could never catch a
+// mistranscribed glyph — which is the single most likely defect in a port whose
+// whole job is copying a font.
+const BASELINE_PI: readonly string[] = [
+  "╶─╮ ╶╮ ╷ ╷",
+  " ─┤  │ ╰─┤",
+  "╶─╯•╶┴╴  ╵",
+];
+
+const BASELINE_CLOCK: readonly string[] = [
+  "╶╮ ╶─╮   ╶─╮╷ ╷",
+  " │ ┌─┘ :  ─┤╰─┤",
+  "╶┴╴╰─╴   ╶─╯  ╵",
+];
+
+function screenRows(session: TestSession, count: number): string[] {
+  return stripAnsi(session.lastFrame() ?? "")
+    .split("\n")
+    .slice(0, count)
+    .map((row) => row.trimEnd());
+}
+
+describe("digits font", () => {
+  it("draws '3.14' exactly as the Python baseline does", () => {
+    expect(digitsRows("3.14")).toEqual(BASELINE_PI);
+  });
+
+  it("draws '12:34' exactly as the Python baseline does", () => {
+    expect(digitsRows("12:34")).toEqual(BASELINE_CLOCK);
+  });
+
+  it("draws a period as a bullet resting on the bottom row", () => {
+    // The one character substitution the font makes, and the reason "3.14"
+    // above is 10 cells rather than 12.
+    expect(digitsRows(".")).toEqual([" ", " ", "•"]);
+  });
+
+  it("gives every character the font knows exactly three cells", () => {
+    // The catalog's width rule — "width is 3 cells per rendered character" —
+    // stated as the observable it actually is.
+    for (const character of "0123456789+-^x:ABCDEF$£€ ") {
+      expect(digitsRows(character).map((row) => [...row].length)).toEqual([3, 3, 3]);
+    }
+  });
+
+  it("draws a character the font does not know verbatim, one cell wide", () => {
+    // Degrading to the raw character keeps an unexpected value readable instead
+    // of dropping it, and is how the bullet above reaches the screen at all.
+    expect(digitsRows("?")).toEqual([" ", " ", "?"]);
+  });
+
+  it("stays three rows tall for the empty value", () => {
+    // Height is a property of the font, not of how much was drawn: upstream
+    // answers `3` unconditionally, and here the empty value is the fold's
+    // starting point rather than a special case.
+    expect(digitsRows("")).toEqual(["", "", ""]);
+  });
+
+  it("keeps three rows however many characters are drawn", () => {
+    expect(digitsRows("1234567890")).toHaveLength(3);
+  });
+
+  it("draws square brackets as characters rather than reading them as markup", () => {
+    // [LAW:parse-dont-validate] The regression this guards: handing the rows
+    // downstream as a plain string routes them through Content.fromMarkup,
+    // where "[3]" opens a tag and the digit disappears. Returning a Content
+    // means the markup boundary was crossed once, here.
+    // The brackets survive on the bottom row, where the font puts every
+    // character it does not know, with a blank cell above each.
+    expect(digitsContent("[3]").plain.split("\n")).toEqual([
+      " ╶─╮ ",
+      "  ─┤ ",
+      "[╶─╯]",
+    ]);
+  });
+});
+
+describe("Digits widget", () => {
+  it("paints the value on screen exactly as the Python baseline does", async () => {
+    const session = await runTest(<Digits value="3.14" />);
+
+    expect(screenRows(session, 3)).toEqual(BASELINE_PI);
+
+    session.unmount();
+  });
+
+  it("paints a value containing a colon across all three rows", async () => {
+    const session = await runTest(<Digits value="12:34" />);
+
+    expect(screenRows(session, 3)).toEqual(BASELINE_CLOCK);
+
+    session.unmount();
+  });
+
+  it("accepts a number as readily as a string", async () => {
+    const session = await runTest(<Digits value={314} />);
+
+    expect(screenRows(session, 3)).toEqual(digitsRows("314"));
+
+    session.unmount();
+  });
+
+  it("shows nothing when given no value", async () => {
+    const session = await runTest(<Digits />);
+
+    expect(screenRows(session, 3)).toEqual(["", "", ""]);
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName Digits", async () => {
+    const session = await runTest(<Digits id="clock" value="12:34" />);
+    await session.app.whenIdle();
+
+    expect(session.app.findWidgets("Digits").map((widget) => widget.id)).toEqual(["clock"]);
+
+    session.unmount();
+  });
+
+  it("is not reached by Static rules the way a Label is", async () => {
+    // Upstream is `class Digits(Widget)`, not a Static subclass. The distinction
+    // is only observable through the cascade, so that is where it is checked.
+    const session = await runTest(<Digits value="1" />);
+    await session.app.whenIdle();
+
+    expect(session.app.findWidgets("Static")).toHaveLength(0);
+
+    session.unmount();
+  });
+
+  it("takes its colour from a Digits rule", async () => {
+    const session = await runTest(<Digits value="1" />, {
+      appProps: { css: "Digits { color: #55ffff; }" },
+    });
+
+    expect(session.lastFrame() ?? "").toContain("38;2;85;255;255");
+
+    session.unmount();
+  });
+
+  it("does not take focus", async () => {
+    // canFocus is false upstream; the observable is that tabbing past it leaves
+    // focus where it was rather than landing on the digits.
+    const session = await runTest(<Digits value="1" />);
+    await session.app.whenIdle();
+
+    session.app.focusNext();
+    await session.app.whenIdle();
+
+    expect(session.app.focusedNodeId).toBeNull();
+
+    session.unmount();
+  });
+});
