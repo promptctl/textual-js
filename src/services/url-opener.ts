@@ -5,8 +5,10 @@
 
 import { spawn } from "node:child_process";
 
-/** Performs the platform's "show this URL to the user" action. */
-export type UrlOpener = (url: string) => void;
+// A URL is externally-sourced data, so an opener may fail long after it
+// returns. Rejecting says so; a synchronous opener that cannot fail may still
+// return nothing.
+export type UrlOpener = (url: string) => void | Promise<void>;
 
 export interface UrlOpenCommand {
   command: string;
@@ -16,11 +18,15 @@ export interface UrlOpenCommand {
 // [LAW:dataflow-not-control-flow] Every platform runs the same shape of
 // operation — one command with arguments — so the platform selects a *value*
 // rather than a branch that decides whether an operation happens at all.
+//
+// No entry may route the URL through a shell. `cmd /c start "" <url>` would:
+// the destination process is cmd.exe, which re-parses the line for its own
+// metacharacters, so a `&` in any ordinary query string turns the URL into a
+// command. explorer.exe takes the URL as one argument and launches the default
+// handler, which leaves nothing to escape.
 const URL_OPEN_COMMANDS: Readonly<Record<string, UrlOpenCommand>> = {
   darwin: { command: "open", args: [] },
-  // `start` is a cmd.exe builtin, and its first quoted argument is the window
-  // title — the empty string keeps a URL from being consumed as one.
-  win32: { command: "cmd", args: ["/c", "start", ""] },
+  win32: { command: "explorer.exe", args: [] },
 };
 
 const XDG_OPEN: UrlOpenCommand = { command: "xdg-open", args: [] };
@@ -30,11 +36,18 @@ export function urlOpenCommand(platform: string, url: string): UrlOpenCommand {
   return { command: base.command, args: [...base.args, url] };
 }
 
-// [LAW:no-silent-failure] The child is spawned without an `error` listener on
-// purpose: a missing opener raises an unhandled error rather than a link that
-// quietly does nothing when clicked.
-export const spawnUrlOpener: UrlOpener = (url) => {
-  const { command, args } = urlOpenCommand(process.platform, url);
-  const child = spawn(command, [...args], { detached: true, stdio: "ignore" });
-  child.unref();
-};
+// [LAW:no-silent-failure] A missing opener (`xdg-open` is absent on plenty of
+// minimal systems) rejects rather than disappearing. It rejects rather than
+// throwing from an unlistened `error` event, which would take the whole TUI
+// down over a hyperlink; App turns the rejection into something the user reads.
+export const spawnUrlOpener: UrlOpener = (url) =>
+  new Promise<void>((resolve, reject) => {
+    const { command, args } = urlOpenCommand(process.platform, url);
+    const child = spawn(command, [...args], { detached: true, stdio: "ignore" });
+
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });

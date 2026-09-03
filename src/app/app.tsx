@@ -76,6 +76,7 @@ export interface AppOptions {
   // on App; the framework is the authority for their effects.
   env?: EnvironmentMap;
   driver?: AppDriver;
+  openUrl?: UrlOpener;
 }
 
 export interface AppRunTestOptions extends Pick<RunTestOptions, "messageHook" | "size" | "transients"> {}
@@ -97,6 +98,7 @@ interface StoredAppOptions {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
+  openUrl?: UrlOpener;
 }
 
 // [LAW:one-source-of-truth] App is the runtime root. Every runtime concept —
@@ -191,7 +193,9 @@ export class App<Result = unknown> {
       autoFocus: options.autoFocus,
       tooltipDelay: options.tooltipDelay,
       showTooltips: options.showTooltips,
+      openUrl: options.openUrl,
     };
+    this.setUrlOpener(options.openUrl);
     this.title = options.title ?? "";
     this.subTitle = options.subTitle ?? "";
   }
@@ -458,6 +462,7 @@ export class App<Result = unknown> {
         autoFocus={this.appOptions.autoFocus ?? this.resolveAutoFocus()}
         tooltipDelay={this.appOptions.tooltipDelay}
         showTooltips={this.appOptions.showTooltips}
+        openUrl={this.appOptions.openUrl}
       >
         {this.compose()}
       </TextualApp>
@@ -523,7 +528,12 @@ export class App<Result = unknown> {
   }
 
   openUrl(url: string): void {
-    this.urlOpener(url);
+    // [LAW:no-silent-failure] The person who asked for the browser is told when
+    // it did not open. Reporting it beats an uncaught exception: a missing
+    // opener should not tear down a running TUI over one hyperlink.
+    void Promise.resolve(this.urlOpener(url)).catch((error: unknown) => {
+      this.notify(`Could not open ${url}: ${String(error)}`, "error");
+    });
   }
 
   _unnotify(notification: Notification): void {
