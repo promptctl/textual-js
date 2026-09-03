@@ -135,8 +135,19 @@ fi
 # same frame. Read into an array rather than exported, so it reaches the xterm
 # child without leaking into the orchestration around it.
 capture_env=()
+capture_env_line=0
 while IFS= read -r line; do
+  capture_env_line=$(( capture_env_line + 1 ))
   [[ -z "${line// }" || "$line" == \#* ]] && continue
+  # [LAW:no-silent-failure] `env` execs the first argument that is not KEY=VALUE,
+  # so a malformed line here would surface as `env: <garbage>: No such file or
+  # directory` from a process three layers down. capture_python.py rejects the
+  # same line naming file:line, and a file both paths must "apply whole" has to
+  # fail the same way on both.
+  if [[ "$line" != *=* ]]; then
+    echo "fatal: ${visual_dir}/capture-env:${capture_env_line}: expected KEY=VALUE, got '${line}'" >&2
+    exit 1
+  fi
   capture_env+=("$line")
 done < "${visual_dir}/capture-env"
 

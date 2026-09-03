@@ -12,9 +12,9 @@ captured under one environment (visual-tests/capture-env) and committed together
 Nothing here decides *which* fixtures have baselines — the caller passes the
 names, and discover-fixtures.ts is the only place that set is derived.
 
-Invoked by render_pngs.ts inside the fixture container. Run it directly only to
-reproduce that step by hand:
-    uv run python capture_python.py <fixture> [<fixture> ...]
+Invoked by render_pngs.ts inside the fixture container. To reproduce that step by
+hand, point uv at visual-tests/pyproject.toml the same way that caller does:
+    uv run --project visual-tests python visual-tests/capture_python.py <fixture> ...
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ AMBIENT_FOREGROUNDS = {"#e0e0e0"}
 def resolve_fixture(name: str) -> Path:
     path = FIXTURES_DIR / f"{name}.py"
     # [LAW:no-silent-failure] A name with no fixture means the caller's fixture
-    # list and this directory disagree. Skipping it would leave a stale cell grid
+    # list and this directory disagree. Skipping it would leave a stale cell record
     # sitting beside a fresh PNG — exactly the divergence this script exists to
     # avoid — and the run would still report success.
     if not path.is_file():

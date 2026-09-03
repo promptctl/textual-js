@@ -54,7 +54,7 @@ const CONTAINER_PROJECT = `/host-code/${PROJECT_DIR.split("/").pop() ?? "textual
 
 // [LAW:decomposition] Entering the fixture container is one job with one
 // statement of how it is done. Both baseline representations — the PNG and the
-// cell grid — go through here, so neither can drift onto a different image,
+// cell record — go through here, so neither can drift onto a different image,
 // mount, or working directory than the other.
 async function runInFixtureContainer(command: string[]): Promise<void> {
   await execFileAsync(
@@ -76,14 +76,14 @@ async function renderTarget(target: RenderTarget): Promise<void> {
   ]);
 }
 
-// The cell-level record of the frame the PNG holds — character, fg, bg and style
-// per cell, plus the raw bytes and the plain text.
+// The cell-level record of the frame the PNG holds: the exact bytes Textual
+// emitted, and their plain text.
 //
 // [LAW:one-source-of-truth] The fixture list is passed in, never re-derived here.
 // capture_python.py used to run its own discovery over the same directory and todo
 // file, and the two implementations had already drifted: 118 fixtures had a PNG and
-// only 115 had a cell grid.
-async function captureCellGrids(fixtures: string[]): Promise<void> {
+// only 115 had a cell record.
+async function captureCellRecords(fixtures: string[]): Promise<void> {
   await runInFixtureContainer([
     "uv",
     "run",
@@ -154,8 +154,8 @@ export async function main(): Promise<void> {
   }
 
   // A Python baseline is every representation of one frame, produced together in
-  // this command. Splitting them let the JSON describe a different frame than the
-  // PNG for as long as nobody happened to run the second command — which nothing did.
+  // this command. Splitting them let the cell record describe a different frame than
+  // the PNG for as long as nobody ran the second command — which nothing ever did.
   //
   // Side-keyed, because the asymmetry is real rather than incidental: the Python
   // side is the reference and its frame is what gets read during diagnosis, while
@@ -164,8 +164,8 @@ export async function main(): Promise<void> {
   // different artifacts, and a per-side artifact table would be more machinery than
   // one honest branch.
   if (renderSide !== "js") {
-    process.stdout.write("\n  Capturing python cell grids (.json / .ansi / .txt)\n");
-    await captureCellGrids(fixtures);
+    process.stdout.write("\n  Capturing python cell records (.ansi / .txt)\n");
+    await captureCellRecords(fixtures);
   }
 
   process.stdout.write("\nDone. PNG snapshots in: snapshots/python/ and snapshots/js/\n");
