@@ -28,6 +28,7 @@ import {
   ScreenStackError,
   UnknownModeError,
 } from "./_app-runtime.js";
+import { NO_TITLE_OVERRIDE, type TitleOverride } from "./title-resolution.js";
 import type { WidgetActions } from "./widget-registry.js";
 
 export const DEFAULT_MODE = "_default";
@@ -60,6 +61,8 @@ export function createImplicitEntry(): Screen {
   return {
     id: "_default",
     name: null,
+    title: null,
+    subTitle: null,
     element: null,
     bindings: [],
     actions: undefined,
@@ -233,6 +236,70 @@ export class ScreenStackService {
     return stack.length === 0 ? null : stack[stack.length - 1];
   }
 
+  /**
+   * What the active screen says about the title — its values, not the screen.
+   *
+   * [LAW:single-enforcer] This is the only supported way to observe a screen
+   * title, and returning the pair by value is what makes it work. `activeScreen`
+   * is a getter, so `autoObservable` makes it a *computed*: retitling bumps
+   * `screenStackVersion`, the computed re-evaluates, hands back the very same
+   * `Screen` object, and MobX's reference comparer concludes nothing changed —
+   * so nothing downstream is ever told. A caller reaching through
+   * `activeScreen.title` inherits that silence no matter how carefully it reads
+   * the version marker itself. Two fresh strings cannot be swallowed that way.
+   */
+  get activeTitleOverride(): TitleOverride {
+    void this.screenStackVersion;
+    const screen = this.activeScreen;
+
+    return screen === null
+      ? NO_TITLE_OVERRIDE
+      : { title: screen.title, subTitle: screen.subTitle };
+  }
+
+  /**
+   * Retitle the active screen. `null` hands the question back to the app.
+   *
+   * [LAW:single-enforcer] Screens live in `modeStacks`, which is excluded from
+   * `autoObservable` and observed only through the `screenStackVersion` marker
+   * (see the constructor). So a bare `screen.title = x` mutates the object and
+   * notifies nobody. This method is the one write path that keeps the marker
+   * honest, which is why `Screen.title` is never assigned anywhere else.
+   */
+  setActiveScreenTitle(title: string | null): void {
+    this.retitleActiveScreen((screen) => {
+      screen.title = title;
+    });
+  }
+
+  setActiveScreenSubTitle(subTitle: string | null): void {
+    this.retitleActiveScreen((screen) => {
+      screen.subTitle = subTitle;
+    });
+  }
+
+  /**
+   * [LAW:parse-dont-validate] Turns `Screen | null` into `Screen` once, loudly.
+   * The default mode always carries an implicit entry, but a mode added via
+   * `addMode` starts with an empty stack — so "no active screen" is reachable,
+   * and retitling nothing would be a write that vanishes. Callers downstream
+   * take a `Screen` and have no absence left to re-check.
+   */
+  private requireActiveScreen(): Screen {
+    const screen = this.activeScreen;
+
+    if (screen === null) {
+      throw new ScreenStackError(`Mode "${this.activeMode}" has no active screen`);
+    }
+
+    return screen;
+  }
+
+  private retitleActiveScreen(write: (screen: Screen) => void): void {
+    write(this.requireActiveScreen());
+    this.screenStackVersion += 1;
+  }
+
   get activeScreenElement(): React.ReactElement | null {
     const screen = this.activeScreen;
 
@@ -322,6 +389,8 @@ export class ScreenStackService {
     const entry: Screen = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
+      title: options.title ?? null,
+      subTitle: options.subTitle ?? null,
       element,
       bindings,
       actions: undefined,

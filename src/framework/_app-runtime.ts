@@ -3,6 +3,7 @@ import "./mobx-config.js";
 import React from "react";
 
 import { autoObservable } from "./auto-observable.js";
+import { resolveTitle, type ResolvedTitle } from "./title-resolution.js";
 
 import {
   Blur,
@@ -213,6 +214,10 @@ export type ScreenDescriptor =
 
 export interface ScreenOptions {
   name?: string;
+  // Textual's `Screen.TITLE` / `SUB_TITLE` class attributes: the screen's title
+  // stated where the screen is declared. Omitted means the app's title shows.
+  title?: string;
+  subTitle?: string;
   bindings?: BindingDeclaration[];
   actions?: WidgetActions;
   autoFocus?: string | null;
@@ -224,6 +229,11 @@ export interface ScreenOptions {
 export interface Screen {
   id: string;
   name: string | null;
+  // A screen's own title, or `null` for "no opinion — use the app's". See
+  // `TitleOverride`: the Screen *is* one, which is why it can be handed
+  // straight to `resolveTitle`.
+  title: string | null;
+  subTitle: string | null;
   element: React.ReactElement | null;
   bindings: Binding[];
   actions: WidgetActions | undefined;
@@ -499,6 +509,39 @@ export class AppRuntime {
   readonly devtools: TextualFeatureState["devtools"];
   readonly debug: boolean;
   focusedNodeId: string | null = null;
+  // [LAW:one-source-of-truth] The app-level title lives here, inside the
+  // autoObservable runtime, and `App.title` is a delegating accessor over it.
+  // It used to be a private field on `App`, which is not observable at all — a
+  // Header could read it once and never learn it had changed.
+  title = "";
+  subTitle = "";
+  // [LAW:single-enforcer] Writes go through these methods, never through the
+  // fields directly. `autoObservable` annotates methods as MobX actions, and
+  // strict mode rejects an unactioned write to an observed value — so an
+  // outside assignment is not merely untidy here, it is a runtime warning.
+  setTitle(value: string): void {
+    this.title = value;
+  }
+
+  setSubTitle(value: string): void {
+    this.subTitle = value;
+  }
+
+  /**
+   * The title a header should paint, screen overriding app.
+   *
+   * [LAW:single-enforcer] Reading `screenStack.activeTitleOverride` is what
+   * makes this reactive across both sources at once: it carries the screen's
+   * values (see there for why the screen *object* cannot), and `this.title` is
+   * observable directly. One read, both dependencies — no widget subscribes to
+   * two things and remembers to do both.
+   */
+  get resolvedTitle(): ResolvedTitle {
+    return resolveTitle(this.screenStack.activeTitleOverride, {
+      title: this.title,
+      subTitle: this.subTitle,
+    });
+  }
   // [LAW:single-enforcer] Lifecycle phase flags (isRunning / isClosing /
   // readyMessagePosted), exit result, batch-update depth, unhandled-error
   // capture, host-controlled + host-reported terminal size, and displayCount

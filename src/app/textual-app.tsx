@@ -81,6 +81,13 @@ export interface TextualAppProps extends PropsWithChildren {
   // routes every runtime read/write through it.
   app: App;
   onReady?: (app: App) => void;
+  // Textual's `App.TITLE` / `SUB_TITLE`, supplied by a host that builds its app
+  // declaratively. Absent leaves whatever App already has, so a mount never
+  // overwrites a title set before render — the same contract as `openUrl`, and
+  // for the same reason: `App.render()` deliberately does not send these back
+  // down, or App would be round-tripping its own state through React.
+  title?: string;
+  subTitle?: string;
   css?: string;
   stylesheet?: string;
   cssPath?: string | readonly string[];
@@ -574,6 +581,8 @@ export const TextualApp = observer(function TextualApp({
   app,
   children,
   onReady,
+  title,
+  subTitle,
   css,
   stylesheet,
   cssPath,
@@ -615,6 +624,20 @@ export const TextualApp = observer(function TextualApp({
   useLayoutEffect(() => {
     ownedApp.setUrlOpener(openUrl);
   }, [openUrl, ownedApp]);
+
+  // Same absent-means-leave-it shape as the cssPath effect above: `undefined`
+  // is "this host does not name the title", not "set it to nothing".
+  useLayoutEffect(() => {
+    if (title !== undefined) {
+      ownedApp.title = title;
+    }
+  }, [ownedApp, title]);
+
+  useLayoutEffect(() => {
+    if (subTitle !== undefined) {
+      ownedApp.subTitle = subTitle;
+    }
+  }, [ownedApp, subTitle]);
 
   useLayoutEffect(() => {
     ownedApp.setAppBindings(bindings ?? []);

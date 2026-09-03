@@ -13,6 +13,12 @@ Stage 0 follows JavaScript conventions where Python behavior cannot or should no
 - `App.title` and `App.subTitle` use JavaScript `String(value)` coercion.
 - This is an intentional divergence from Python `str(...)` formatting. Example: `null` becomes `"null"`, not `"None"`.
 
+## Screen Titles
+
+- Python writes a screen's title as `app.screen.title = "..."`. Here that is `app.screenTitle` (and `app.screenSubTitle`), because `Screen` is a plain record held in a deliberately non-observable map: assigning the field directly would change the value and notify no observer. The accessors route the write through `ScreenStackService`, the single owner, which keeps the reactive marker in step.
+- Both read back `null` when the screen defers to the app. `null` and `""` are distinct: `""` is a screen overriding the app's value with nothing, not a screen declining to answer.
+- `App.title` defaults to the app class name (Textual's `TITLE or self.__class__.__name__`), not to `""`, so a `Header` always has a title to paint.
+
 ## Truthiness
 
 - `Offset`, `Size`, `Region`, and `Spacing` use normal JavaScript object truthiness and are always truthy as objects.

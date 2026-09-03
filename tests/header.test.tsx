@@ -1,0 +1,203 @@
+import React from "react";
+import stripAnsi from "strip-ansi";
+import { describe, expect, it } from "vitest";
+
+import { App, Header, Static, runTest, type TestSession } from "../src/index.js";
+import {
+  NO_TITLE_OVERRIDE,
+  resolveTitle,
+} from "../src/framework/title-resolution.js";
+
+// [LAW:behavior-not-structure] Every expectation below is a row of glyphs a
+// user could read off the screen, or a widget they could query — never a call
+// the Header happens to make on the way there.
+//
+// The two full-row literals are transcribed from the committed Python
+// baselines, visual-tests/snapshots/python/header_default.txt and
+// header_with_subtitle.txt, which is why they are stated cell-for-cell rather
+// than assembled from the same constants the component uses. A test that
+// rebuilt the row from HEADER_ICON_WIDTH and friends would agree with the
+// component by construction and would have nothing left to catch.
+const BASELINE_DEFAULT_ROW =
+  " ⭘                              My Application                                  ";
+const BASELINE_SUBTITLE_ROW =
+  " ⭘                      My Application — Status: ready                          ";
+
+const BAR_WIDTH = 80;
+
+function headerRow(session: TestSession): string {
+  return stripAnsi(session.lastFrame() ?? "").split("\n")[0];
+}
+
+async function mountHeader(appProps: {
+  title?: string;
+  subTitle?: string;
+}): Promise<TestSession> {
+  return runTest(
+    <>
+      <Header />
+      <Static content="Body content" />
+    </>,
+    { appProps },
+  );
+}
+
+describe("resolveTitle", () => {
+  it("lets a screen's title win and its silence fall through", () => {
+    const app = { title: "My Application", subTitle: "Status: ready" };
+
+    expect(resolveTitle({ title: "Settings", subTitle: null }, app)).toEqual({
+      title: "Settings",
+      subTitle: "Status: ready",
+    });
+    expect(resolveTitle(NO_TITLE_OVERRIDE, app)).toEqual(app);
+  });
+
+  it("treats an empty screen sub-title as an override, not as silence", () => {
+    // The distinction the `string | null` type exists to preserve: a screen
+    // that deliberately shows no sub-title must be able to clear the app's,
+    // which `screen.subTitle || app.subTitle` would silently undo.
+    expect(
+      resolveTitle({ title: null, subTitle: "" }, { title: "App", subTitle: "Status: ready" }),
+    ).toEqual({ title: "App", subTitle: "" });
+  });
+});
+
+describe("Header display", () => {
+  it("paints the app title centred across the full bar", async () => {
+    const session = await mountHeader({ title: "My Application" });
+
+    expect(headerRow(session)).toBe(BASELINE_DEFAULT_ROW);
+    session.unmount();
+  });
+
+  it("joins title and sub-title with an em dash", async () => {
+    const session = await mountHeader({
+      title: "My Application",
+      subTitle: "Status: ready",
+    });
+
+    expect(headerRow(session)).toBe(BASELINE_SUBTITLE_ROW);
+    session.unmount();
+  });
+
+  it("shows the title alone when no sub-title is set", async () => {
+    const session = await mountHeader({ title: "My Application" });
+
+    expect(headerRow(session)).toContain("My Application");
+    expect(headerRow(session)).not.toContain("—");
+    session.unmount();
+  });
+
+  it("renders the title inside a queryable Static-derived HeaderTitle", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    await session.app.whenIdle();
+
+    expect(session.app.findWidgets("HeaderTitle")).toHaveLength(1);
+    // The spec calls HeaderTitle a Static, which is only true if `Static { … }`
+    // rules reach it — i.e. if it matches the Static selector too.
+    expect(session.app.findWidgets("Static").map((widget) => widget.typeName)).toContain(
+      "HeaderTitle",
+    );
+    session.unmount();
+  });
+
+  it("keeps the bar exactly one screen wide when the title overflows it", async () => {
+    const session = await mountHeader({ title: "T".repeat(200) });
+    const row = headerRow(session);
+
+    expect([...row]).toHaveLength(BAR_WIDTH);
+    // Truncation is visible rather than silent: the title is cut with an
+    // ellipsis instead of pushing the reserved clock space off the row.
+    expect(row).toContain("…");
+    session.unmount();
+  });
+});
+
+describe("Header title resolution", () => {
+  it("falls back to the app class name when nothing sets a title", async () => {
+    class HeaderlessApp extends App {}
+
+    expect(new HeaderlessApp().title).toBe("HeaderlessApp");
+
+    const session = await mountHeader({});
+    expect(headerRow(session)).toContain("App");
+    session.unmount();
+  });
+
+  it("prefers the screen title over the app title", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    session.app.screenTitle = "Settings";
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("Settings");
+    expect(headerRow(session)).not.toContain("My Application");
+    session.unmount();
+  });
+
+  it("uses the app title while the screen has no opinion", async () => {
+    const session = await mountHeader({ title: "My Application" });
+
+    expect(session.app.screenTitle).toBeNull();
+    expect(headerRow(session)).toContain("My Application");
+    session.unmount();
+  });
+
+  it("prefers the screen sub-title over the app sub-title", async () => {
+    const session = await mountHeader({
+      title: "My Application",
+      subTitle: "Status: ready",
+    });
+    session.app.screenSubTitle = "Settings mode";
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("My Application — Settings mode");
+    session.unmount();
+  });
+});
+
+describe("Header reactive updates", () => {
+  it("repaints immediately when the screen title changes", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    session.app.screenTitle = "First";
+    await session.app.whenIdle();
+    expect(headerRow(session)).toContain("First");
+
+    session.app.screenTitle = "Second";
+    await session.app.whenIdle();
+    expect(headerRow(session)).toContain("Second");
+    expect(headerRow(session)).not.toContain("First");
+    session.unmount();
+  });
+
+  it("repaints immediately when the screen sub-title changes", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    session.app.screenSubTitle = "Saving";
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("My Application — Saving");
+    session.unmount();
+  });
+
+  it("repaints immediately when the app title changes", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    session.app.title = "Renamed";
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("Renamed");
+    session.unmount();
+  });
+
+  it("ignores an app title change while the screen defines its own", async () => {
+    const session = await mountHeader({ title: "My Application" });
+    session.app.screenTitle = "Settings";
+    await session.app.whenIdle();
+
+    session.app.title = "Renamed";
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("Settings");
+    expect(headerRow(session)).not.toContain("Renamed");
+    session.unmount();
+  });
+});

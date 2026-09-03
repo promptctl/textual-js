@@ -23,6 +23,7 @@ import {
   type RegisterWidgetTypeOptions,
   type WidgetTypeMetadata,
 } from "../framework/_app-runtime.js";
+import type { ResolvedTitle } from "../framework/title-resolution.js";
 import { DEFAULT_MODE, normalizePushArgs } from "../framework/screen-stack-service.js";
 import { ModeChanged, Paste, ScreenResume, ScreenSuspend } from "../events/events.js";
 import type { EnvironmentMap } from "../services/environment.js";
@@ -149,8 +150,6 @@ export class App<Result = unknown> {
   // App.CLICK_CHAIN_TIME_THRESHOLD without reaching into the private collaborator.
   static readonly CLICK_CHAIN_TIME_THRESHOLD = AppRuntime.CLICK_CHAIN_TIME_THRESHOLD;
   private readonly appOptions: StoredAppOptions;
-  private appTitle = "";
-  private appSubTitle = "";
   // [LAW:single-enforcer] One URL-opening capability for the whole app. Widgets
   // that offer a link (Link, Markdown) name the intent; only this performs it.
   //
@@ -201,7 +200,10 @@ export class App<Result = unknown> {
       showTooltips: options.showTooltips,
     };
     this.setUrlOpener(options.openUrl);
-    this.title = options.title ?? "";
+    // Textual's `App.TITLE or self.__class__.__name__`: an app always has a
+    // title to show, so the Header never needs an "untitled" case and `""`
+    // never has to double as a sentinel for "nobody set one".
+    this.title = options.title ?? this.constructor.name;
     this.subTitle = options.subTitle ?? "";
   }
 
@@ -473,20 +475,54 @@ export class App<Result = unknown> {
     );
   }
 
+  // [LAW:one-source-of-truth] Title state lives in the observable runtime; App
+  // is a coercing facade over it, not a second store. Held as a private field
+  // here, `app.title = "x"` would update nothing a rendered Header could see —
+  // App is not observable, so nothing re-runs on the write.
   get title(): string {
-    return this.appTitle;
+    return this._runtime.title;
   }
 
   set title(value: unknown) {
-    this.appTitle = String(value);
+    this._runtime.setTitle(String(value));
   }
 
   get subTitle(): string {
-    return this.appSubTitle;
+    return this._runtime.subTitle;
   }
 
   set subTitle(value: unknown) {
-    this.appSubTitle = String(value);
+    this._runtime.setSubTitle(String(value));
+  }
+
+  /**
+   * The active screen's own title, or `null` when it defers to the app's.
+   *
+   * [LAW:single-enforcer] Writes route through ScreenStackService, the one
+   * owner of screen state, so the mutation marker its observers depend on stays
+   * in step. Textual spells this `app.screen.title = ...`; `Screen` here is a
+   * plain record in a deliberately non-observable map, so a direct field write
+   * would update the value and tell no one.
+   */
+  get screenTitle(): string | null {
+    return this.screen?.title ?? null;
+  }
+
+  set screenTitle(value: string | null) {
+    this.screenStack.setActiveScreenTitle(value);
+  }
+
+  get screenSubTitle(): string | null {
+    return this.screen?.subTitle ?? null;
+  }
+
+  set screenSubTitle(value: string | null) {
+    this.screenStack.setActiveScreenSubTitle(value);
+  }
+
+  /** The title a Header paints: the screen's, falling back to the app's. */
+  get resolvedTitle(): ResolvedTitle {
+    return this._runtime.resolvedTitle;
   }
 
   get returnValue(): Result | undefined {

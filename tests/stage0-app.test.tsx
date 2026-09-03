@@ -18,7 +18,10 @@ describe("App seam", () => {
   it("instantiates without arguments and coerces titles with JS string semantics", () => {
     const app = new App();
 
-    expect(app.title).toBe("");
+    // Textual's default title is the app class name, so a Header always has
+    // something to paint. Only subTitle defaults to empty.
+    expect(app.title).toBe("App");
+    expect(new ReadyApp().title).toBe("ReadyApp");
     expect(app.subTitle).toBe("");
 
     app.title = null;
