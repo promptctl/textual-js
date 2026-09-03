@@ -144,18 +144,6 @@
     "reason": "Pre-seeded Python baseline for Stage 10 KeyPanel implementation"
   },
   {
-    "name": "link_basic",
-    "stage": "7",
-    "component": "Link",
-    "reason": "Pre-seeded Python baseline for Stage 7 Link implementation"
-  },
-  {
-    "name": "link_styled",
-    "stage": "7",
-    "component": "Link",
-    "reason": "Pre-seeded Python baseline for Stage 7 Link implementation"
-  },
-  {
     "name": "list_view_basic",
     "stage": "8",
     "component": "ListView",

@@ -10,7 +10,7 @@ import {
   visualize,
   type VisualInput,
 } from "../content/index.js";
-import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { WidgetScope, useStyles, useWidget, type UseWidgetOptions } from "../framework/context.js";
 import { MeasuredSizeReader } from "../framework/measured-size.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -21,11 +21,20 @@ export interface ContentProps extends WidgetComponentProps {
   content?: VisualInput;
 }
 
-// [LAW:one-type-per-behavior] Textual's Label is `class Label(Static)`: same
-// rendering, a distinct type so CSS can target it. The only thing that varies
-// is the identity a widget registers under, so that variability crosses this
-// one seam as a value instead of forking the render body into two copies.
-export interface ContentWidgetIdentity {
+// [LAW:one-type-per-behavior] Textual's `Label` and `Link` are both Static
+// subclasses: same rendering, distinct types so CSS can target them, and in
+// Link's case some added styling and keyboard behavior. Everything that varies
+// between them crosses this one seam as a value, so the render body below
+// stays a single copy rather than forking per subclass.
+//
+// The field types are borrowed from `UseWidgetOptions` so a widget fact has one
+// definition; the per-instance options (id, classes, border titles) are absent
+// because ContentWidget fills those from its own props.
+export interface ContentWidgetIdentity
+  extends Pick<
+    UseWidgetOptions,
+    "defaultCss" | "focusable" | "bindings" | "actions" | "handlers"
+  > {
   typeName: string;
   typeToken: Function;
   // Type names this widget also matches, so a base type's CSS cascades onto it
@@ -50,11 +59,9 @@ export const ContentWidget = observer(function ContentWidget({
   const visual = React.useMemo(() => visualize(content), [content]);
 
   const widget = useWidget({
+    ...identity,
     id,
     classes: composeWidgetClasses(classes),
-    typeName: identity.typeName,
-    typeToken: identity.typeToken,
-    baseTypeNames: identity.baseTypeNames,
     borderTitle,
     borderSubtitle,
   });
