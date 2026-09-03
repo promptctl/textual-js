@@ -2,11 +2,12 @@
 #
 # [LAW:one-source-of-truth] A fixture's baselines are produced by two different
 # execution paths — render-fixture-xvfb.sh drives a real xterm to make the PNG,
-# capture_python.py drives a headless compositor to make the cell grid. They
-# describe the same frame only if they run the app under the same environment.
-# When that environment lived in both files, they disagreed: progress_indeterminate's
-# JSON recorded an unhighlighted rail while its PNG recorded a fully highlighted
-# bar, because one path disabled Textual's animations and the other did not.
+# capture_python.py drives a headless compositor to make the cell record (.ansi
+# and .txt). They describe the same frame only if they run the app under the same
+# environment. When that environment lived in both files, they disagreed:
+# progress_indeterminate's cell record showed an unhighlighted rail while its PNG
+# showed a fully highlighted bar, because one path disabled Textual's animations
+# and the other did not.
 #
 # Every capture path applies this file whole. There is no per-path subset — a
 # subset is how the two drift back apart. [LAW:dataflow-not-control-flow]

@@ -174,13 +174,34 @@ describe("visual harness gating", () => {
 describe("capture environment", () => {
   const VISUAL_TESTS = join(dirname(fileURLToPath(import.meta.url)), "..", "visual-tests");
 
-  function declaredCaptureVariables(): string[] {
+  function captureEnvDirectives(): string[] {
     return readFileSync(join(VISUAL_TESTS, "capture-env"), "utf8")
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !line.startsWith("#"))
-      .map((line) => line.replace(/^-/, "").split("=", 1)[0]);
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
   }
+
+  function declaredCaptureVariables(): string[] {
+    return captureEnvDirectives().map((line) => line.replace(/^-/, "").split("=", 1)[0]);
+  }
+
+  function removedCaptureVariables(): string[] {
+    return captureEnvDirectives()
+      .filter((line) => line.startsWith("-"))
+      .map((line) => line.slice(1));
+  }
+
+  // [LAW:single-enforcer] One statement of the grammar, checked once. Two hand-written
+  // loaders read this file, and three review rounds each found a NEW way they disagreed
+  // about a legal-looking line — whitespace around the line, an indented comment,
+  // whitespace around the delimiter, a removal directive carrying an `=`. Mirroring
+  // validators is what kept producing those. A line the two could read differently now
+  // cannot be committed, so the disagreements are unrepresentable rather than matched.
+  it("holds capture-env to a grammar neither loader can read two ways", () => {
+    for (const directive of captureEnvDirectives()) {
+      expect(directive).toMatch(/^(?:[A-Z][A-Z0-9_]*=\S(?:.*\S)?|-[A-Z][A-Z0-9_]*)$/);
+    }
+  });
 
   it("declares the variables both capture paths depend on", () => {
     // Animations are the one that has actually bitten: an animating widget never
@@ -212,6 +233,17 @@ describe("capture environment", () => {
       // new spelling through; a guard is worth exactly what it has been tested against.
       for (const variable of declaredCaptureVariables()) {
         expect(source).not.toMatch(new RegExp(`${variable}["'\\]\\s]*[=:]`));
+      }
+
+      // A `-KEY` variable is never assigned, so no assignment pattern can protect it —
+      // and NO_COLOR is in this file precisely because it cannot be written as one,
+      // which makes it the likeliest to be hand-duplicated back. The two spellings it
+      // would take are the two lines this very change removed from these scripts:
+      // `os.environ.pop("NO_COLOR", None)` and `env -u NO_COLOR`.
+      for (const variable of removedCaptureVariables()) {
+        expect(source).not.toMatch(new RegExp(`\\.pop\\(\\s*["']${variable}`));
+        expect(source).not.toMatch(new RegExp(`del\\s+os\\.environ\\[\\s*["']${variable}`));
+        expect(source).not.toMatch(new RegExp(`-u\\s+["']?${variable}`));
       }
     },
   );

@@ -23,7 +23,7 @@
 #                          Every environment variable the fixture runs under,
 #                          and the reason for each. Owned by that file, not by
 #                          this one — capture_python.py applies the same file,
-#                          which is what keeps the PNG and the cell grid on the
+#                          which is what keeps the PNG and the cell record on the
 #                          same frame. Add environment knobs there.
 #   xterm -bg "#121212"    Truecolor background; matches the Screen CSS
 #                          painted by both sides so empty cells agree.
@@ -131,38 +131,59 @@ fi
 # ── Load the shared capture environment ──────────────────────────────────
 # [LAW:one-source-of-truth] visual-tests/capture-env is the only statement of
 # what environment a fixture is captured under; both this path and
-# capture_python.py apply it whole, so the PNG and the cell grid describe the
+# capture_python.py apply it whole, so the PNG and the cell record describe the
 # same frame. Read into an array rather than exported, so it reaches the xterm
 # child without leaking into the orchestration around it.
 capture_env=()
 capture_env_unset=()
 capture_env_line=0
+# `trim` is the whole reason this loader can agree with capture_python.py's
+# line.strip()/key.strip()/value.strip(): every piece of a directive goes through
+# it, so no amount of incidental spacing changes what either path applies.
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  printf '%s' "${s%"${s##*[![:space:]]}"}"
+}
+
+capture_env_fatal() {
+  echo "fatal: ${visual_dir}/capture-env:${capture_env_line}: $1" >&2
+  exit 1
+}
+
+# The `echo` closes the classic `read` gotcha: a final line with no trailing
+# newline populates `line` but returns non-zero, so the loop body never runs for
+# it. capture_python.py reads through splitlines() and is immune. The last line
+# here is the `-NO_COLOR` directive, so the divergence that bug would produce is
+# colour silently surviving in the real-terminal capture and nowhere else.
 while IFS= read -r line; do
   capture_env_line=$(( capture_env_line + 1 ))
-  # Trimmed once, before every test, because capture_python.py reads the same
-  # file through line.strip(). Untrimmed, `  FORCE_COLOR=3` still contains `=`
-  # and would pass the check below, handing `env` a variable literally named
-  # "  FORCE_COLOR" — truecolor forcing would stop applying on this path only,
-  # with no error and a PNG that still looks plausible.
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
+  line="$(trim "$line")"
   [[ -z "$line" || "$line" == \#* ]] && continue
+
   # A leading `-` removes the variable; see the format note in capture-env.
   if [[ "$line" == -* ]]; then
-    capture_env_unset+=("${line#-}")
+    name="$(trim "${line#-}")"
+    # [LAW:no-silent-failure] `-NO_COLOR=1` would otherwise be stored whole and
+    # unset a variable of that literal name, leaving the real NO_COLOR set with
+    # nothing reported. The removal branch gets the same refusal as the
+    # assignment branch, because it can fail the same way.
+    [[ -n "$name" && "$name" != *=* ]] || capture_env_fatal "expected -KEY, got '${line}'"
+    capture_env_unset+=("$name")
     continue
   fi
+
   # [LAW:no-silent-failure] `env` execs the first argument that is not KEY=VALUE,
   # so a malformed line here would surface as `env: <garbage>: No such file or
   # directory` from a process three layers down. capture_python.py rejects the
   # same line naming file:line, and a file both paths must "apply whole" has to
   # fail the same way on both.
-  if [[ "$line" != *=* ]]; then
-    echo "fatal: ${visual_dir}/capture-env:${capture_env_line}: expected KEY=VALUE or -KEY, got '${line}'" >&2
-    exit 1
-  fi
-  capture_env+=("$line")
-done < "${visual_dir}/capture-env"
+  [[ "$line" == *=* ]] || capture_env_fatal "expected KEY=VALUE or -KEY, got '${line}'"
+  key="$(trim "${line%%=*}")"
+  value="$(trim "${line#*=}")"
+  [[ -n "$key" ]] || capture_env_fatal "expected KEY=VALUE or -KEY, got '${line}'"
+  capture_env+=("${key}=${value}")
+done < <(cat "${visual_dir}/capture-env"; echo)
 
 # [LAW:no-silent-failure] An empty environment would render every fixture under
 # whatever the ambient shell happens to hold, producing baselines nobody can

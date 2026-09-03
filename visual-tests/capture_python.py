@@ -38,7 +38,15 @@ def load_capture_env() -> tuple[dict[str, str], list[str]]:
         if not stripped or stripped.startswith("#"):
             continue
         if stripped.startswith("-"):
-            removals.append(stripped[1:].strip())
+            name = stripped[1:].strip()
+            # [LAW:no-silent-failure] `-NO_COLOR=1` would otherwise be stored whole,
+            # and popping a variable of that literal name is a no-op that leaves the
+            # real NO_COLOR set with nothing reported. The removal branch sits before
+            # the KEY=VALUE check, so it needs its own refusal rather than inheriting
+            # one.
+            if not name or "=" in name:
+                raise ValueError(f"{CAPTURE_ENV_PATH}:{number}: expected -KEY, got {stripped!r}")
+            removals.append(name)
             continue
         # [LAW:no-silent-failure] A malformed line means the capture environment
         # is not what anyone thinks it is; every baseline downstream would be
