@@ -1,0 +1,24 @@
+x = 42 and name = 'alice'                                                       
+user = {'id': 7, 'active': True}                                                
+path = '/tmp/foo.txt'                                                           
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                

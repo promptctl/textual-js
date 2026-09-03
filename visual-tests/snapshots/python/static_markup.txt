@@ -1,0 +1,3 @@
+Bold plain italic text
+Red and green words
+Warning: combined styles

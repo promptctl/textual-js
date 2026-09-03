@@ -48,33 +48,51 @@ async function ensureDockerImage(): Promise<void> {
   );
 }
 
+// Parent dir mount is required so `node_modules/rich-js -> ../../rich-js`
+// (a file: symlink on the host) resolves inside the container.
+const CONTAINER_PROJECT = `/host-code/${PROJECT_DIR.split("/").pop() ?? "textual-js"}`;
+
+// [LAW:decomposition] Entering the fixture container is one job with one
+// statement of how it is done. Both baseline representations — the PNG and the
+// cell grid — go through here, so neither can drift onto a different image,
+// mount, or working directory than the other.
+async function runInFixtureContainer(command: string[]): Promise<void> {
+  await execFileAsync(
+    "docker",
+    ["run", "--rm", "--volume", `${PARENT_DIR}:/host-code`, "--workdir", CONTAINER_PROJECT, DOCKER_IMAGE, ...command],
+    { cwd: PROJECT_DIR, env: process.env, maxBuffer: EXEC_MAX_BUFFER },
+  );
+}
+
 async function renderTarget(target: RenderTarget): Promise<void> {
   await mkdir(dirname(target.pngPath), { recursive: true });
 
-  // Parent dir mount is required so `node_modules/rich-js -> ../../rich-js`
-  // (a file: symlink on the host) resolves inside the container.
-  const projectBaseName = PROJECT_DIR.split("/").pop() ?? "textual-js";
-  const containerProject = `/host-code/${projectBaseName}`;
-  const containerPng = `${containerProject}/${target.pngPath}`;
+  await runInFixtureContainer([
+    "bash",
+    `${CONTAINER_PROJECT}/visual-tests/render-fixture-xvfb.sh`,
+    target.side,
+    target.fixture,
+    `${CONTAINER_PROJECT}/${target.pngPath}`,
+  ]);
+}
 
-  await execFileAsync(
-    "docker",
-    [
-      "run",
-      "--rm",
-      "--volume",
-      `${PARENT_DIR}:/host-code`,
-      "--workdir",
-      containerProject,
-      DOCKER_IMAGE,
-      "bash",
-      `${containerProject}/visual-tests/render-fixture-xvfb.sh`,
-      target.side,
-      target.fixture,
-      containerPng,
-    ],
-    { cwd: PROJECT_DIR, env: process.env, maxBuffer: EXEC_MAX_BUFFER },
-  );
+// The cell-level record of the frame the PNG holds — character, fg, bg and style
+// per cell, plus the raw bytes and the plain text.
+//
+// [LAW:one-source-of-truth] The fixture list is passed in, never re-derived here.
+// capture_python.py used to run its own discovery over the same directory and todo
+// file, and the two implementations had already drifted: 118 fixtures had a PNG and
+// only 115 had a cell grid.
+async function captureCellGrids(fixtures: string[]): Promise<void> {
+  await runInFixtureContainer([
+    "uv",
+    "run",
+    "--project",
+    `${CONTAINER_PROJECT}/visual-tests`,
+    "python",
+    `${CONTAINER_PROJECT}/visual-tests/capture_python.py`,
+    ...fixtures,
+  ]);
 }
 
 async function discoverFixtures(renderSide: RenderSide): Promise<string[]> {
@@ -133,6 +151,21 @@ export async function main(): Promise<void> {
     process.stdout.write(`  Capturing ${target.side}: ${target.fixture}\n`);
     await renderTarget(target);
     process.stdout.write(`    -> snapshots/${target.side}/${target.fixture}.png\n`);
+  }
+
+  // A Python baseline is every representation of one frame, produced together in
+  // this command. Splitting them let the JSON describe a different frame than the
+  // PNG for as long as nobody happened to run the second command — which nothing did.
+  //
+  // Side-keyed, because the asymmetry is real rather than incidental: the Python
+  // side is the reference and its frame is what gets read during diagnosis, while
+  // the JS side is the thing under test and is only ever compared, never consulted.
+  // [LAW:dataflow-not-control-flow] exception: the two sides genuinely produce
+  // different artifacts, and a per-side artifact table would be more machinery than
+  // one honest branch.
+  if (renderSide !== "js") {
+    process.stdout.write("\n  Capturing python cell grids (.json / .ansi / .txt)\n");
+    await captureCellGrids(fixtures);
   }
 
   process.stdout.write("\nDone. PNG snapshots in: snapshots/python/ and snapshots/js/\n");

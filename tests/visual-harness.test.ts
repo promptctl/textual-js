@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { captureFixtures } from "../visual-tests/capture_js.ts";
@@ -165,4 +168,49 @@ describe("visual harness gating", () => {
 
     expect(summary).toEqual({ matched: 1, diffed: 0, missing: 2 });
   });
+});
+
+describe("capture environment", () => {
+  const VISUAL_TESTS = join(import.meta.dirname, "..", "visual-tests");
+
+  function declaredCaptureVariables(): string[] {
+    return readFileSync(join(VISUAL_TESTS, "capture-env"), "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"))
+      .map((line) => line.split("=", 1)[0]);
+  }
+
+  it("declares the variables both capture paths depend on", () => {
+    // Animations are the one that has actually bitten: an animating widget never
+    // holds still, so the frame a capture lands on is arbitrary, and the two paths
+    // landed on different ones. Truecolor is what makes AE == 0 reachable at all.
+    expect(declaredCaptureVariables()).toEqual(
+      expect.arrayContaining(["TEXTUAL_ANIMATIONS", "TEXTUAL_COLOR_SYSTEM", "FORCE_COLOR"]),
+    );
+  });
+
+  it.each(["render-fixture-xvfb.sh", "capture_python.py"])(
+    "leaves %s with no capture variable of its own",
+    (script) => {
+      // [LAW:one-source-of-truth] A fixture's PNG and its cell grid are the same
+      // frame only while both paths run the app under the same environment. That
+      // held by two files agreeing, and they stopped agreeing: progress_indeterminate's
+      // JSON recorded an unhighlighted rail its PNG did not have. Re-hardcoding any
+      // of these values here reopens exactly that gap, and no baseline diff shows it.
+      const source = readFileSync(join(VISUAL_TESTS, script), "utf8")
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("#"))
+        .join("\n");
+
+      // Both spellings, because the two paths write assignments differently:
+      // `TEXTUAL_ANIMATIONS=none` in shell, `os.environ["TEXTUAL_ANIMATIONS"] = "none"`
+      // in Python. A pattern anchored to `NAME=` alone matches only the first and
+      // waves the second through — verified by running this test against the source
+      // before this change, where it caught the shell file and missed the Python one.
+      for (const variable of declaredCaptureVariables()) {
+        expect(source).not.toMatch(new RegExp(`${variable}["'\\]\\s]*=`));
+      }
+    },
+  );
 });

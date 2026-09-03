@@ -19,16 +19,12 @@
 # every knob has an owner and a load-bearing reason. Adding a knob means
 # adding a row here and a comment at the call site.
 #
-#   COLORTERM=truecolor    Tells terminal libs xterm supports 24-bit color.
-#   TERM=xterm-direct      Same; selects the truecolor terminfo entry.
-#   FORCE_COLOR=3          Rich/Textual: force truecolor regardless of TTY.
-#   TEXTUAL_COLOR_SYSTEM=truecolor
-#                          Forces Textual to emit themed colors as #RRGGBB
-#                          ANSI rather than 256-color approximations. Without
-#                          this, Python and JS sides fail AE==0.
-#   TEXTUAL_ANIMATIONS=none
-#                          Disables Textual's animation system. Animated
-#                          frames defeat screenshot-stability detection.
+#   visual-tests/capture-env
+#                          Every environment variable the fixture runs under,
+#                          and the reason for each. Owned by that file, not by
+#                          this one — capture_python.py applies the same file,
+#                          which is what keeps the PNG and the cell grid on the
+#                          same frame. Add environment knobs there.
 #   xterm -bg "#121212"    Truecolor background; matches the Screen CSS
 #                          painted by both sides so empty cells agree.
 #   xterm -cr "#121212"    Cursor color = bg, hiding the block cursor that
@@ -126,13 +122,29 @@ if ! xdpyinfo >/dev/null; then
   exit 1
 fi
 
+# ── Load the shared capture environment ──────────────────────────────────
+# [LAW:one-source-of-truth] visual-tests/capture-env is the only statement of
+# what environment a fixture is captured under; both this path and
+# capture_python.py apply it whole, so the PNG and the cell grid describe the
+# same frame. Read into an array rather than exported, so it reaches the xterm
+# child without leaking into the orchestration around it.
+capture_env=()
+while IFS= read -r line; do
+  [[ -z "${line// }" || "$line" == \#* ]] && continue
+  capture_env+=("$line")
+done < "${visual_dir}/capture-env"
+
+# [LAW:no-silent-failure] An empty environment would render every fixture under
+# whatever the ambient shell happens to hold, producing baselines nobody can
+# reproduce, and the PNGs would look plausible either way.
+if (( ${#capture_env[@]} == 0 )); then
+  echo "fatal: ${visual_dir}/capture-env declared no variables" >&2
+  exit 1
+fi
+
 # ── Launch xterm running the real fixture ────────────────────────────────
 env -u NO_COLOR \
-  COLORTERM=truecolor \
-  TERM=xterm-direct \
-  TEXTUAL_ANIMATIONS=none \
-  TEXTUAL_COLOR_SYSTEM=truecolor \
-  FORCE_COLOR=3 \
+  "${capture_env[@]}" \
   xterm \
     -u8 \
     +sb \

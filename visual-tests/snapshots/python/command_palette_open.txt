@@ -1,0 +1,17 @@
+Background
+
+
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+                                                                                
+  🔎 Search for commands…                                                       
+                                                                                
+                                                                                
+  Keys                                                                          
+  Show help for the focused widget and a summary of available keys              
+  Quit                                                                          
+  Quit the application as soon as possible                                      
+  Screenshot                                                                    
+  Save an SVG 'screenshot' of the current screen                                
+  Theme                                                                         
+  Change the current theme                                                      
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 #
-# Regenerate committed Python reference PNGs for all active fixtures and
+# Regenerate the committed Python baselines for all active fixtures and
 # explicitly tracked future fixtures in fixture-todos.json.
+#
+# A baseline is one captured frame in four representations: the PNG that Gate 4
+# measures, plus the .ansi / .json / .txt cell-level record that CLAUDE.md sends
+# every visual diagnosis to first. This command produces all four, so they cannot
+# describe different frames, and they are committed and reviewed as one diff.
 #
 # Fixtures run inside Docker: real xterm renders real Textual output; PNGs
 # are what xterm actually draws. Host has no focus changes — everything
@@ -35,4 +40,5 @@ else
 fi
 
 echo ""
-echo "Done. Review and commit visual-tests/snapshots/python/*.png."
+echo "Done. Review and commit visual-tests/snapshots/python/ — the .png and its"
+echo "paired .ansi/.json/.txt are one baseline and belong in one commit."
