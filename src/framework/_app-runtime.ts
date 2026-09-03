@@ -3,6 +3,7 @@ import "./mobx-config.js";
 import React from "react";
 
 import { autoObservable } from "./auto-observable.js";
+import { resolveTitle, type ResolvedTitle } from "./title-resolution.js";
 
 import {
   Blur,
@@ -95,6 +96,7 @@ import {
   DEFAULT_MODE,
   normalizePushArgs,
   type ScreenStackDeps,
+  type TitledScreen,
 } from "./screen-stack-service.js";
 import {
   MessagePump,
@@ -213,6 +215,12 @@ export type ScreenDescriptor =
 
 export interface ScreenOptions {
   name?: string;
+  // Push-time overrides for the screen's title. A screen that always carries
+  // the same title declares it as a static `TITLE` / `SUB_TITLE` on the
+  // component instead, which `createScreen` reads; these win over that, the way
+  // `autoFocus` wins over `AUTO_FOCUS`.
+  title?: string;
+  subTitle?: string;
   bindings?: BindingDeclaration[];
   actions?: WidgetActions;
   autoFocus?: string | null;
@@ -499,6 +507,39 @@ export class AppRuntime {
   readonly devtools: TextualFeatureState["devtools"];
   readonly debug: boolean;
   focusedNodeId: string | null = null;
+  // [LAW:one-source-of-truth] The app-level title lives here, inside the
+  // autoObservable runtime, and `App.title` is a delegating accessor over it.
+  // It used to be a private field on `App`, which is not observable at all — a
+  // Header could read it once and never learn it had changed.
+  title = "";
+  subTitle = "";
+  // [LAW:single-enforcer] Writes go through these methods, never through the
+  // fields directly. `autoObservable` annotates methods as MobX actions, and
+  // strict mode rejects an unactioned write to an observed value — so an
+  // outside assignment is not merely untidy here, it is a runtime warning.
+  setTitle(value: string): void {
+    this.title = value;
+  }
+
+  setSubTitle(value: string): void {
+    this.subTitle = value;
+  }
+
+  /**
+   * The title a header should paint, screen overriding app.
+   *
+   * [LAW:single-enforcer] Reading `screenStack.activeTitleOverride` is what
+   * makes this reactive across both sources at once: it carries the screen's
+   * values (see there for why the screen *object* cannot), and `this.title` is
+   * observable directly. One read, both dependencies — no widget subscribes to
+   * two things and remembers to do both.
+   */
+  get resolvedTitle(): ResolvedTitle {
+    return resolveTitle(this.screenStack.activeTitleOverride, {
+      title: this.title,
+      subTitle: this.subTitle,
+    });
+  }
   // [LAW:single-enforcer] Lifecycle phase flags (isRunning / isClosing /
   // readyMessagePosted), exit result, batch-update depth, unhandled-error
   // capture, host-controlled + host-reported terminal size, and displayCount
@@ -1821,7 +1862,7 @@ export class AppRuntime {
   private makeScreenEntry(
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
-  ): Screen {
+  ): TitledScreen {
     return this.screenStack.createScreen(element, options, (result) => {
       this.dismissScreen(result);
     });

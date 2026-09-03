@@ -1,51 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-describe("header title resolution", () => {
-  it("falls back to app class name when no title is set", () => {
-    // Title resolution: screen.title > app.title > app class name
-    const appTitle: string | null = null;
-    const screenTitle: string | null = null;
-    const fallback = "MyApp";
-
-    const resolved = screenTitle ?? appTitle ?? fallback;
-    expect(resolved).toBe("MyApp");
-  });
-
-  it("uses app title when set", () => {
-    const appTitle = "My Application";
-    const screenTitle: string | null = null;
-    const fallback = "MyApp";
-
-    const resolved = screenTitle ?? appTitle ?? fallback;
-    expect(resolved).toBe("My Application");
-  });
-
-  it("prefers screen title over app title", () => {
-    const appTitle = "My Application";
-    const screenTitle = "Settings";
-    const fallback = "MyApp";
-
-    const resolved = screenTitle ?? appTitle ?? fallback;
-    expect(resolved).toBe("Settings");
-  });
-
-  it("formats title and subtitle with em dash separator", () => {
-    const title = "My App";
-    const subTitle = "v1.0";
-
-    const formatted = subTitle ? `${title} \u2014 ${subTitle}` : title;
-    expect(formatted).toBe("My App \u2014 v1.0");
-  });
-
-  it("shows title only when subtitle is absent", () => {
-    const title = "My App";
-    const subTitle: string | null = null;
-
-    const formatted = subTitle ? `${title} \u2014 ${subTitle}` : title;
-    expect(formatted).toBe("My App");
-  });
-});
-
 describe("footer binding collection", () => {
   it("collects bindings from a flat array with show filtering", () => {
     const bindings = [

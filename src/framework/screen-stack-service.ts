@@ -28,6 +28,7 @@ import {
   ScreenStackError,
   UnknownModeError,
 } from "./_app-runtime.js";
+import { NO_TITLE_OVERRIDE, type TitleOverride } from "./title-resolution.js";
 import type { WidgetActions } from "./widget-registry.js";
 
 export const DEFAULT_MODE = "_default";
@@ -54,12 +55,35 @@ export interface ScreenStackDeps {
   readCommandProvidersFromElement(element: React.ReactElement): ReadonlySet<ProviderConstructor>;
 }
 
+/**
+ * A screen plus the title it declares — the shape this service stores.
+ *
+ * [LAW:types-are-the-program] The title is deliberately absent from `Screen`,
+ * which is what `App.screen` hands out. Both halves of `app.screen.title` are
+ * wrong: writing it skips the version bump, and *reading* it inside an observer
+ * is stale, because `activeScreen` is a computed that returns the same object
+ * after a retitle and MobX's reference comparer suppresses the notification.
+ * Neither is a thing to warn about in a comment when the field can simply not
+ * be on the public shape — leaving `App.screenTitle` and `useResolvedTitle()`
+ * as the only ways to ask, both of which are reactive.
+ *
+ * Exported for declaration emit, not for use: no barrel re-exports this module.
+ */
+export interface TitledScreen extends Screen, TitleOverride {}
+
+// [LAW:single-enforcer] The one writer's view. The fields are `readonly` on
+// `TitledScreen` so even inside this file a retitle cannot happen anywhere but
+// the method that bumps the marker with it.
+type RetitlableScreen = { -readonly [K in keyof TitleOverride]: TitleOverride[K] };
+
 let nextScreenId = 1;
 
-export function createImplicitEntry(): Screen {
+export function createImplicitEntry(): TitledScreen {
   return {
     id: "_default",
     name: null,
+    title: null,
+    subTitle: null,
     element: null,
     bindings: [],
     actions: undefined,
@@ -92,7 +116,7 @@ export class ScreenStackService {
   // all screen-stack state in the application.
   activeMode: string = DEFAULT_MODE;
   screenStackVersion = 0;
-  private readonly modeStacks: Map<string, Screen[]> = new Map();
+  private readonly modeStacks: Map<string, TitledScreen[]> = new Map();
   private readonly modeFactories: Map<string, () => React.ReactElement> = new Map();
   private readonly installedScreens: Map<string, ScreenFactoryRecord> = new Map();
   private readonly deps: ScreenStackDeps;
@@ -218,19 +242,83 @@ export class ScreenStackService {
     return this.modeStacks.get(name)?.length ?? 0;
   }
 
-  setModeStack(name: string, stack: Screen[]): void {
+  setModeStack(name: string, stack: TitledScreen[]): void {
     this.modeStacks.set(name, stack);
     this.screenStackVersion += 1;
   }
 
   // ---- Stack reads ----
 
-  get activeScreen(): Screen | null {
+  get activeScreen(): TitledScreen | null {
     // [LAW:dataflow-not-control-flow] Reading screenStackVersion hooks MobX
     // into mutations of plain-Map-backed stacks so observers re-render.
     void this.screenStackVersion;
     const stack = this.modeStacks.get(this.activeMode) ?? [];
     return stack.length === 0 ? null : stack[stack.length - 1];
+  }
+
+  /**
+   * What the active screen says about the title — its values, not the screen.
+   *
+   * [LAW:single-enforcer] This is the only supported way to observe a screen
+   * title, and returning the pair by value is what makes it work. `activeScreen`
+   * is a getter, so `autoObservable` makes it a *computed*: retitling bumps
+   * `screenStackVersion`, the computed re-evaluates, hands back the very same
+   * `Screen` object, and MobX's reference comparer concludes nothing changed —
+   * so nothing downstream is ever told. A caller reaching through
+   * `activeScreen.title` inherits that silence no matter how carefully it reads
+   * the version marker itself. Two fresh strings cannot be swallowed that way.
+   */
+  get activeTitleOverride(): TitleOverride {
+    void this.screenStackVersion;
+    const screen = this.activeScreen;
+
+    return screen === null
+      ? NO_TITLE_OVERRIDE
+      : { title: screen.title, subTitle: screen.subTitle };
+  }
+
+  /**
+   * Retitle the active screen. `null` hands the question back to the app.
+   *
+   * [LAW:single-enforcer] Screens live in `modeStacks`, which is excluded from
+   * `autoObservable` and observed only through the `screenStackVersion` marker
+   * (see the constructor). So a bare `screen.title = x` mutates the object and
+   * notifies nobody. This method is the one write path that keeps the marker
+   * honest, which is why `Screen.title` is never assigned anywhere else.
+   */
+  setActiveScreenTitle(title: string | null): void {
+    this.retitleActiveScreen((screen) => {
+      screen.title = title;
+    });
+  }
+
+  setActiveScreenSubTitle(subTitle: string | null): void {
+    this.retitleActiveScreen((screen) => {
+      screen.subTitle = subTitle;
+    });
+  }
+
+  /**
+   * [LAW:parse-dont-validate] Turns `Screen | null` into `Screen` once, loudly.
+   * The default mode always carries an implicit entry, but a mode added via
+   * `addMode` starts with an empty stack — so "no active screen" is reachable,
+   * and retitling nothing would be a write that vanishes. Callers downstream
+   * take a `Screen` and have no absence left to re-check.
+   */
+  private requireActiveScreen(): TitledScreen {
+    const screen = this.activeScreen;
+
+    if (screen === null) {
+      throw new ScreenStackError(`Mode "${this.activeMode}" has no active screen`);
+    }
+
+    return screen;
+  }
+
+  private retitleActiveScreen(write: (screen: RetitlableScreen) => void): void {
+    write(this.requireActiveScreen());
+    this.screenStackVersion += 1;
   }
 
   get activeScreenElement(): React.ReactElement | null {
@@ -256,7 +344,7 @@ export class ScreenStackService {
 
   // ---- Stack mutation primitives (orchestration lives in the host) ----
 
-  pushEntry(entry: Screen): void {
+  pushEntry(entry: TitledScreen): void {
     const stack = this.modeStacks.get(this.activeMode) ?? [];
     stack.push(entry);
     this.modeStacks.set(this.activeMode, stack);
@@ -276,7 +364,7 @@ export class ScreenStackService {
     return popped;
   }
 
-  replaceTop(entry: Screen): { previous: Screen | undefined } {
+  replaceTop(entry: TitledScreen): { previous: TitledScreen | undefined } {
     const stack = this.modeStacks.get(this.activeMode) ?? [];
     const previous = stack[stack.length - 1];
     stack[stack.length - 1] = entry;
@@ -314,14 +402,23 @@ export class ScreenStackService {
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
     onDismiss: (result: unknown) => void,
-  ): Screen {
-    const screenType = element.type as { AUTO_FOCUS?: string | null; BINDINGS?: Iterable<BindingDeclaration> };
+  ): TitledScreen {
+    const screenType = element.type as {
+      AUTO_FOCUS?: string | null;
+      BINDINGS?: Iterable<BindingDeclaration>;
+      TITLE?: string;
+      SUB_TITLE?: string;
+    };
     const bindings = makeBindings([...(screenType.BINDINGS ?? []), ...(options.bindings ?? [])]);
     const screenStyles = this.deps.readScreenStylesheetState(element, options);
     const staticAutoFocus = screenType.AUTO_FOCUS;
-    const entry: Screen = {
+    const entry: TitledScreen = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
+      // Same precedence as autoFocus below: what this push asked for, then what
+      // the screen declares about itself, then "no opinion — use the app's".
+      title: options.title ?? screenType.TITLE ?? null,
+      subTitle: options.subTitle ?? screenType.SUB_TITLE ?? null,
       element,
       bindings,
       actions: undefined,

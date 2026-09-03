@@ -120,18 +120,6 @@
     "reason": "Pre-seeded Python baseline for Stage 9 DirectoryTree implementation"
   },
   {
-    "name": "header_default",
-    "stage": "7",
-    "component": "Header",
-    "reason": "Pre-seeded Python baseline for Stage 7 Header implementation"
-  },
-  {
-    "name": "header_with_subtitle",
-    "stage": "7",
-    "component": "Header",
-    "reason": "Pre-seeded Python baseline for Stage 7 Header implementation"
-  },
-  {
     "name": "help_panel_default",
     "stage": "10",
     "component": "HelpPanel",

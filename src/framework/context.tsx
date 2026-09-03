@@ -16,6 +16,7 @@ import stringWidth from "string-width";
 import type { Message } from "../events/message.js";
 import { Content, type VisualInput } from "../content/index.js";
 import { type ActiveBinding } from "./_app-runtime.js";
+import type { ResolvedTitle } from "./title-resolution.js";
 import type { App } from "../app/app.js";
 import type { WidgetActions, WidgetHandlers } from "./widget-registry.js";
 import { Widget } from "./widget.js";
@@ -516,6 +517,14 @@ export function useBindings(widget?: Widget): ActiveBinding[] {
   }
 
   return app.getActiveBindings();
+}
+
+// [LAW:single-enforcer] One reactive path for title consumers, on the same
+// terms as `useBindings`: a MobX-tracked read of canonical observable state
+// (AppRuntime.title/subTitle and, via `activeScreen`, screenStackVersion).
+// Callers must be wrapped in `observer()` for the read to be tracked.
+export function useResolvedTitle(): ResolvedTitle {
+  return useTextual().resolvedTitle;
 }
 
 export function useWorker<TResult>(
