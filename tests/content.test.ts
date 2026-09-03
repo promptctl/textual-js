@@ -400,6 +400,36 @@ describe("Content wrap", () => {
 
     expect(lines.map((line) => line.plain)).toEqual(["文文文", "ab"]);
   });
+
+  it("gives a character wider than the whole line a line of its own", () => {
+    // Forward progress, not aesthetics: a line that took no characters would
+    // hand the caller back its own starting offset, and the wrap would spin
+    // until the heap ran out. Rich substitutes a space for the glyph here;
+    // this port overflows the line instead, because every line it returns is a
+    // slice of the original and substituting a character would break that.
+    expect(new Content("文").wrap(1).map((line) => line.plain)).toEqual(["文"]);
+    expect(new Content("文a").wrap(1).map((line) => line.plain)).toEqual(["文", "a"]);
+  });
+
+  it("takes the whole run of spaces at a break, not one of them", () => {
+    // Rich and Textual both answer ["hello", "world"] here. Consuming a single
+    // space leaves the second one as leading content of the next line, which
+    // shifts every following character by one against a pinned baseline.
+    expect(new Content("hello  world").wrap(5).map((line) => line.plain)).toEqual([
+      "hello",
+      "world",
+    ]);
+    expect(new Content("hello   world").wrap(5).map((line) => line.plain)).toEqual([
+      "hello",
+      "world",
+    ]);
+  });
+
+  it("keeps a double space that is not at a break", () => {
+    // The rule is scoped to the break point; Rich preserves "a  b" whole at
+    // width 10, so this is not a general whitespace collapse.
+    expect(new Content("a  b").wrap(10).map((line) => line.plain)).toEqual(["a  b"]);
+  });
 });
 
 describe("content alignment in a box", () => {

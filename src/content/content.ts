@@ -474,17 +474,25 @@ function nextLineBreak(paragraph: string, start: number, width: number): [number
     const characterCells = cellLen(character);
 
     if (cells + characterCells > width) {
-      // The space that separates two words belongs to neither, so a line whose
-      // last word ends exactly on the width still fits: the overflowing space
-      // is swallowed by the break rather than sending its word to the next
-      // line. Otherwise break at the last space — or, for a word longer than
-      // the whole line and so having no space to break at, where the width ran
-      // out.
-      return character === " "
-        ? [index, index + 1]
-        : lastSpace > start
-          ? [lastSpace, lastSpace + 1]
-          : [index, index];
+      // Whitespace at a break belongs to neither line. Two consequences: a line
+      // whose last word ends exactly on the width still fits, because the space
+      // that overflowed is the break rather than part of the next line; and the
+      // whole run of spaces goes, not one of them, so "hello  world" at width 5
+      // gives "hello" and "world" rather than a line starting with a space.
+      // Both match Rich and Textual, which is what the pinned baselines expect.
+      const space = character === " " ? index : lastSpace > start ? lastSpace : -1;
+
+      if (space >= 0) {
+        return [space, skipSpaces(paragraph, space)];
+      }
+
+      // No space to break at: a word longer than the line is cut where the
+      // width ran out. A character wider than the whole line leaves nothing to
+      // cut, so it takes the line by itself — an empty line here would return
+      // the caller its own `start` and spin forever.
+      const cut = index === start ? index + character.length : index;
+
+      return [cut, cut];
     }
 
     lastSpace = character === " " ? index : lastSpace;
@@ -493,6 +501,17 @@ function nextLineBreak(paragraph: string, start: number, width: number): [number
   }
 
   return [paragraph.length, paragraph.length];
+}
+
+/** The first index at or after `from` that is not a space. */
+function skipSpaces(paragraph: string, from: number): number {
+  let index = from;
+
+  while (paragraph[index] === " ") {
+    index += 1;
+  }
+
+  return index;
 }
 
 function clipSpans(spans: readonly Span[], start: number, end: number): Span[] {

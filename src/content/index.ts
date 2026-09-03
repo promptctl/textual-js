@@ -19,6 +19,7 @@ export { Strip } from "./strip.js";
 export {
   measureVisual,
   renderVisual,
+  resolveVisualRenderHeight,
   resolveVisualRenderWidth,
   visualize,
   type Visual,

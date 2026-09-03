@@ -6,6 +6,7 @@ import { observer } from "mobx-react-lite";
 
 import {
   renderVisual,
+  resolveVisualRenderHeight,
   resolveVisualRenderWidth,
   visualize,
   type VisualInput,
@@ -21,6 +22,10 @@ import { WidgetFrame } from "./widget-frame.js";
 // one seam; what crosses it is either the value or the rule that produces it.
 // A `Renderable` is an object carrying a `render` method, never a bare
 // function, so `typeof` separates the two arms without ambiguity.
+//
+// The size handed across is the *content area* — padding and border already
+// taken off — because that is the region the returned content is painted into,
+// and it is what Textual's own `Widget.size` reports.
 export type ContentSource = VisualInput | ((size: MeasuredSize) => VisualInput);
 
 // The props every content-display widget accepts. `Static` and `Label` are
@@ -83,13 +88,20 @@ export const ContentWidget = observer(function ContentWidget({
   return (
     <WidgetScope widget={widget.handle}>
       <MeasuredSizeReader widget={widget.handle}>
-        {(size) => {
-          const renderWidth = resolveVisualRenderWidth(size.width, styles.box);
+        {(measured) => {
+          // The content area on both axes, which is both what gets painted and
+          // what a size-reading widget must be told: handing it the raw
+          // measured region would have a bordered widget build its content two
+          // columns too wide and then lose them to the crop below.
+          const contentArea = {
+            width: resolveVisualRenderWidth(measured.width, styles.box),
+            height: resolveVisualRenderHeight(measured.height, styles.box),
+          };
           // Visualising inside the measured pass rather than around it: content
           // that reads the box has to be resolved after the box is known, and
           // `visualize` is a dispatch over the value's type, not work worth
           // memoising past it.
-          const visual = visualize(contentOf(size));
+          const visual = visualize(contentOf(contentArea));
 
           return (
             <WidgetFrame widget={widget.handle} styles={styles}>
@@ -97,9 +109,9 @@ export const ContentWidget = observer(function ContentWidget({
                   and Sparkline give at zero. Painting into the one-column floor
                   `renderVisual` needs would wrap the content one glyph per row
                   and grow the widget vertically out of a box measured at zero. */}
-              {renderWidth === 0
+              {contentArea.width === 0
                 ? null
-                : renderVisual(visual, styles.text, `content:${widget.nodeId}`, renderWidth)}
+                : renderVisual(visual, styles.text, `content:${widget.nodeId}`, contentArea.width)}
             </WidgetFrame>
           );
         }}

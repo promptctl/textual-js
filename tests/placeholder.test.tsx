@@ -11,6 +11,7 @@ import {
   PLACEHOLDER_VARIANTS,
   PlaceholderModel,
   cyclePlaceholderVariant,
+  placeholderColorClass,
   placeholderLabel,
 } from "../src/widgets/placeholder.js";
 
@@ -149,8 +150,18 @@ describe("placeholder palette", () => {
     expect(PLACEHOLDER_PALETTE.slice(0, 3)).toEqual(baseline);
   });
 
-  it("wraps back to the first colour once the twelve are spent", () => {
+  it("holds the twelve colours upstream deals from", () => {
     expect(PLACEHOLDER_PALETTE).toHaveLength(12);
+  });
+
+  it("wraps back to the first colour once the twelve are spent", () => {
+    // Driving the wrap, not just asserting the length: the length assertion
+    // above passes with the modulo deleted, and nothing else in the suite
+    // reaches an index past eleven.
+    expect(placeholderColorClass(12)).toBe(placeholderColorClass(0));
+    expect(placeholderColorClass(13)).toBe(placeholderColorClass(1));
+    // A non-zero remainder too, so a stray `% 1` or a constant fails here.
+    expect(placeholderColorClass(5)).not.toBe(placeholderColorClass(0));
   });
 });
 
@@ -256,6 +267,54 @@ describe("Placeholder widget", () => {
     const rows = stripAnsi(session.lastFrame() ?? "").split("\n").slice(0, 5);
 
     expect(rows.map((row) => row.length)).toEqual([80, 80, 80, 80, 80]);
+
+    session.unmount();
+  });
+
+  it("reports its content area in the size variant, not its outer region", async () => {
+    // Verified against textual 8.2.3: `Widget.size` is documented as "The size
+    // of the content area" and returns `content_region.size`, so a 40x7
+    // Placeholder with `padding: 1 2; border: round` reports 34 x 3 there.
+    // Upstream's `_on_resize` renders exactly that value.
+    //
+    // `round` rather than Textual's usual `solid` because this port hands
+    // border style names to Ink unmapped and Ink knows neither `solid` nor
+    // most of the others — a separate defect, filed as textual-styles-3of.
+    const session = await runTest(<Placeholder variant="size" />, {
+      appProps: {
+        css: "Placeholder { width: 40; height: 7; padding: 1 2; border: round red; }",
+      },
+    });
+    await session.app.whenIdle();
+
+    expect(screenText(session)).toContain("34 x 3");
+
+    session.unmount();
+  });
+
+  it("fills a bordered, padded box edge to edge, with the label still centred", async () => {
+    // The no-holes guarantee has to survive ordinary styling. Building the
+    // content against the outer region instead of the content area would push
+    // the block off centre and drop the trailing columns' background.
+    const session = await runTest(<Placeholder label="Mid" />, {
+      appProps: {
+        css: "Placeholder { width: 20; height: 5; padding: 1 2; border: round red; }",
+      },
+    });
+    await session.app.whenIdle();
+
+    // Strip the border column from each side; what is left is what the widget
+    // painted, and every cell of it must be emitted rather than ragged.
+    const painted = screenRows(session)
+      .slice(1, 4)
+      .map((row) => row.slice(1, -1));
+
+    // Seven leading spaces is the assertion that matters. The content area is
+    // 20 less two border columns less four padding columns = 14, so a 3-cell
+    // label centres at floor((14 - 3) / 2) = 5, plus the 2 padding columns.
+    // Building the block against the outer 20 instead would put it at 8 and
+    // then crop the overhang — which is exactly what this used to do.
+    expect(painted).toEqual([" ".repeat(18), "       Mid        ", " ".repeat(18)]);
 
     session.unmount();
   });

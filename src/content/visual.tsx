@@ -181,7 +181,7 @@ function normalizeVisualWidth(visual: Visual, width?: number): number {
   return Math.max(1, measuredWidth);
 }
 
-function readHorizontalSpacing(value: unknown): number {
+function readSpacing(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
@@ -201,8 +201,8 @@ export function resolveVisualRenderWidth(
 
   const borderWidth = boxProps.borderStyle === undefined ? 0 : 2;
   const horizontalSpacing =
-    readHorizontalSpacing(boxProps.paddingLeft) +
-    readHorizontalSpacing(boxProps.paddingRight) +
+    readSpacing(boxProps.paddingLeft) +
+    readSpacing(boxProps.paddingRight) +
     borderWidth;
 
   // [LAW:single-enforcer] Container-to-content width translation happens at
@@ -212,6 +212,30 @@ export function resolveVisualRenderWidth(
   // columns, and inventing one here would be this seam disagreeing with the
   // contract it was just handed.
   return Math.max(0, measuredWidth - horizontalSpacing);
+}
+
+/**
+ * The other axis of `resolveVisualRenderWidth`, and its equal in every respect:
+ * `undefined` in means "not placed yet" out, padding and border come off, and
+ * the floor is zero rather than one.
+ *
+ * Textual's `Widget.size` is the content area on both axes — a 40x7 widget with
+ * `padding: 1 2; border: solid` reports 34x3 — so a widget that reads its own
+ * size gets it from here, not from the raw measured region.
+ */
+export function resolveVisualRenderHeight(
+  measuredHeight: number | undefined,
+  boxProps: Partial<BoxProps> = {},
+): number | undefined {
+  if (measuredHeight === undefined) {
+    return undefined;
+  }
+
+  const borderHeight = boxProps.borderStyle === undefined ? 0 : 2;
+  const verticalSpacing =
+    readSpacing(boxProps.paddingTop) + readSpacing(boxProps.paddingBottom) + borderHeight;
+
+  return Math.max(0, measuredHeight - verticalSpacing);
 }
 
 export function visualize(value: VisualInput, options: VisualizeOptions = {}): Visual {
