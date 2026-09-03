@@ -1,10 +1,17 @@
 node_modules/
 dist/
 *.tsbuildinfo
+# Committed Python baselines: every representation of one captured frame. The
+# PNG is what Gate 4 measures; the .ansi is the exact bytes Textual emitted and
+# the .txt is their plain text. All three come from one capture and are reviewed
+# in one diff, because an untracked baseline is one nothing can prove describes
+# the committed PNG. Together they are smaller than the PNGs alone.
 visual-tests/snapshots/*
 !visual-tests/snapshots/python/
 visual-tests/snapshots/python/*
 !visual-tests/snapshots/python/*.png
+!visual-tests/snapshots/python/*.ansi
+!visual-tests/snapshots/python/*.txt
 visual-tests/.venv/
 visual-tests/uv.lock
 __pycache__/

@@ -70,7 +70,7 @@ const INPUT_BORDER_CELLS = 2;
 // nowhere else. State is expressed as cascade data — the component below never
 // asks whether it is focused or invalid, it only reads what the cascade
 // resolved. Values are Textual's dark theme, verified cell-by-cell against
-// visual-tests/snapshots/python/input_*.json.
+// visual-tests/snapshots/python/input_*.ansi.
 const DEFAULT_CSS = `
   Input {
     width: 100%;

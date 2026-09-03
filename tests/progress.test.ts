@@ -8,7 +8,7 @@ const FILL = "#0178d4";
 const RAIL = "#1e1e1e";
 
 // The bar's contract is what each cell shows and what colour it shows it in --
-// the same two facts visual-tests/snapshots/python/progress_*.json records per
+// the same two facts visual-tests/snapshots/python/progress_*.ansi records per
 // cell. Collapsing the Content back into coloured runs lets a test state the
 // expectation the way the baseline states it, and leaves renderBar free to
 // split its spans however it likes.

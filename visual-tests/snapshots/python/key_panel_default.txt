@@ -1,0 +1,24 @@
+Main content area                                 ▏                            
+                                                  ▏         tab Focus Next     
+                                                  ▏   shift+tab Focus Previous 
+                                                  ▏  ^c super+c Copy selected  
+                                                  ▏             text           
+                                                  ▏                            
+                                                  ▏        ^q q Quit Quit the  
+                                                  ▏             app and return 
+                                                  ▏             to the command 
+                                                  ▏             prompt.        
+                                                  ▏           r Refresh view   
+                                                  ▏           s Save document  
+                                                  ▏          ^p palette Open   
+                                                  ▏             the command    
+                                                  ▏             palette        
+                                                  ▏                            
+                                                  ▏
+                                                  ▏
+                                                  ▏
+                                                  ▏
+                                                  ▏
+                                                  ▏
+                                                  ▏
+                                                  ▏
