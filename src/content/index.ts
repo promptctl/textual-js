@@ -6,6 +6,14 @@ export {
   type ContentTruncateOptions,
   type Span,
 } from "./content.js";
+export {
+  alignContentInBox,
+  alignContentInPaddedBox,
+  type ContentAlign,
+  type ContentBox,
+  type HorizontalAlign,
+  type VerticalAlign,
+} from "./align.js";
 export { renderContent } from "./render.js";
 export { Strip } from "./strip.js";
 export {

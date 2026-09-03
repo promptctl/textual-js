@@ -11,14 +11,22 @@ import {
   type VisualInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetOptions } from "../framework/context.js";
-import { MeasuredSizeReader } from "../framework/measured-size.js";
+import { MeasuredSizeReader, type MeasuredSize } from "../framework/measured-size.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
+
+// [LAW:dataflow-not-control-flow] Upstream's `render()` runs after layout, so a
+// widget's content may legitimately depend on the box it was given —
+// Placeholder's "size" variant renders that box and nothing else. Content stays
+// one seam; what crosses it is either the value or the rule that produces it.
+// A `Renderable` is an object carrying a `render` method, never a bare
+// function, so `typeof` separates the two arms without ambiguity.
+export type ContentSource = VisualInput | ((size: MeasuredSize) => VisualInput);
 
 // The props every content-display widget accepts. `Static` and `Label` are
 // aliases of this shape, not separate declarations of it.
 export interface ContentProps extends WidgetComponentProps {
-  content?: VisualInput;
+  content?: ContentSource;
 }
 
 // [LAW:one-type-per-behavior] Textual's `Label` and `Link` are both Static
@@ -56,7 +64,8 @@ export const ContentWidget = observer(function ContentWidget({
   borderTitle,
   borderSubtitle,
 }: ContentWidgetProps): React.JSX.Element {
-  const visual = React.useMemo(() => visualize(content), [content]);
+  // Normalised once, at the seam, so the render body below reads one shape.
+  const contentOf = typeof content === "function" ? content : () => content;
 
   const widget = useWidget({
     ...identity,
@@ -74,8 +83,13 @@ export const ContentWidget = observer(function ContentWidget({
   return (
     <WidgetScope widget={widget.handle}>
       <MeasuredSizeReader widget={widget.handle}>
-        {({ width }) => {
-          const renderWidth = resolveVisualRenderWidth(width, styles.box);
+        {(size) => {
+          const renderWidth = resolveVisualRenderWidth(size.width, styles.box);
+          // Visualising inside the measured pass rather than around it: content
+          // that reads the box has to be resolved after the box is known, and
+          // `visualize` is a dispatch over the value's type, not work worth
+          // memoising past it.
+          const visual = visualize(contentOf(size));
 
           return (
             <WidgetFrame widget={widget.handle} styles={styles}>

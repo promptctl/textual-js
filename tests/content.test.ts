@@ -2,6 +2,7 @@ import { RichText } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import { Content } from "../src/index.js";
+import { alignContentInBox, alignContentInPaddedBox } from "../src/content/align.js";
 
 describe("Content construction", () => {
   it("stores plain text and spans as the canonical payload", () => {
@@ -351,6 +352,114 @@ describe("Content wrap", () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0]!.plain).toBe("");
+  });
+
+  it("keeps a word that ends exactly on the width", () => {
+    // The separating space belongs to neither word, so "world" ending on cell
+    // 11 fits. Counting that space against the line is what sends the last
+    // word to the next line and leaves every wrapped paragraph a word narrow.
+    const lines = new Content("hello world again").wrap(11);
+
+    expect(lines.map((line) => line.plain)).toEqual(["hello world", "again"]);
+  });
+
+  it("breaks at a line break in the text", () => {
+    const lines = new Content("one\ntwo three").wrap(20);
+
+    expect(lines.map((line) => line.plain)).toEqual(["one", "two three"]);
+  });
+
+  it("draws a blank line for a blank line", () => {
+    const lines = new Content("one\n\ntwo").wrap(20);
+
+    expect(lines.map((line) => line.plain)).toEqual(["one", "", "two"]);
+  });
+
+  it("cuts a word too long for the line where the width runs out", () => {
+    const lines = new Content("supercalifragilistic").wrap(6);
+
+    expect(lines.map((line) => line.plain)).toEqual(["superc", "alifra", "gilist", "ic"]);
+  });
+
+  it("carries each line's own styling, not the first line's", () => {
+    // The regression this pins: rebuilding every line from spans clipped at
+    // offset zero gave line two the style of the text's opening characters.
+    const content = new Content("plain words bold words", [
+      { start: 12, end: 22, style: "bold" },
+    ]);
+
+    const lines = content.wrap(11);
+
+    expect(lines.map((line) => line.plain)).toEqual(["plain words", "bold words"]);
+    expect(lines[0]!.spans).toEqual([]);
+    expect(lines[1]!.spans).toEqual([{ start: 0, end: 10, style: "bold" }]);
+  });
+
+  it("counts a wide character as the two cells it occupies", () => {
+    const lines = new Content("文文文 ab").wrap(6);
+
+    expect(lines.map((line) => line.plain)).toEqual(["文文文", "ab"]);
+  });
+});
+
+describe("content alignment in a box", () => {
+  const box = { width: 9, height: 3 };
+
+  function rows(content: Content): string[] {
+    return content.plain.split("\n");
+  }
+
+  it("paints every cell of the box, not only the cells with text in them", () => {
+    // The reason this exists at all: Ink colours Text and not Box, so an
+    // unpainted cell is a hole in a widget's background.
+    const aligned = alignContentInBox(new Content("hi"), box, {
+      horizontal: "center",
+      vertical: "middle",
+    });
+
+    expect(rows(aligned)).toEqual(["         ", "   hi    ", "         "]);
+  });
+
+  it("puts a block in the corner it was told to", () => {
+    expect(
+      rows(alignContentInBox(new Content("hi"), box, { horizontal: "right", vertical: "bottom" })),
+    ).toEqual(["         ", "         ", "       hi"]);
+
+    expect(
+      rows(alignContentInBox(new Content("hi"), box, { horizontal: "left", vertical: "top" })),
+    ).toEqual(["hi       ", "         ", "         "]);
+  });
+
+  it("moves a multi-line block as one, rather than centring each line on itself", () => {
+    // Textual centres the widest line and every other line shifts with it. Per
+    // line centring would put "cd" at column 3 instead of 2. Odd slack goes to
+    // the right, as Python's floor division does.
+    const aligned = alignContentInBox(new Content("abcd\ncd"), box, {
+      horizontal: "center",
+      vertical: "top",
+    });
+
+    expect(rows(aligned).slice(0, 2)).toEqual(["  abcd   ", "  cd     "]);
+  });
+
+  it("crops a block taller than the box from the bottom, whatever the alignment", () => {
+    // A paragraph that begins mid-sentence is never the intended reading, so
+    // "middle" on an over-tall block still starts at the first line.
+    const aligned = alignContentInBox(new Content("one\ntwo\nthree\nfour\nfive"), box, {
+      horizontal: "left",
+      vertical: "middle",
+    });
+
+    expect(rows(aligned)).toEqual(["one      ", "two      ", "three    "]);
+  });
+
+  it("insets the block on every side and still paints the inset cells", () => {
+    const aligned = alignContentInPaddedBox(new Content("abcdefghij"), box, 1, {
+      horizontal: "left",
+      vertical: "top",
+    });
+
+    expect(rows(aligned)).toEqual(["         ", " abcdefg ", "         "]);
   });
 });
 

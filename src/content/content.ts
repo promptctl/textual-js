@@ -137,43 +137,25 @@ export class Content {
     return Content.assemble(...parts);
   }
 
+  /**
+   * Break this content into lines at word boundaries, no line wider than
+   * `width` cells.
+   *
+   * Line breaks in the text are honoured as breaks, and every line is cut from
+   * this content with `slice`, so styling survives the wrap. `fold` is the
+   * blunter sibling: it breaks mid-word wherever the width runs out.
+   */
   wrap(width: number): Content[] {
-    if (this.plain.length === 0) {
+    if (width <= 0 || this.plain.length === 0) {
       return [new Content("")];
     }
 
-    const lines: Content[] = [];
-    const words = this.plain.split(/\s+/).filter((word) => word.length > 0);
-    let currentLine = "";
-    const currentSpans: Span[] = [];
-
-    for (const word of words) {
-      const wordStart = this.plain.indexOf(word, currentLine.length + (lines.length > 0 ? 0 : 0));
-      const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
-
-      if (cellLen(testLine) > width && currentLine.length > 0) {
-        lines.push(
-          new Content(
-            currentLine,
-            clipSpans(this.spans, 0, currentLine.length),
-          ),
-        );
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-
-    if (currentLine.length > 0 || lines.length === 0) {
-      lines.push(
-        new Content(
-          currentLine,
-          clipSpans(this.spans, 0, currentLine.length),
-        ),
-      );
-    }
-
-    return lines;
+    // [LAW:one-source-of-truth] Only the break *offsets* are computed here.
+    // Turning an offset pair into content is `slice`'s job, so a wrapped line
+    // carries the same spans the same characters had before the wrap — this
+    // used to rebuild each line from `spans` clipped at zero, which gave every
+    // line but the first the styling of the text's opening characters.
+    return wrapOffsets(this.plain, width).map(([start, end]) => this.slice(start, end));
   }
 
   fold(width: number): Content[] {
@@ -451,6 +433,66 @@ export class Content {
 
 function normalizeIndex(index: number, length: number): number {
   return Math.max(0, Math.min(length, index < 0 ? length + index : index));
+}
+
+/** The `[start, end)` offset of each wrapped line, greedily filling `width` cells. */
+function wrapOffsets(text: string, width: number): [number, number][] {
+  let start = 0;
+
+  return text.split("\n").flatMap((paragraph) => {
+    const offsets = paragraphOffsets(paragraph, start, width);
+    // The break itself is one character, and belongs to no line.
+    start += paragraph.length + 1;
+
+    return offsets;
+  });
+}
+
+function paragraphOffsets(paragraph: string, offset: number, width: number): [number, number][] {
+  const lines: [number, number][] = [];
+  let start = 0;
+
+  while (start < paragraph.length) {
+    const [end, next] = nextLineBreak(paragraph, start, width);
+    lines.push([offset + start, offset + end]);
+    start = next;
+  }
+
+  // An empty paragraph is a blank line, not the absence of one: a text with a
+  // doubled break draws that break as a row.
+  return lines.length === 0 ? [[offset, offset]] : lines;
+}
+
+/** Where a line starting at `start` ends, and where the next one begins. */
+function nextLineBreak(paragraph: string, start: number, width: number): [number, number] {
+  let cells = 0;
+  let lastSpace = -1;
+  let index = start;
+
+  while (index < paragraph.length) {
+    const character = String.fromCodePoint(paragraph.codePointAt(index)!);
+    const characterCells = cellLen(character);
+
+    if (cells + characterCells > width) {
+      // The space that separates two words belongs to neither, so a line whose
+      // last word ends exactly on the width still fits: the overflowing space
+      // is swallowed by the break rather than sending its word to the next
+      // line. Otherwise break at the last space — or, for a word longer than
+      // the whole line and so having no space to break at, where the width ran
+      // out.
+      return character === " "
+        ? [index, index + 1]
+        : lastSpace > start
+          ? [lastSpace, lastSpace + 1]
+          : [index, index];
+    }
+
+    lastSpace = character === " " ? index : lastSpace;
+    cells += characterCells;
+    index += character.length;
+  }
+
+  return [paragraph.length, paragraph.length];
 }
 
 function clipSpans(spans: readonly Span[], start: number, end: number): Span[] {
