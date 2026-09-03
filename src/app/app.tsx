@@ -200,10 +200,11 @@ export class App<Result = unknown> {
       showTooltips: options.showTooltips,
     };
     this.setUrlOpener(options.openUrl);
-    // Textual's `App.TITLE or self.__class__.__name__`: an app always has a
-    // title to show, so the Header never needs an "untitled" case and `""`
-    // never has to double as a sentinel for "nobody set one".
-    this.title = options.title ?? this.constructor.name;
+    // Textual's `App.TITLE or self.__class__.__name__` — `||`, not `??`, so an
+    // empty or otherwise falsy TITLE falls back exactly as Python's `or` does.
+    // The guarantee is about construction: a later `app.title = ""` sets `""`,
+    // in Textual too.
+    this.title = options.title || this.constructor.name;
     this.subTitle = options.subTitle ?? "";
   }
 
@@ -498,14 +499,17 @@ export class App<Result = unknown> {
   /**
    * The active screen's own title, or `null` when it defers to the app's.
    *
-   * [LAW:single-enforcer] Writes route through ScreenStackService, the one
-   * owner of screen state, so the mutation marker its observers depend on stays
-   * in step. Textual spells this `app.screen.title = ...`; `Screen` here is a
-   * plain record in a deliberately non-observable map, so a direct field write
-   * would update the value and tell no one.
+   * [LAW:one-source-of-truth] Both sides go through ScreenStackService — writes
+   * through the one owner of screen state, reads through `activeTitleOverride`
+   * for the reason documented there. Reading `this.screen.title` here instead
+   * would type-check and return the right string, and would still be a second,
+   * silently non-reactive path to a fact that already has a working one.
+   * Textual spells this `app.screen.title = ...`; `Screen` here is a plain
+   * record in a deliberately non-observable map, so a direct field write would
+   * update the value and tell no one.
    */
   get screenTitle(): string | null {
-    return this.screen?.title ?? null;
+    return this.screenStack.activeTitleOverride.title;
   }
 
   set screenTitle(value: string | null) {
@@ -513,7 +517,7 @@ export class App<Result = unknown> {
   }
 
   get screenSubTitle(): string | null {
-    return this.screen?.subTitle ?? null;
+    return this.screenStack.activeTitleOverride.subTitle;
   }
 
   set screenSubTitle(value: string | null) {

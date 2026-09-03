@@ -214,8 +214,10 @@ export type ScreenDescriptor =
 
 export interface ScreenOptions {
   name?: string;
-  // Textual's `Screen.TITLE` / `SUB_TITLE` class attributes: the screen's title
-  // stated where the screen is declared. Omitted means the app's title shows.
+  // Push-time overrides for the screen's title. A screen that always carries
+  // the same title declares it as a static `TITLE` / `SUB_TITLE` on the
+  // component instead, which `createScreen` reads; these win over that, the way
+  // `autoFocus` wins over `AUTO_FOCUS`.
   title?: string;
   subTitle?: string;
   bindings?: BindingDeclaration[];
@@ -229,9 +231,9 @@ export interface ScreenOptions {
 export interface Screen {
   id: string;
   name: string | null;
-  // A screen's own title, or `null` for "no opinion — use the app's". See
-  // `TitleOverride`: the Screen *is* one, which is why it can be handed
-  // straight to `resolveTitle`.
+  // A screen's own title, or `null` for "no opinion — use the app's". Read
+  // both through `ScreenStackService.activeTitleOverride`, never off the Screen:
+  // see there for why this object's identity cannot carry the change.
   title: string | null;
   subTitle: string | null;
   element: React.ReactElement | null;

@@ -382,15 +382,22 @@ export class ScreenStackService {
     options: ScreenOptions & { callback?: (result: unknown) => void },
     onDismiss: (result: unknown) => void,
   ): Screen {
-    const screenType = element.type as { AUTO_FOCUS?: string | null; BINDINGS?: Iterable<BindingDeclaration> };
+    const screenType = element.type as {
+      AUTO_FOCUS?: string | null;
+      BINDINGS?: Iterable<BindingDeclaration>;
+      TITLE?: string;
+      SUB_TITLE?: string;
+    };
     const bindings = makeBindings([...(screenType.BINDINGS ?? []), ...(options.bindings ?? [])]);
     const screenStyles = this.deps.readScreenStylesheetState(element, options);
     const staticAutoFocus = screenType.AUTO_FOCUS;
     const entry: Screen = {
       id: `screen-${nextScreenId++}`,
       name: options.name ?? null,
-      title: options.title ?? null,
-      subTitle: options.subTitle ?? null,
+      // Same precedence as autoFocus below: what this push asked for, then what
+      // the screen declares about itself, then "no opinion — use the app's".
+      title: options.title ?? screenType.TITLE ?? null,
+      subTitle: options.subTitle ?? screenType.SUB_TITLE ?? null,
       element,
       bindings,
       actions: undefined,

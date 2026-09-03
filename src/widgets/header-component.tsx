@@ -76,8 +76,8 @@ function headerGlyphs(content: Content, keyPrefix: string): React.JSX.Element {
  *
  * [LAW:types-are-the-program] The returned Content is always exactly `width`
  * cells, so the caller has no "did it fit?" case to handle and the three
- * regions always sum to the bar. Textual splits an odd remainder to the left,
- * which is what `Math.floor` on the leading pad reproduces.
+ * regions always sum to the bar. An odd remainder goes to the trailing side,
+ * as in Rich's `Align(center)`.
  */
 function centerInto(content: Content, width: number): Content {
   const fitted = content.truncate(width, { overflow: "ellipsis" });

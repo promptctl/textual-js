@@ -1,8 +1,10 @@
 import React from "react";
+import { Text } from "ink";
+import { observer } from "mobx-react-lite";
 import stripAnsi from "strip-ansi";
 import { describe, expect, it } from "vitest";
 
-import { App, Header, Static, runTest, type TestSession } from "../src/index.js";
+import { App, Header, Static, runTest, useTextual, type TestSession } from "../src/index.js";
 import {
   NO_TITLE_OVERRIDE,
   resolveTitle,
@@ -153,6 +155,68 @@ describe("Header title resolution", () => {
 
     expect(headerRow(session)).toContain("My Application — Settings mode");
     session.unmount();
+  });
+});
+
+// A minimal reactive consumer of the public getter, standing in for any
+// observer component a user might write against it.
+const ScreenTitleProbe = observer(function ScreenTitleProbe(): React.JSX.Element {
+  const app = useTextual();
+
+  return <Text>{`screen:${app.screenTitle ?? "none"}`}</Text>;
+});
+
+describe("screen title API", () => {
+  it("stays live for an observer reading app.screenTitle directly", async () => {
+    // The regression this guards: reading `app.screen.title` returns the right
+    // string but never notifies, because `activeScreen` is a computed that
+    // hands back the same Screen object after an in-place retitle. Asserting
+    // the getter outside a reaction passes either way — only a real observer
+    // separates a correct read path from a stale one.
+    const session = await runTest(<ScreenTitleProbe />, {});
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("screen:none");
+
+    session.app.screenTitle = "Settings";
+    await session.app.whenIdle();
+
+    expect(stripAnsi(session.lastFrame() ?? "")).toContain("screen:Settings");
+    session.unmount();
+  });
+
+  it("takes a TITLE declared on the screen component", async () => {
+    function SettingsScreen(): React.JSX.Element {
+      return <Header />;
+    }
+    SettingsScreen.TITLE = "Settings";
+    SettingsScreen.SUB_TITLE = "Preferences";
+
+    const session = await mountHeader({ title: "My Application" });
+    session.app.pushScreen(<SettingsScreen />);
+    await session.app.whenIdle();
+
+    expect(session.app.screenTitle).toBe("Settings");
+    expect(headerRow(session)).toContain("Settings — Preferences");
+    session.unmount();
+  });
+
+  it("lets a push-time option beat the screen's declared TITLE", async () => {
+    function SettingsScreen(): React.JSX.Element {
+      return <Header />;
+    }
+    SettingsScreen.TITLE = "Settings";
+
+    const session = await mountHeader({ title: "My Application" });
+    session.app.pushScreen(<SettingsScreen />, { title: "Overridden" });
+    await session.app.whenIdle();
+
+    expect(headerRow(session)).toContain("Overridden");
+    session.unmount();
+  });
+
+  it("falls back to the class name for a falsy title, as Python's `or` does", () => {
+    class BlankTitleApp extends App {}
+
+    expect(new BlankTitleApp({ title: "" }).title).toBe("BlankTitleApp");
   });
 });
 
