@@ -80,24 +80,31 @@ describe("urlOpenCommand", () => {
 
 // Real child processes, chosen by the test rather than by process.platform —
 // driving spawnUrlOpener directly here would open a browser on this machine.
+// Node rather than `true`/`false`, which native Windows does not have: the
+// win32 exit-code rule is the main thing these tests pin, so the fixture must
+// run there.
+function exitingWith(code: number): { command: string; args: string[] } {
+  return { command: process.execPath, args: ["-e", `process.exit(${code})`] };
+}
+
 describe("runUrlOpenCommand", () => {
   it("resolves when the launcher exits cleanly", async () => {
     await expect(
-      runUrlOpenCommand({ command: "true", args: [], exitCodeReportsFailure: true }),
+      runUrlOpenCommand({ ...exitingWith(0), exitCodeReportsFailure: true }),
     ).resolves.toBeUndefined();
   });
 
   // The xdg-open-with-no-$DISPLAY case: the launcher starts, then gives up.
   it("rejects on a non-zero exit when the platform's exit code means something", async () => {
     await expect(
-      runUrlOpenCommand({ command: "false", args: [], exitCodeReportsFailure: true }),
-    ).rejects.toThrow("false exited with code 1");
+      runUrlOpenCommand({ ...exitingWith(1), exitCodeReportsFailure: true }),
+    ).rejects.toThrow("exited with code 1");
   });
 
   // explorer.exe exits 1 on success, so the same exit must be read as fine.
   it("resolves on a non-zero exit when the platform's exit code means nothing", async () => {
     await expect(
-      runUrlOpenCommand({ command: "false", args: [], exitCodeReportsFailure: false }),
+      runUrlOpenCommand({ ...exitingWith(1), exitCodeReportsFailure: false }),
     ).resolves.toBeUndefined();
   });
 
@@ -180,6 +187,25 @@ describe("App.openUrl", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(opened).toEqual(["https://example.com"]);
+
+    instance.unmount();
+  });
+
+  // The combination that survived three rounds of this bug: options supplied
+  // *and* overridden before render, where the mount had a defined value to
+  // reassert over the override.
+  it("keeps a pre-render override that replaces an AppOptions opener", async () => {
+    const opened: string[] = [];
+    const app = new App({ openUrl: () => opened.push("from-options") });
+
+    app.setUrlOpener(() => opened.push("from-setter"));
+    const instance = render(app.render());
+
+    await app.whenIdle();
+    app.openUrl("https://example.com");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(opened).toEqual(["from-setter"]);
 
     instance.unmount();
   });

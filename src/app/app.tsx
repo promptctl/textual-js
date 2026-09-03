@@ -71,12 +71,14 @@ export interface AppOptions {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
+  // The initial value of App's url opener, applied by the constructor. Unlike
+  // env/driver below, App keeps it — `setUrlOpener` replaces it thereafter.
+  openUrl?: UrlOpener;
   // [LAW:one-source-of-truth] env and driver are runtime-construction inputs
   // that App forwards to its owned framework. They are not separately stored
   // on App; the framework is the authority for their effects.
   env?: EnvironmentMap;
   driver?: AppDriver;
-  openUrl?: UrlOpener;
 }
 
 export interface AppRunTestOptions extends Pick<RunTestOptions, "messageHook" | "size" | "transients"> {}
@@ -98,7 +100,6 @@ interface StoredAppOptions {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
-  openUrl?: UrlOpener;
 }
 
 // [LAW:one-source-of-truth] App is the runtime root. Every runtime concept —
@@ -152,6 +153,11 @@ export class App<Result = unknown> {
   private appSubTitle = "";
   // [LAW:single-enforcer] One URL-opening capability for the whole app. Widgets
   // that offer a link (Link, Markdown) name the intent; only this performs it.
+  //
+  // [LAW:one-source-of-truth] This field is the authority, and `AppOptions
+  // .openUrl` is only its initial value. `render()` deliberately does not pass
+  // it down to TextualApp: App would be sending the value to itself through
+  // React, and the return leg would overwrite anything set in between.
   private urlOpener: UrlOpener = spawnUrlOpener;
 
   constructor(options: AppOptions = {}) {
@@ -193,7 +199,6 @@ export class App<Result = unknown> {
       autoFocus: options.autoFocus,
       tooltipDelay: options.tooltipDelay,
       showTooltips: options.showTooltips,
-      openUrl: options.openUrl,
     };
     this.setUrlOpener(options.openUrl);
     this.title = options.title ?? "";
@@ -462,7 +467,6 @@ export class App<Result = unknown> {
         autoFocus={this.appOptions.autoFocus ?? this.resolveAutoFocus()}
         tooltipDelay={this.appOptions.tooltipDelay}
         showTooltips={this.appOptions.showTooltips}
-        openUrl={this.appOptions.openUrl}
       >
         {this.compose()}
       </TextualApp>
