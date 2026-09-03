@@ -79,16 +79,21 @@ export function urlOpenCommand(platform: string, url: URL): UrlOpenCommand {
   return { ...(URL_OPEN_COMMANDS[platform] ?? XDG_OPEN), args: [url.href] };
 }
 
-// [LAW:no-silent-failure] Every way this can fail — a refused scheme, a missing
-// binary, a launcher that starts and then gives up — rejects. It rejects rather
-// than throwing from an unlistened `error` event, which would take the whole TUI
-// down over a hyperlink; App turns the rejection into something the user reads.
-export const spawnUrlOpener: UrlOpener = (url) =>
-  new Promise<void>((resolve, reject) => {
-    const { command, args, exitCodeReportsFailure } = urlOpenCommand(
-      process.platform,
-      parseOpenableUrl(url),
-    );
+// [LAW:no-silent-failure] Both ways a launcher fails — never starting, or
+// starting and then giving up — reject. Rejecting rather than throwing from an
+// unlistened `error` event is what keeps a missing binary from taking the whole
+// TUI down over a hyperlink; App turns the rejection into something the user
+// reads.
+//
+// Split from `spawnUrlOpener` so this outcome handling can be driven against a
+// command chosen by the test rather than by `process.platform`, which on a
+// developer's machine would mean actually opening a browser.
+export function runUrlOpenCommand({
+  command,
+  args,
+  exitCodeReportsFailure,
+}: UrlOpenCommand): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const child = spawn(command, [...args], { detached: true, stdio: "ignore" });
     child.unref();
 
@@ -102,3 +107,9 @@ export const spawnUrlOpener: UrlOpener = (url) =>
       resolve();
     });
   });
+}
+
+// `async` so a refused scheme rejects rather than throwing out of the call: the
+// parse is the one step here that fails synchronously.
+export const spawnUrlOpener: UrlOpener = async (url) =>
+  runUrlOpenCommand(urlOpenCommand(process.platform, parseOpenableUrl(url)));

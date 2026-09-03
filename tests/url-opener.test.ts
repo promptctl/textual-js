@@ -1,10 +1,15 @@
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
 
-import { App, UnsupportedUrlScheme, parseOpenableUrl, urlOpenCommand } from "../src/index.js";
+import {
+  App,
+  UnsupportedUrlScheme,
+  parseOpenableUrl,
+  runUrlOpenCommand,
+  spawnUrlOpener,
+  urlOpenCommand,
+} from "../src/index.js";
 
-// The spawn itself is the untestable half; the platform decision is split out
-// precisely so it can be asserted without launching a browser.
 // The spawn itself is the untestable half; the platform decision and the
 // scheme checkpoint are split out precisely so they can be asserted without
 // launching a browser.
@@ -73,6 +78,46 @@ describe("urlOpenCommand", () => {
   });
 });
 
+// Real child processes, chosen by the test rather than by process.platform —
+// driving spawnUrlOpener directly here would open a browser on this machine.
+describe("runUrlOpenCommand", () => {
+  it("resolves when the launcher exits cleanly", async () => {
+    await expect(
+      runUrlOpenCommand({ command: "true", args: [], exitCodeReportsFailure: true }),
+    ).resolves.toBeUndefined();
+  });
+
+  // The xdg-open-with-no-$DISPLAY case: the launcher starts, then gives up.
+  it("rejects on a non-zero exit when the platform's exit code means something", async () => {
+    await expect(
+      runUrlOpenCommand({ command: "false", args: [], exitCodeReportsFailure: true }),
+    ).rejects.toThrow("false exited with code 1");
+  });
+
+  // explorer.exe exits 1 on success, so the same exit must be read as fine.
+  it("resolves on a non-zero exit when the platform's exit code means nothing", async () => {
+    await expect(
+      runUrlOpenCommand({ command: "false", args: [], exitCodeReportsFailure: false }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects when the launcher binary is missing", async () => {
+    await expect(
+      runUrlOpenCommand({
+        command: "textual-js-no-such-launcher",
+        args: [],
+        exitCodeReportsFailure: true,
+      }),
+    ).rejects.toThrow(/ENOENT/);
+  });
+});
+
+describe("spawnUrlOpener", () => {
+  it("rejects a refused target without spawning anything", async () => {
+    await expect(spawnUrlOpener("file:///etc/passwd")).rejects.toThrow(UnsupportedUrlScheme);
+  });
+});
+
 describe("App.openUrl", () => {
   it("reports a failed open to the user instead of crashing the app", async () => {
     const app = new App({
@@ -119,6 +164,24 @@ describe("App.openUrl", () => {
 
     expect(opened).toEqual(["https://example.com"]);
     expect(app.notifications.length).toBe(0);
+  });
+
+  // Same "two writers, mount wins" hazard as the AppOptions case below, reached
+  // through the public setter: a mount must not overwrite what a host already set.
+  it("keeps an opener set before App.render()", async () => {
+    const opened: string[] = [];
+    const app = new App();
+
+    app.setUrlOpener((url) => opened.push(url));
+    const instance = render(app.render());
+
+    await app.whenIdle();
+    app.openUrl("https://example.com");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(opened).toEqual(["https://example.com"]);
+
+    instance.unmount();
   });
 
   // A host configuring the opener through `new App(options)` must survive the

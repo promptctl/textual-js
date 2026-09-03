@@ -520,11 +520,14 @@ export class App<Result = unknown> {
   }
 
   // Replaces the platform opener — the seam a host (or a test) uses to observe
-  // or redirect link activation instead of launching a real browser. Absent
-  // means "the platform default", so hosts can pass an optional prop straight
-  // through rather than restating `spawnUrlOpener` at the call site.
+  // or redirect link activation instead of launching a real browser.
+  //
+  // [LAW:one-source-of-truth] Absent means "no opinion", not "reset to the
+  // default": TextualApp syncs this prop on every mount, and treating a missing
+  // prop as a reset would silently discard an opener a host set before render.
+  // `setUrlOpener(spawnUrlOpener)` is how you deliberately go back.
   setUrlOpener(opener: UrlOpener | null | undefined): void {
-    this.urlOpener = opener ?? spawnUrlOpener;
+    this.urlOpener = opener ?? this.urlOpener;
   }
 
   openUrl(url: string): void {
@@ -535,7 +538,12 @@ export class App<Result = unknown> {
     // opener, and a synchronous opener throws. Invoking it as an argument to
     // `Promise.resolve` would unwind before any catch was attached.
     void Promise.resolve().then(() => this.urlOpener(url)).catch((error: unknown) => {
-      this.notify(`Could not open ${url}: ${String(error)}`, "error");
+      // markup:false — the message embeds an externally-sourced URL, and
+      // brackets are ordinary in one (an IPv6 literal host, a query key).
+      this.notify(`Could not open ${url}: ${String(error)}`, {
+        severity: "error",
+        markup: false,
+      });
     });
   }
 

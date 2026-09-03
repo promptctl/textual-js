@@ -29,7 +29,7 @@
 //      `App.render()` from `App.appOptions`) and are pushed into the
 //      framework via setters: stylesheet, css path, theme, bindings,
 //      keymap, actions, command providers, system command resolver,
-//      screens, modes, auto-focus, tooltip delay, show-tooltips.
+//      screens, modes, auto-focus, tooltip delay, show-tooltips, url opener.
 //   4. Display rendering — overlays (`TooltipOverlay`, `ToastOverlay`)
 //      and active-screen mounting (`framework.activeScreenElement ??
 //      children`). All reads from framework state; no decisions made.
@@ -95,8 +95,9 @@ export interface TextualAppProps extends PropsWithChildren {
   autoFocus?: string | null;
   tooltipDelay?: number;
   showTooltips?: boolean;
-  // Absent means the platform opener; a host supplies this to route link
-  // activation somewhere else (an embedded browser, a test recorder).
+  // A host supplies this to route link activation somewhere else (an embedded
+  // browser, a test recorder). Absent leaves whatever App already has, so a
+  // mount never overwrites an opener configured before render.
   openUrl?: UrlOpener;
 }
 

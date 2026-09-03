@@ -188,6 +188,7 @@ export { RLock } from "./services/concurrency.js";
 export {
   UnsupportedUrlScheme,
   parseOpenableUrl,
+  runUrlOpenCommand,
   spawnUrlOpener,
   urlOpenCommand,
   type UrlOpenCommand,

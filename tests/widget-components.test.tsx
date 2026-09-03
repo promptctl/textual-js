@@ -337,7 +337,6 @@ describe("Link", () => {
   // empty string still can, and the platform opener refuses it at the border
   // rather than each call site testing for its own favourite kind of bad.
   it("refuses to open an empty target, and says so", async () => {
-    const opened: string[] = [];
     const session = await runTest(<Link id="blank" text="" />, {
       transients: { notifications: true },
     });
@@ -347,8 +346,11 @@ describe("Link", () => {
     await session.pilot.press("enter");
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(opened).toEqual([]);
-    expect(session.app.notifications.list()[0]?.severityClass).toBe("-error");
+    // No spy opener here on purpose: the refusal lives in the platform opener,
+    // so installing one would route around the very check under test.
+    const notification = session.app.notifications.list()[0];
+    expect(notification?.severityClass).toBe("-error");
+    expect(String(notification?.message)).toContain("Not a URL");
 
     session.unmount();
   });
