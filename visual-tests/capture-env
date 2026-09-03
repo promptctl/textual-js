@@ -16,6 +16,10 @@
 #   KEY=VALUE   set KEY to VALUE
 #   -KEY        remove KEY from the environment
 #
+# A name may appear once, in one form. Setting and removing the same name is two
+# legal-looking lines that the two loaders resolve in opposite directions, so the
+# grammar test refuses it rather than leaving the outcome to whichever loader ran.
+#
 # The `-` form exists because NO_COLOR cannot be expressed as KEY=VALUE: per its
 # spec the variable being PRESENT is what suppresses colour, so `NO_COLOR=` still
 # suppresses. Without a way to say "absent" here, the one variable that has to be

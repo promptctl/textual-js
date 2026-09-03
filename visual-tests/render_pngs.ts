@@ -163,7 +163,11 @@ export async function main(): Promise<void> {
   // [LAW:dataflow-not-control-flow] exception: the two sides genuinely produce
   // different artifacts, and a per-side artifact table would be more machinery than
   // one honest branch.
-  if (renderSide !== "js") {
+  // `fixtures` is empty whenever discovery found nothing, which the render loop
+  // above treats as no work. capture_python.py takes `nargs="+"`, so handing it
+  // zero names is an argparse usage error rather than a no-op — a broken run
+  // reported for a repo state (no fixtures on disk) that is merely empty.
+  if (renderSide !== "js" && fixtures.length > 0) {
     process.stdout.write("\n  Capturing python cell records (.ansi / .txt)\n");
     await captureCellRecords(fixtures);
   }

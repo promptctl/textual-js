@@ -203,6 +203,19 @@ describe("capture environment", () => {
     }
   });
 
+  // Per-line legality is not enough: setting and removing the same name is two legal
+  // lines that the loaders resolve in OPPOSITE directions. capture_python.py updates
+  // then pops, so the removal wins; the shell hands `env` its -u options ahead of the
+  // NAME=VALUE operands, so the assignment wins. Same file, same names, two outcomes —
+  // and no per-line check can see it, because the conflict lives between the lines.
+  it("refuses a name that capture-env both sets and removes", () => {
+    const assigned = captureEnvDirectives()
+      .filter((line) => !line.startsWith("-"))
+      .map((line) => line.split("=", 1)[0]);
+
+    expect(assigned.filter((name) => removedCaptureVariables().includes(name))).toEqual([]);
+  });
+
   it("declares the variables both capture paths depend on", () => {
     // Animations are the one that has actually bitten: an animating widget never
     // holds still, so the frame a capture lands on is arbitrary, and the two paths
