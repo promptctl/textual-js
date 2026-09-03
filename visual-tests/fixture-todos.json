@@ -102,18 +102,6 @@
     "reason": "Pre-seeded Python baseline for Stage 9 DataTable implementation"
   },
   {
-    "name": "digits_basic",
-    "stage": "7",
-    "component": "Digits",
-    "reason": "Pre-seeded Python baseline for Stage 7 Digits implementation"
-  },
-  {
-    "name": "digits_large",
-    "stage": "7",
-    "component": "Digits",
-    "reason": "Pre-seeded Python baseline for Stage 7 Digits implementation"
-  },
-  {
     "name": "directory_tree_basic",
     "stage": "9",
     "component": "DirectoryTree",
