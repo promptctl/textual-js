@@ -23,6 +23,7 @@ import {
   type RegisterWidgetTypeOptions,
   type WidgetTypeMetadata,
 } from "../framework/_app-runtime.js";
+import type { ResolvedTitle } from "../framework/title-resolution.js";
 import { DEFAULT_MODE, normalizePushArgs } from "../framework/screen-stack-service.js";
 import { ModeChanged, Paste, ScreenResume, ScreenSuspend } from "../events/events.js";
 import type { EnvironmentMap } from "../services/environment.js";
@@ -54,7 +55,7 @@ import type { AsyncResourceManager } from "../framework/async-resource-manager.j
 import type { LayoutEngine } from "../framework/layout-engine.js";
 import type { TooltipService } from "../framework/tooltip-service.js";
 import type { MessagePump } from "../framework/message-pump.js";
-import type { ScreenStackService } from "../framework/screen-stack-service.js";
+import type { ScreenStackService, TitledScreen } from "../framework/screen-stack-service.js";
 import type { WidgetTypeRegistry } from "../framework/widget-type-registry.js";
 
 export interface AppOptions {
@@ -149,8 +150,6 @@ export class App<Result = unknown> {
   // App.CLICK_CHAIN_TIME_THRESHOLD without reaching into the private collaborator.
   static readonly CLICK_CHAIN_TIME_THRESHOLD = AppRuntime.CLICK_CHAIN_TIME_THRESHOLD;
   private readonly appOptions: StoredAppOptions;
-  private appTitle = "";
-  private appSubTitle = "";
   // [LAW:single-enforcer] One URL-opening capability for the whole app. Widgets
   // that offer a link (Link, Markdown) name the intent; only this performs it.
   //
@@ -201,8 +200,19 @@ export class App<Result = unknown> {
       showTooltips: options.showTooltips,
     };
     this.setUrlOpener(options.openUrl);
-    this.title = options.title ?? "";
-    this.subTitle = options.subTitle ?? "";
+    // Constructor option ahead of class attribute — the precedence `SCREENS`,
+    // `MODES` and `AUTO_FOCUS` already use, and the one `createScreen` uses for
+    // a screen's own TITLE.
+    //
+    // `title` uses `||` to reproduce `App.TITLE or self.__class__.__name__`: a
+    // falsy TITLE falls through to the class name, as Python's `or` does. The
+    // guarantee is about construction; a later `app.title = ""` sets `""`, in
+    // Textual too.
+    this.title = options.title || this.resolveStaticTitle() || this.constructor.name;
+    // `subTitle` uses `??` instead, and the asymmetry is deliberate: it has no
+    // third fallback, so `new App({ subTitle: "" })` means "show none" and must
+    // survive a declared SUB_TITLE rather than fall through to it.
+    this.subTitle = options.subTitle ?? this.resolveStaticSubTitle() ?? "";
   }
 
   protected compose(): React.ReactNode {
@@ -416,7 +426,7 @@ export class App<Result = unknown> {
   private makeScreenEntry(
     element: React.ReactElement,
     options: ScreenOptions & { callback?: (result: unknown) => void },
-  ): Screen {
+  ): TitledScreen {
     return this.screenStack.createScreen(element, options, (result) => {
       this.popScreen(result);
     });
@@ -473,20 +483,53 @@ export class App<Result = unknown> {
     );
   }
 
+  // [LAW:one-source-of-truth] Title state lives in the observable runtime; App
+  // is a coercing facade over it, not a second store. Held as a private field
+  // here, `app.title = "x"` would update nothing a rendered Header could see —
+  // App is not observable, so nothing re-runs on the write.
   get title(): string {
-    return this.appTitle;
+    return this._runtime.title;
   }
 
   set title(value: unknown) {
-    this.appTitle = String(value);
+    this._runtime.setTitle(String(value));
   }
 
   get subTitle(): string {
-    return this.appSubTitle;
+    return this._runtime.subTitle;
   }
 
   set subTitle(value: unknown) {
-    this.appSubTitle = String(value);
+    this._runtime.setSubTitle(String(value));
+  }
+
+  /**
+   * The active screen's own title, or `null` when it defers to the app's.
+   *
+   * [LAW:one-source-of-truth] Both sides go through ScreenStackService, the one
+   * owner of screen state. Textual spells this `app.screen.title = ...`, which
+   * has no counterpart here on purpose: `Screen` carries no title at all — see
+   * `TitledScreen` — so this pair is the only way to ask.
+   */
+  get screenTitle(): string | null {
+    return this.screenStack.activeTitleOverride.title;
+  }
+
+  set screenTitle(value: string | null) {
+    this.screenStack.setActiveScreenTitle(value);
+  }
+
+  get screenSubTitle(): string | null {
+    return this.screenStack.activeTitleOverride.subTitle;
+  }
+
+  set screenSubTitle(value: string | null) {
+    this.screenStack.setActiveScreenSubTitle(value);
+  }
+
+  /** The title a Header paints: the screen's, falling back to the app's. */
+  get resolvedTitle(): ResolvedTitle {
+    return this._runtime.resolvedTitle;
   }
 
   get returnValue(): Result | undefined {
@@ -1185,6 +1228,14 @@ export class App<Result = unknown> {
 
   private resolveAutoFocus(): string | null | undefined {
     return (this.constructor as { AUTO_FOCUS?: string | null }).AUTO_FOCUS;
+  }
+
+  private resolveStaticTitle(): unknown {
+    return (this.constructor as { TITLE?: unknown }).TITLE;
+  }
+
+  private resolveStaticSubTitle(): unknown {
+    return (this.constructor as { SUB_TITLE?: unknown }).SUB_TITLE;
   }
 
   async runTest(options: AppRunTestOptions = {}): Promise<AppTestSession<Result>> {

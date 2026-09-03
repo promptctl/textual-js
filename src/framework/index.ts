@@ -45,6 +45,7 @@ export {
   WidgetHost,
   useBindings,
   useCurrentWidget,
+  useResolvedTitle,
   useStyles,
   useTimer,
   useTextual,
@@ -88,3 +89,9 @@ export {
   get_directed_distance,
   type EnabledCandidate,
 } from "./widget-navigation.js";
+export {
+  NO_TITLE_OVERRIDE,
+  resolveTitle,
+  type ResolvedTitle,
+  type TitleOverride,
+} from "./title-resolution.js";
