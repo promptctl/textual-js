@@ -144,18 +144,6 @@
     "reason": "Pre-seeded Python baseline for Stage 10 KeyPanel implementation"
   },
   {
-    "name": "label_basic",
-    "stage": "7",
-    "component": "Label",
-    "reason": "Pre-seeded Python baseline for Stage 7 Label implementation"
-  },
-  {
-    "name": "label_markup",
-    "stage": "7",
-    "component": "Label",
-    "reason": "Pre-seeded Python baseline for Stage 7 Label implementation"
-  },
-  {
     "name": "link_basic",
     "stage": "7",
     "component": "Link",

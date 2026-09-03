@@ -8,6 +8,8 @@ import {
   ButtonPressed,
   Button,
   Checkbox,
+  Color,
+  Label,
   ProgressBar,
   RadioButton,
   RadioSet,
@@ -36,9 +38,11 @@ function createTestRenderable(text: string): Renderable & Measurable {
 describe("widget public API", () => {
   it("exports Textual widget names without Widget-suffixed aliases", () => {
     expect(textual.Button).toBe(Button);
+    expect(textual.Label).toBe(Label);
     expect(textual.Static).toBe(Static);
     expect(textual.Switch).toBe(Switch);
     expect("ButtonWidget" in textual).toBe(false);
+    expect("LabelWidget" in textual).toBe(false);
     expect("StaticWidget" in textual).toBe(false);
     expect("SwitchWidget" in textual).toBe(false);
   });
@@ -98,14 +102,12 @@ describe("Static", () => {
   });
 
   it("applies user CSS through the cascade", async () => {
-    const session = await runTest(
-      <Static id="styled" content="styled" />,
-      { props: { css: "Static { color: red; }" } as never },
-    );
+    const session = await runTest(<Static id="styled" content="styled" />, {
+      appProps: { css: "Static { color: red; }" },
+    });
 
-    // Widget should be registered and styled
-    const widget = session.app.getByCssId("styled");
-    expect(widget).toBeDefined();
+    const widget = session.app.getByCssId("styled")!;
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("red"));
 
     session.unmount();
   });
@@ -114,7 +116,7 @@ describe("Static", () => {
     const session = await runTest(
       <Static id="framed" content="center" borderTitle="Title" borderSubtitle="Sub" />,
       {
-        props: {
+        appProps: {
           css: `
             Static {
               width: 12;
@@ -124,12 +126,74 @@ describe("Static", () => {
               border-subtitle-align: right;
             }
           `,
-        } as never,
+        },
       },
     );
 
     expect(session.lastFrame()).toContain("Title");
     expect(session.lastFrame()).toContain("Sub");
+
+    session.unmount();
+  });
+});
+
+describe("Label", () => {
+  it("renders text content", async () => {
+    const session = await runTest(<Label content="Hello Label" />);
+
+    expect(stripAnsi(session.lastFrame() ?? "").trimEnd()).toBe("Hello Label");
+
+    session.unmount();
+  });
+
+  it("renders Rich markup through the Visual seam", async () => {
+    const session = await runTest(
+      <Label content="[bold #55ffff]Label[/] with [italic #ff55ff]markup[/]" />,
+    );
+
+    const frame = session.lastFrame() ?? "";
+    expect(stripAnsi(frame).trimEnd()).toBe("Label with markup");
+    expect(frame).toContain("38;2;85;255;255");
+    expect(frame).toContain("38;2;255;85;255");
+
+    session.unmount();
+  });
+
+  it("registers with the framework as typeName Label", async () => {
+    const session = await runTest(<Label id="greeting" content="Hi" />);
+
+    expect(session.app.getByCssId("greeting")!.typeName).toBe("Label");
+
+    session.unmount();
+  });
+
+  it("is targetable by a Label type selector", async () => {
+    const session = await runTest(<Label id="styled" content="styled" />, {
+      appProps: { css: "Label { color: red; }" },
+    });
+
+    const widget = session.app.getByCssId("styled")!;
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("red"));
+
+    session.unmount();
+  });
+
+  // Textual's Label subclasses Static, so a Static rule cascades onto it.
+  it("inherits CSS written against its Static base type", async () => {
+    const session = await runTest(<Label id="inheriting" content="styled" />, {
+      appProps: { css: "Static { color: magenta; }" },
+    });
+
+    const widget = session.app.getByCssId("inheriting")!;
+    expect(widget.resolvedStyles.getRule("color")).toEqual(Color.parse("magenta"));
+
+    session.unmount();
+  });
+
+  it("does not take focus", async () => {
+    const session = await runTest(<Label id="unfocusable" content="text" />);
+
+    expect(session.app.getByCssId("unfocusable")!.canFocus).toBe(false);
 
     session.unmount();
   });
