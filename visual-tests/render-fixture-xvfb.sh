@@ -40,6 +40,12 @@
 #                          xterm. This is a security footgun in a long-lived
 #                          xterm; here the xterm lives ~5–15s in a sealed
 #                          Xvfb, so the blast radius is the test container.
+#   xterm -xrm "XTerm*vt100.translations: #override <Key>F13: redraw()"
+#                          Binds a repaint to a key no fixture binds, so the
+#                          final screenshot is taken of a window redrawn from
+#                          xterm's screen buffer rather than of whatever the
+#                          writer's byte chunking happened to rasterise. See
+#                          the repaint step near the end of this script.
 
 set -euo pipefail
 
@@ -149,6 +155,7 @@ env -u NO_COLOR \
     -u8 \
     +sb \
     -xrm "XTerm*vt100.allowSendEvents: true" \
+    -xrm "XTerm*vt100.translations: #override <Key>F13: redraw()" \
     -geometry 80x24 \
     -fa "DejaVu Sans Mono" \
     -fs 14 \
@@ -342,6 +349,32 @@ if [[ -s "$interactions_tsv" ]]; then
     step_index=$(( step_index + 1 ))
   done < "$interactions_tsv"
 fi
+
+# ── Repaint from the screen buffer, then screenshot ──────────────────────
+# xterm rasterises each contiguous chunk of printable bytes it receives as one
+# draw call, so identical screen contents look different depending on how the
+# writer chunked them. rich emits one write per styled run; Ink coalesces cells
+# of equal style first. Same buffer, same colours, and a one-pixel seam at the
+# last column of every cell followed by a same-coloured cell — a fact about the
+# byte stream, not about anything on screen, which any repaint erases.
+#
+# redraw() repaints the window from xterm's own screen buffer: a pure function of
+# the buffer and the font that knows nothing about who wrote it. Both sides land
+# on the same rasterisation, so the gate measures the terminal's contents rather
+# than the writer's chunking. It cannot hide a real defect — a difference in any
+# cell's character, colour or style is a different buffer, and repaints differently.
+#
+# Unconditional and identical on both sides; repainting only where a fixture
+# "needs" it would reintroduce the asymmetry this removes.
+# [LAW:dataflow-not-control-flow]
+#
+# F13 because no fixture binds it, so the keystroke cannot be read as input.
+# Settling goes through the same owner as every other step, in settle-only mode:
+# the repaint is post-render by definition and may reproduce the identical frame.
+# [LAW:no-ambient-temporal-coupling]
+xdotool windowfocus --sync "$window_id"
+xdotool key --window "$window_id" --clearmodifiers F13
+wait_for_stability 6000 ""
 
 # ── Final screenshot ─────────────────────────────────────────────────────
 mkdir -p "$(dirname "$output_path")"
