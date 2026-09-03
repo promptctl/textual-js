@@ -7,7 +7,7 @@ import { Input, SuggestFromList, runTest, type InputHandle } from "../src/index.
 import { NumberValidator } from "../src/validation/index.js";
 
 // [LAW:behavior-not-structure] These assert what an Input puts on screen — the
-// contract Python Textual defines and visual-tests/snapshots/python/input_*.json
+// contract Python Textual defines and visual-tests/snapshots/python/input_*.ansi
 // records. None of them reach into the component's runs, palette or CSS, so a
 // different implementation of the same contract still passes.
 

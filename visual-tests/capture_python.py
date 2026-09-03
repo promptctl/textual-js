@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """
-Capture terminal frames from Python Textual fixtures.
+Capture the cell-level record of Python Textual fixtures.
 
-Runs each fixture app headlessly at a fixed terminal size, then saves:
-  - An ANSI frame (for window screenshot capture)
-  - A styled cell grid (diagnostic only)
-  - A plain-text grid (diagnostic only)
+Runs each named fixture app headlessly at a fixed terminal size, then saves,
+beside the PNG that Gate 4 measures:
+  - <name>.ansi  the exact bytes Textual emitted, truecolor SGR and all
+  - <name>.txt   the plain text of the frame
 
-Must be run via uv from the visual-tests directory:
-    uv run python capture_python.py [fixture_name]
+Together with the PNG these are one baseline: one frame, three representations,
+captured under one environment (visual-tests/capture-env) and committed together.
+Nothing here decides *which* fixtures have baselines — the caller passes the
+names, and discover-fixtures.ts is the only place that set is derived.
+
+Invoked by render_pngs.ts inside the fixture container. To reproduce that step by
+hand, point uv at visual-tests/pyproject.toml the same way that caller does:
+    uv run --project visual-tests python visual-tests/capture_python.py <fixture> ...
 """
 
 from __future__ import annotations
@@ -16,25 +22,51 @@ from __future__ import annotations
 import asyncio
 import argparse
 import importlib.util
-import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
-# [LAW:one-source-of-truth] The two committed baselines for a fixture -- the
-# PNG the gate compares against and the JSON that documents it cell by cell --
-# have to be the same frame, and an animating widget only holds still if
-# Textual's animations are off. render-fixture-xvfb.sh sets this for the PNG
-# path; without the same setting here the two paths capture different frames of
-# the same fixture and quietly disagree. They did: progress_indeterminate's JSON
-# recorded an unhighlighted rail while its PNG recorded a fully highlighted bar,
-# and CLAUDE.md sends every diagnosis to the JSON first.
-#
-# Unconditional, not setdefault: a shell already exporting TEXTUAL_ANIMATIONS
-# would otherwise reopen the divergence silently, and the PNG path overrides it
-# the same way. Set before importing textual, which reads it at import time.
-os.environ["TEXTUAL_ANIMATIONS"] = "none"
+CAPTURE_ENV_PATH = Path(__file__).parent / "capture-env"
+
+
+def load_capture_env() -> tuple[dict[str, str], list[str]]:
+    """Parse the shared capture environment into (set, unset). See visual-tests/capture-env."""
+    entries: dict[str, str] = {}
+    removals: list[str] = []
+    for number, line in enumerate(CAPTURE_ENV_PATH.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("-"):
+            name = stripped[1:].strip()
+            # [LAW:no-silent-failure] `-NO_COLOR=1` would otherwise be stored whole,
+            # and popping a variable of that literal name is a no-op that leaves the
+            # real NO_COLOR set with nothing reported. The removal branch sits before
+            # the KEY=VALUE check, so it needs its own refusal rather than inheriting
+            # one.
+            if not name or "=" in name:
+                raise ValueError(f"{CAPTURE_ENV_PATH}:{number}: expected -KEY, got {stripped!r}")
+            removals.append(name)
+            continue
+        # [LAW:no-silent-failure] A malformed line means the capture environment
+        # is not what anyone thinks it is; every baseline downstream would be
+        # wrong in a way no diff shows. Refuse rather than skip the line.
+        if "=" not in stripped:
+            raise ValueError(
+                f"{CAPTURE_ENV_PATH}:{number}: expected KEY=VALUE or -KEY, got {stripped!r}"
+            )
+        key, value = stripped.split("=", 1)
+        entries[key.strip()] = value.strip()
+    return entries, removals
+
+
+# Applied unconditionally, overriding the ambient shell: a developer who happens
+# to export TEXTUAL_ANIMATIONS would otherwise capture a baseline nobody else can
+# reproduce. Must run before importing textual, which reads its env at import time.
+_capture_env, _capture_env_removals = load_capture_env()
+os.environ.update(_capture_env)
+for _name in _capture_env_removals:
+    os.environ.pop(_name, None)
 
 import textual  # noqa: E402,F401
 from rich.cells import cell_len
@@ -42,7 +74,6 @@ from rich.style import Style
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "python"
-FIXTURE_TODOS_PATH = Path(__file__).parent / "fixture-todos.json"
 
 TERMINAL_WIDTH = 80
 TERMINAL_HEIGHT = 24
@@ -50,40 +81,15 @@ AMBIENT_BACKGROUNDS = {"#121212"}
 AMBIENT_FOREGROUNDS = {"#e0e0e0"}
 
 
-def discover_todo_names() -> set[str]:
-    # [LAW:one-source-of-truth] Python capture reads the shared fixture todo
-    # file instead of maintaining a second skip list.
-    raw_todos = json.loads(FIXTURE_TODOS_PATH.read_text())
-
-    if not isinstance(raw_todos, list):
-        raise ValueError("fixture-todos.json must contain an array")
-
-    todo_names: set[str] = set()
-    for index, entry in enumerate(raw_todos):
-        if (
-            not isinstance(entry, dict)
-            or not isinstance(entry.get("name"), str)
-            or not isinstance(entry.get("stage"), str)
-            or not isinstance(entry.get("component"), str)
-            or not isinstance(entry.get("reason"), str)
-        ):
-            raise ValueError(
-                f"fixture-todos.json entry {index} must include name, stage, component, and reason strings"
-            )
-        todo_names.add(entry["name"])
-
-    return todo_names
-
-
-def discover_fixtures(include_todos: bool = False) -> list[Path]:
-    python_names = {path.stem for path in FIXTURES_DIR.glob("*.py")}
-    js_names = {path.stem for path in FIXTURES_DIR.glob("*.tsx")}
-    todo_names = discover_todo_names()
-    # [LAW:single-enforcer] Todo membership is the only Python capture boundary
-    # that admits future baselines without making them active gate fixtures.
-    active_names = (python_names & js_names) - todo_names
-    baseline_names = active_names | (python_names & todo_names if include_todos else set())
-    return [FIXTURES_DIR / f"{name}.py" for name in sorted(baseline_names)]
+def resolve_fixture(name: str) -> Path:
+    path = FIXTURES_DIR / f"{name}.py"
+    # [LAW:no-silent-failure] A name with no fixture means the caller's fixture
+    # list and this directory disagree. Skipping it would leave a stale cell record
+    # sitting beside a fresh PNG — exactly the divergence this script exists to
+    # avoid — and the run would still report success.
+    if not path.is_file():
+        raise FileNotFoundError(f"no Python fixture at {path}")
+    return path
 
 
 def load_fixture(path: Path):
@@ -270,7 +276,6 @@ async def capture_fixture(fixture_path: Path) -> None:
     app = app_class()
 
     ansi_path = SNAPSHOTS_DIR / f"{name}.ansi"
-    json_path = SNAPSHOTS_DIR / f"{name}.json"
     txt_path = SNAPSHOTS_DIR / f"{name}.txt"
 
     async with app.run_test(size=(TERMINAL_WIDTH, TERMINAL_HEIGHT), tooltips=True, headless=True) as pilot:
@@ -285,23 +290,16 @@ async def capture_fixture(fixture_path: Path) -> None:
         text_grid = styled_grid_to_text(styled_grid)
 
         ansi_path.write_text(ansi_frame)
-        json_path.write_text(json.dumps(styled_grid, indent=2) + "\n")
         txt_path.write_text(text_grid + ("\n" if text_grid else ""))
 
     print(f"    -> {ansi_path.relative_to(Path(__file__).parent)}")
-    print(f"    -> {json_path.relative_to(Path(__file__).parent)}")
     print(f"    -> {txt_path.relative_to(Path(__file__).parent)}")
 
 
-async def main(fixture_filter: str | None = None, include_todos: bool = False) -> None:
+async def main(names: list[str]) -> None:
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    fixtures = discover_fixtures(include_todos=include_todos)
-    if fixture_filter:
-        fixtures = [f for f in fixtures if f.stem == fixture_filter]
-        if not fixtures:
-            print(f"No fixture found matching: {fixture_filter}")
-            sys.exit(1)
+    fixtures = [resolve_fixture(name) for name in names]
 
     print(f"Capturing {len(fixtures)} Python Textual fixture(s)...\n")
 
@@ -312,12 +310,13 @@ async def main(fixture_filter: str | None = None, include_todos: bool = False) -
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Capture Python Textual visual fixtures.")
-    parser.add_argument("fixture", nargs="?")
-    parser.add_argument(
-        "--include-todos",
-        action="store_true",
-        help="Include Python fixtures listed in fixture-todos.json.",
+    parser = argparse.ArgumentParser(
+        description=(
+            "Capture the cell-level record of Python Textual fixtures. Fixture names are "
+            "supplied by the caller; discover-fixtures.ts owns which fixtures have baselines, "
+            "so this script never re-derives that set."
+        ),
     )
+    parser.add_argument("fixtures", nargs="+", metavar="FIXTURE")
     args = parser.parse_args()
-    asyncio.run(main(args.fixture, include_todos=args.include_todos))
+    asyncio.run(main(args.fixtures))

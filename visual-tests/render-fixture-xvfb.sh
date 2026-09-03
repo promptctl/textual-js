@@ -19,16 +19,12 @@
 # every knob has an owner and a load-bearing reason. Adding a knob means
 # adding a row here and a comment at the call site.
 #
-#   COLORTERM=truecolor    Tells terminal libs xterm supports 24-bit color.
-#   TERM=xterm-direct      Same; selects the truecolor terminfo entry.
-#   FORCE_COLOR=3          Rich/Textual: force truecolor regardless of TTY.
-#   TEXTUAL_COLOR_SYSTEM=truecolor
-#                          Forces Textual to emit themed colors as #RRGGBB
-#                          ANSI rather than 256-color approximations. Without
-#                          this, Python and JS sides fail AE==0.
-#   TEXTUAL_ANIMATIONS=none
-#                          Disables Textual's animation system. Animated
-#                          frames defeat screenshot-stability detection.
+#   visual-tests/capture-env
+#                          Every environment variable the fixture runs under,
+#                          and the reason for each. Owned by that file, not by
+#                          this one — capture_python.py applies the same file,
+#                          which is what keeps the PNG and the cell record on the
+#                          same frame. Add environment knobs there.
 #   xterm -bg "#121212"    Truecolor background; matches the Screen CSS
 #                          painted by both sides so empty cells agree.
 #   xterm -cr "#121212"    Cursor color = bg, hiding the block cursor that
@@ -44,6 +40,12 @@
 #                          xterm. This is a security footgun in a long-lived
 #                          xterm; here the xterm lives ~5–15s in a sealed
 #                          Xvfb, so the blast radius is the test container.
+#   xterm -xrm "XTerm*vt100.translations: #override <Key>F13: redraw()"
+#                          Binds a repaint to a key no fixture binds, so the
+#                          final screenshot is taken of a window redrawn from
+#                          xterm's screen buffer rather than of whatever the
+#                          writer's byte chunking happened to rasterise. See
+#                          the repaint step near the end of this script.
 
 set -euo pipefail
 
@@ -126,17 +128,87 @@ if ! xdpyinfo >/dev/null; then
   exit 1
 fi
 
+# ── Load the shared capture environment ──────────────────────────────────
+# [LAW:one-source-of-truth] visual-tests/capture-env is the only statement of
+# what environment a fixture is captured under; both this path and
+# capture_python.py apply it whole, so the PNG and the cell record describe the
+# same frame. Read into an array rather than exported, so it reaches the xterm
+# child without leaking into the orchestration around it.
+capture_env=()
+capture_env_unset=()
+capture_env_line=0
+# `trim` is the whole reason this loader can agree with capture_python.py's
+# line.strip()/key.strip()/value.strip(): every piece of a directive goes through
+# it, so no amount of incidental spacing changes what either path applies.
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  printf '%s' "${s%"${s##*[![:space:]]}"}"
+}
+
+capture_env_fatal() {
+  echo "fatal: ${visual_dir}/capture-env:${capture_env_line}: $1" >&2
+  exit 1
+}
+
+# The `echo` closes the classic `read` gotcha: a final line with no trailing
+# newline populates `line` but returns non-zero, so the loop body never runs for
+# it. capture_python.py reads through splitlines() and is immune. The last line
+# here is the `-NO_COLOR` directive, so the divergence that bug would produce is
+# colour silently surviving in the real-terminal capture and nowhere else.
+while IFS= read -r line; do
+  capture_env_line=$(( capture_env_line + 1 ))
+  line="$(trim "$line")"
+  [[ -z "$line" || "$line" == \#* ]] && continue
+
+  # A leading `-` removes the variable; see the format note in capture-env.
+  if [[ "$line" == -* ]]; then
+    name="$(trim "${line#-}")"
+    # [LAW:no-silent-failure] `-NO_COLOR=1` would otherwise be stored whole and
+    # unset a variable of that literal name, leaving the real NO_COLOR set with
+    # nothing reported. The removal branch gets the same refusal as the
+    # assignment branch, because it can fail the same way.
+    [[ -n "$name" && "$name" != *=* ]] || capture_env_fatal "expected -KEY, got '${line}'"
+    capture_env_unset+=("$name")
+    continue
+  fi
+
+  # [LAW:no-silent-failure] `env` execs the first argument that is not KEY=VALUE,
+  # so a malformed line here would surface as `env: <garbage>: No such file or
+  # directory` from a process three layers down. capture_python.py rejects the
+  # same line naming file:line, and a file both paths must "apply whole" has to
+  # fail the same way on both.
+  [[ "$line" == *=* ]] || capture_env_fatal "expected KEY=VALUE or -KEY, got '${line}'"
+  key="$(trim "${line%%=*}")"
+  value="$(trim "${line#*=}")"
+  [[ -n "$key" ]] || capture_env_fatal "expected KEY=VALUE or -KEY, got '${line}'"
+  capture_env+=("${key}=${value}")
+done < <(cat "${visual_dir}/capture-env"; echo)
+
+# [LAW:no-silent-failure] An empty environment would render every fixture under
+# whatever the ambient shell happens to hold, producing baselines nobody can
+# reproduce, and the PNGs would look plausible either way.
+if (( ${#capture_env[@]} == 0 )); then
+  echo "fatal: ${visual_dir}/capture-env declared no variables" >&2
+  exit 1
+fi
+
 # ── Launch xterm running the real fixture ────────────────────────────────
-env -u NO_COLOR \
-  COLORTERM=truecolor \
-  TERM=xterm-direct \
-  TEXTUAL_ANIMATIONS=none \
-  TEXTUAL_COLOR_SYSTEM=truecolor \
-  FORCE_COLOR=3 \
+# `env -u` args are built from capture-env's `-KEY` directives, not hardcoded, so
+# a variable that must be absent is declared in the same one file as every
+# variable that must be set. [LAW:one-source-of-truth]
+env_unset_args=()
+for name in ${capture_env_unset[@]+"${capture_env_unset[@]}"}; do
+  env_unset_args+=(-u "$name")
+done
+
+env ${env_unset_args[@]+"${env_unset_args[@]}"} \
+  "${capture_env[@]}" \
   xterm \
     -u8 \
     +sb \
     -xrm "XTerm*vt100.allowSendEvents: true" \
+    -xrm "XTerm*vt100.translations: #override <Key>F13: redraw()" \
     -geometry 80x24 \
     -fa "DejaVu Sans Mono" \
     -fs 14 \
@@ -330,6 +402,32 @@ if [[ -s "$interactions_tsv" ]]; then
     step_index=$(( step_index + 1 ))
   done < "$interactions_tsv"
 fi
+
+# ── Repaint from the screen buffer, then screenshot ──────────────────────
+# xterm rasterises each contiguous chunk of printable bytes it receives as one
+# draw call, so identical screen contents look different depending on how the
+# writer chunked them. rich emits one write per styled run; Ink coalesces cells
+# of equal style first. Same buffer, same colours, and a one-pixel seam at the
+# last column of every cell followed by a same-coloured cell — a fact about the
+# byte stream, not about anything on screen, which any repaint erases.
+#
+# redraw() repaints the window from xterm's own screen buffer: a pure function of
+# the buffer and the font that knows nothing about who wrote it. Both sides land
+# on the same rasterisation, so the gate measures the terminal's contents rather
+# than the writer's chunking. It cannot hide a real defect — a difference in any
+# cell's character, colour or style is a different buffer, and repaints differently.
+#
+# Unconditional and identical on both sides; repainting only where a fixture
+# "needs" it would reintroduce the asymmetry this removes.
+# [LAW:dataflow-not-control-flow]
+#
+# F13 because no fixture binds it, so the keystroke cannot be read as input.
+# Settling goes through the same owner as every other step, in settle-only mode:
+# the repaint is post-render by definition and may reproduce the identical frame.
+# [LAW:no-ambient-temporal-coupling]
+xdotool windowfocus --sync "$window_id"
+xdotool key --window "$window_id" --clearmodifiers F13
+wait_for_stability 6000 ""
 
 # ── Final screenshot ─────────────────────────────────────────────────────
 mkdir -p "$(dirname "$output_path")"

@@ -30,7 +30,7 @@ import {
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
 // Textual's own footer palette, cell-for-cell. Ground truth for every value
-// here is visual-tests/snapshots/python/footer_with_bindings.json.
+// here is visual-tests/snapshots/python/footer_with_bindings.ansi.
 const FOOTER_BACKGROUND = "#242f38";
 const FOOTER_FOREGROUND = "#e0e0e0";
 const FOOTER_KEY_COLOR = "#ffa62b";

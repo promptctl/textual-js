@@ -1,0 +1,24 @@
+📂 textual_dirtree_bm7jrb8x                                                     
+├── 📁 subdir                                                                   
+├── 📄 alpha.txt                                                                
+├── 📄 beta.txt                                                                 
+└── 📄 gamma.md                                                                 
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
