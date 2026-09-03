@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -171,14 +172,14 @@ describe("visual harness gating", () => {
 });
 
 describe("capture environment", () => {
-  const VISUAL_TESTS = join(import.meta.dirname, "..", "visual-tests");
+  const VISUAL_TESTS = join(dirname(fileURLToPath(import.meta.url)), "..", "visual-tests");
 
   function declaredCaptureVariables(): string[] {
     return readFileSync(join(VISUAL_TESTS, "capture-env"), "utf8")
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"))
-      .map((line) => line.split("=", 1)[0]);
+      .map((line) => line.replace(/^-/, "").split("=", 1)[0]);
   }
 
   it("declares the variables both capture paths depend on", () => {
@@ -193,23 +194,24 @@ describe("capture environment", () => {
   it.each(["render-fixture-xvfb.sh", "capture_python.py"])(
     "leaves %s with no capture variable of its own",
     (script) => {
-      // [LAW:one-source-of-truth] A fixture's PNG and its cell grid are the same
-      // frame only while both paths run the app under the same environment. That
-      // held by two files agreeing, and they stopped agreeing: progress_indeterminate's
-      // JSON recorded an unhighlighted rail its PNG did not have. Re-hardcoding any
-      // of these values here reopens exactly that gap, and no baseline diff shows it.
+      // [LAW:one-source-of-truth] A fixture's PNG and its cell record are the same
+      // frame only while both paths run the app under the same environment. That held
+      // by two files agreeing, and they stopped agreeing: progress_indeterminate's cell
+      // record showed an unhighlighted rail its PNG did not have. Re-hardcoding any of
+      // these values here reopens that gap, and no baseline diff shows it.
       const source = readFileSync(join(VISUAL_TESTS, script), "utf8")
         .split("\n")
         .filter((line) => !line.trim().startsWith("#"))
         .join("\n");
 
-      // Both spellings, because the two paths write assignments differently:
-      // `TEXTUAL_ANIMATIONS=none` in shell, `os.environ["TEXTUAL_ANIMATIONS"] = "none"`
-      // in Python. A pattern anchored to `NAME=` alone matches only the first and
-      // waves the second through — verified by running this test against the source
-      // before this change, where it caught the shell file and missed the Python one.
+      // Three spellings, because the paths write assignments three different ways:
+      // `NAME=value` in shell, `os.environ["NAME"] = value`, and `os.environ.update(
+      // {"NAME": value})` — the last being the idiom capture_python.py itself uses to
+      // apply this very file, so it is the one a reintroduction is most likely to
+      // reach for. Each was added only after watching the previous pattern wave the
+      // new spelling through; a guard is worth exactly what it has been tested against.
       for (const variable of declaredCaptureVariables()) {
-        expect(source).not.toMatch(new RegExp(`${variable}["'\\]\\s]*=`));
+        expect(source).not.toMatch(new RegExp(`${variable}["'\\]\\s]*[=:]`));
       }
     },
   );

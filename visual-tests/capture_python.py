@@ -29,28 +29,36 @@ from typing import Any
 CAPTURE_ENV_PATH = Path(__file__).parent / "capture-env"
 
 
-def load_capture_env() -> dict[str, str]:
-    """Parse the shared capture environment. See visual-tests/capture-env."""
+def load_capture_env() -> tuple[dict[str, str], list[str]]:
+    """Parse the shared capture environment into (set, unset). See visual-tests/capture-env."""
     entries: dict[str, str] = {}
+    removals: list[str] = []
     for number, line in enumerate(CAPTURE_ENV_PATH.read_text().splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("-"):
+            removals.append(stripped[1:].strip())
             continue
         # [LAW:no-silent-failure] A malformed line means the capture environment
         # is not what anyone thinks it is; every baseline downstream would be
         # wrong in a way no diff shows. Refuse rather than skip the line.
         if "=" not in stripped:
-            raise ValueError(f"{CAPTURE_ENV_PATH}:{number}: expected KEY=VALUE, got {stripped!r}")
+            raise ValueError(
+                f"{CAPTURE_ENV_PATH}:{number}: expected KEY=VALUE or -KEY, got {stripped!r}"
+            )
         key, value = stripped.split("=", 1)
         entries[key.strip()] = value.strip()
-    return entries
+    return entries, removals
 
 
 # Applied unconditionally, overriding the ambient shell: a developer who happens
 # to export TEXTUAL_ANIMATIONS would otherwise capture a baseline nobody else can
 # reproduce. Must run before importing textual, which reads its env at import time.
-os.environ.update(load_capture_env())
-os.environ.pop("NO_COLOR", None)
+_capture_env, _capture_env_removals = load_capture_env()
+os.environ.update(_capture_env)
+for _name in _capture_env_removals:
+    os.environ.pop(_name, None)
 
 import textual  # noqa: E402,F401
 from rich.cells import cell_len

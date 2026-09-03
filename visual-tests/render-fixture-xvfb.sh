@@ -135,17 +135,30 @@ fi
 # same frame. Read into an array rather than exported, so it reaches the xterm
 # child without leaking into the orchestration around it.
 capture_env=()
+capture_env_unset=()
 capture_env_line=0
 while IFS= read -r line; do
   capture_env_line=$(( capture_env_line + 1 ))
-  [[ -z "${line// }" || "$line" == \#* ]] && continue
+  # Trimmed once, before every test, because capture_python.py reads the same
+  # file through line.strip(). Untrimmed, `  FORCE_COLOR=3` still contains `=`
+  # and would pass the check below, handing `env` a variable literally named
+  # "  FORCE_COLOR" — truecolor forcing would stop applying on this path only,
+  # with no error and a PNG that still looks plausible.
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%"${line##*[![:space:]]}"}"
+  [[ -z "$line" || "$line" == \#* ]] && continue
+  # A leading `-` removes the variable; see the format note in capture-env.
+  if [[ "$line" == -* ]]; then
+    capture_env_unset+=("${line#-}")
+    continue
+  fi
   # [LAW:no-silent-failure] `env` execs the first argument that is not KEY=VALUE,
   # so a malformed line here would surface as `env: <garbage>: No such file or
   # directory` from a process three layers down. capture_python.py rejects the
   # same line naming file:line, and a file both paths must "apply whole" has to
   # fail the same way on both.
   if [[ "$line" != *=* ]]; then
-    echo "fatal: ${visual_dir}/capture-env:${capture_env_line}: expected KEY=VALUE, got '${line}'" >&2
+    echo "fatal: ${visual_dir}/capture-env:${capture_env_line}: expected KEY=VALUE or -KEY, got '${line}'" >&2
     exit 1
   fi
   capture_env+=("$line")
@@ -160,7 +173,15 @@ if (( ${#capture_env[@]} == 0 )); then
 fi
 
 # ── Launch xterm running the real fixture ────────────────────────────────
-env -u NO_COLOR \
+# `env -u` args are built from capture-env's `-KEY` directives, not hardcoded, so
+# a variable that must be absent is declared in the same one file as every
+# variable that must be set. [LAW:one-source-of-truth]
+env_unset_args=()
+for name in ${capture_env_unset[@]+"${capture_env_unset[@]}"}; do
+  env_unset_args+=(-u "$name")
+done
+
+env ${env_unset_args[@]+"${env_unset_args[@]}"} \
   "${capture_env[@]}" \
   xterm \
     -u8 \

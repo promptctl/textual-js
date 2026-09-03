@@ -11,8 +11,15 @@
 # Every capture path applies this file whole. There is no per-path subset — a
 # subset is how the two drift back apart. [LAW:dataflow-not-control-flow]
 #
-# Format is KEY=VALUE, one per line, no quoting or expansion, so a shell can
-# `source` it and Python can split it on the first `=`.
+# Format, one directive per line, no quoting or expansion:
+#   KEY=VALUE   set KEY to VALUE
+#   -KEY        remove KEY from the environment
+#
+# The `-` form exists because NO_COLOR cannot be expressed as KEY=VALUE: per its
+# spec the variable being PRESENT is what suppresses colour, so `NO_COLOR=` still
+# suppresses. Without a way to say "absent" here, the one variable that has to be
+# unset would live hand-duplicated in both loaders — the subset this file exists
+# to prevent.
 
 # Textual's animation system produces non-identical frames forever, which defeats
 # screenshot-stability detection and makes any single captured frame arbitrary.
@@ -31,3 +38,8 @@ FORCE_COLOR=3
 # xterm itself on the real-terminal path; harmless and consistent elsewhere.
 COLORTERM=truecolor
 TERM=xterm-direct
+
+# Rich and Textual honour NO_COLOR over FORCE_COLOR, so an ambient NO_COLOR from
+# a shell or CI runner silently strips every colour out of a capture while the
+# render still succeeds and the PNG still looks plausible.
+-NO_COLOR

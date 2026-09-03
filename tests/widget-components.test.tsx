@@ -273,7 +273,7 @@ describe("Button", () => {
 
 // Sparkline paints forty per-cell colours through one Content, so a regression
 // in span construction shows up as colours flattening rather than as a crash.
-// Both expectations are read off visual-tests/snapshots/python/sparkline_basic.json,
+// Both expectations are read off visual-tests/snapshots/python/sparkline_basic.ansi,
 // the same ground truth the pixel gate compares against.
 describe("Sparkline", () => {
   const DATA = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
