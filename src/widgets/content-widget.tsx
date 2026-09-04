@@ -9,6 +9,7 @@ import {
   resolveVisualRenderHeight,
   resolveVisualRenderWidth,
   visualize,
+  type Visual,
   type VisualInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget, type UseWidgetOptions } from "../framework/context.js";
@@ -79,7 +80,9 @@ const ContentBody = observer(function ContentBody({
 }: {
   nodeId: string;
   styles: ResolvedStyles;
-  content: ContentSource | undefined;
+  // Already resolved where it could be: a finished `Visual` for content that
+  // cannot depend on the box, or the rule still waiting for one that can.
+  content: Visual | ((size: MeasuredSize) => VisualInput);
   measured: MeasuredSize;
 }): React.JSX.Element | null {
   // The content area on both axes: what gets painted, and what a size-reading
@@ -89,8 +92,11 @@ const ContentBody = observer(function ContentBody({
   const width = resolveVisualRenderWidth(measured.width, styles.box);
   const height = resolveVisualRenderHeight(measured.height, styles.box);
 
+  // A resize re-runs this for every widget on screen at once, so the value case
+  // must not do work here: it arrives already visualised and is handed straight
+  // back, no markup re-parsed.
   const visual = React.useMemo(
-    () => visualize(typeof content === "function" ? content({ width, height }) : content),
+    () => (typeof content === "function" ? visualize(content({ width, height })) : content),
     [content, width, height],
   );
 
@@ -110,6 +116,16 @@ export const ContentWidget = observer(function ContentWidget({
   borderTitle,
   borderSubtitle,
 }: ContentWidgetProps): React.JSX.Element {
+  // [LAW:dataflow-not-control-flow] The union's own discriminator decides where
+  // each arm is resolved, and each is resolved exactly once: a value cannot
+  // depend on the box, so it is visualised here, out of the box's scope, where
+  // a resize cannot invalidate it. A function can, so it travels intact to the
+  // measured pass below.
+  const resolvedContent = React.useMemo(
+    () => (typeof content === "function" ? content : visualize(content)),
+    [content],
+  );
+
   const widget = useWidget({
     ...identity,
     id,
@@ -131,7 +147,7 @@ export const ContentWidget = observer(function ContentWidget({
             <ContentBody
               nodeId={widget.nodeId}
               styles={styles}
-              content={content}
+              content={resolvedContent}
               measured={measured}
             />
           </WidgetFrame>

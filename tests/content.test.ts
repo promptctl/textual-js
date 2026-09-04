@@ -461,6 +461,7 @@ describe("Content wrap", () => {
 
 describe("content alignment in a box", () => {
   const box = { width: 9, height: 3 };
+  const TOP_LEFT = { horizontal: "left", vertical: "top" } as const;
 
   function rows(content: Content): string[] {
     return content.plain.split("\n");
@@ -508,6 +509,26 @@ describe("content alignment in a box", () => {
     });
 
     expect(rows(aligned)).toEqual(["one      ", "two      ", "three    "]);
+  });
+
+  it("keeps every row exactly the box's width, even around a glyph too wide for it", () => {
+    // The invariant this function exists to provide, checked where it is most
+    // fragile: a cluster that cannot be cut in half. `truncate` drops such a
+    // glyph rather than leaving it whole, so the row is filled out with blanks
+    // instead of overflowing — a row wider than the box would push the widget
+    // out of the region Ink measured it into.
+    const cells = (content: Content): number[] =>
+      content.plain.split("\n").map((row) => new Content(row).cellLength);
+
+    expect(cells(alignContentInBox(new Content("文"), { width: 1, height: 2 }, TOP_LEFT))).toEqual([
+      1, 1,
+    ]);
+    expect(
+      cells(alignContentInBox(new Content("a文b"), { width: 2, height: 2 }, TOP_LEFT)),
+    ).toEqual([2, 2]);
+    expect(cells(alignContentInBox(new Content("文文"), { width: 3, height: 1 }, TOP_LEFT))).toEqual(
+      [3],
+    );
   });
 
   it("insets the block on every side and still paints the inset cells", () => {

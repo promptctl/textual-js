@@ -56,6 +56,13 @@ export function Placeholder({
 }: PlaceholderProps): React.JSX.Element {
   const app = useTextual();
 
+  // [LAW:parse-dont-validate] The checkpoint runs before anything that assumes
+  // it passed. Claiming a colour first would spend an index from the app's
+  // shared sequence on a placeholder that then throws — leaving every later
+  // placeholder one colour off, and nothing to unwind it, since the claim is a
+  // raw side effect React knows nothing about.
+  const baseVariant = parsePlaceholderVariant(variant);
+
   // Consecutive placeholders in one app get consecutive colours, so this
   // instance claims one index and keeps it.
   //
@@ -78,7 +85,7 @@ export function Placeholder({
   // exactly the prop. [LAW:one-source-of-truth]
   const [cycleSteps, setCycleSteps] = React.useState(0);
 
-  const activeVariant = cyclePlaceholderVariant(parsePlaceholderVariant(variant), cycleSteps);
+  const activeVariant = cyclePlaceholderVariant(baseVariant, cycleSteps);
 
   // Held stable across renders so the content memo downstream can hit: a fresh
   // closure every render would re-wrap the lorem, grapheme by grapheme, for

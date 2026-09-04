@@ -5,7 +5,9 @@ import React from "react";
 import stripAnsi from "strip-ansi";
 import { describe, expect, it } from "vitest";
 
-import { InvalidPlaceholderVariant, Placeholder, runTest, type TestSession } from "../src/index.js";
+import { App, InvalidPlaceholderVariant, Placeholder, runTest, type TestSession } from "../src/index.js";
+import { TextualApp } from "../src/app/textual-app.js";
+import { runTestRoot } from "../src/testing/run-test.js";
 import {
   PLACEHOLDER_PALETTE,
   PLACEHOLDER_VARIANTS,
@@ -447,3 +449,55 @@ function ansiBackground(hexColor: string): string {
 
   return `48;2;${(value >> 16) & 0xff};${(value >> 8) & 0xff};${value & 0xff}`;
 }
+
+describe("public surface", () => {
+  it("exports the primitives a custom painted widget needs, from the package root", async () => {
+    // Placeholder is the worked example of building a widget that paints every
+    // cell of its box, and every piece it leans on has to be reachable from the
+    // package root or the example cannot be followed outside this repo. The
+    // resolvers arrived here one round before the aligners did, which is the
+    // gap this pins.
+    const api = await import("../src/index.js");
+
+    expect(typeof api.resolveVisualRenderWidth).toBe("function");
+    expect(typeof api.resolveVisualRenderHeight).toBe("function");
+    expect(typeof api.alignContentInBox).toBe("function");
+    expect(typeof api.alignContentInPaddedBox).toBe("function");
+  });
+});
+
+describe("placeholder colour sequence", () => {
+  it("does not spend a colour on a placeholder that fails to render", async () => {
+    // The colour sequence belongs to the app, so this shares one app across two
+    // roots — the only way to see the effect of a render that threw, since a
+    // fresh app would start the sequence over and hide it.
+    //
+    // Claiming before parsing would burn index 0 on the invalid placeholder and
+    // leave the valid one wearing the second colour, one off from every
+    // baseline, with nothing to unwind the claim.
+    const app = new App();
+
+    await expect(
+      runTestRoot(
+        <TextualApp app={app}>
+          <Placeholder variant="bogus" />
+        </TextualApp>,
+        app,
+      ),
+    ).rejects.toThrow(InvalidPlaceholderVariant);
+
+    const session = await runTestRoot(
+      <TextualApp app={app} css="Placeholder { height: 5; }">
+        <Placeholder label="First" />
+      </TextualApp>,
+      app,
+    );
+    await session.app.whenIdle();
+
+    expect(session.lastFrame() ?? "").toContain(
+      ansiBackground(PLACEHOLDER_PALETTE[0].background),
+    );
+
+    session.unmount();
+  });
+});
