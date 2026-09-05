@@ -36,8 +36,17 @@ cd visual-tests && uv run python -c \
 ```
 
 When the answer surprises you, read the method: `inspect.getsource(Content.wrap)` in
-that same env. The pinned reference is textual 8.2.3, in the uv environment under
-`visual-tests/`.
+that same env.
+
+The behaviour in this file was **verified against textual 8.2.3** — verified, not
+pinned. `visual-tests/pyproject.toml` asks only for `textual>=1.0.0`, and
+`visual-tests/uv.lock` is gitignored (`.gitignore:16`), so the version your env resolved
+is not something the repo controls. If the oracle ever contradicts this file, establish
+which one drifted before you believe either:
+
+```bash
+cd visual-tests && uv run python -c "import textual; print(textual.__version__)"
+```
 
 The moment this rule dies is quiet and reasonable. You will be mid-implementation,
 `rich-js` will already be imported two lines up, its behaviour will be right there in
@@ -99,8 +108,10 @@ scripts exist because `[LAW:]` comments do not fail CI and scripts do:
 for tool in tsx docker magick; do
 ```
 
-`tsx`, `docker`, `magick`. Not `uv` — `uv` belongs to the Python baseline
-regeneration path (`visual-tests/render-fixture-xvfb.sh`), which `run.sh` never calls.
+`tsx`, `docker`, `magick`. Not `uv` — Gate 4 never invokes it.
+`render-fixture-xvfb.sh` *is* in the call path (`render_pngs.ts:72` runs it inside the
+container), but its `js` branch drives `tsx runner_js.tsx`. `uv` belongs to baseline
+regeneration.
 
 **There is no Docker on this machine.** Podman is installed and its VM runs, but
 `run.sh` hardcodes the name `docker`. Use a session-scoped shim:
@@ -187,8 +198,13 @@ Three traps, each of which type-checks, renders, and is wrong:
   position the text correctly and leave the surrounding cells transparent.
 - **`"1fr"` resolves to ONE CELL here.** `scalarToInkValue` defaults `fractionBasis = 1`
   (`src/styles/scalar.ts:164`), so `1 * 1 = 1`. Write `width: 100%`.
-- **Labels go out as `new Content(label)`.** Not `Content.fromText`. The `fromText` path
-  parses markup, so a label reading `[draft]` becomes a style tag and vanishes.
+- **`Content.fromText` parses markup; `new Content` does not.** Choose on what the
+  string *is*, never on the word "label". A caller's opaque text takes `new Content` —
+  a Placeholder reading `[draft]` otherwise loses seven visible characters to an unknown
+  tag (`src/widgets/placeholder.ts:191`). A prop documented to accept markup takes
+  `fromText`: Button (`button.ts:21`) and ToggleButton (`toggle.ts:23`) do, and the
+  `button_markup` fixture pair holds them to it. "Simplifying" those to `new Content`
+  breaks a tested behaviour.
 
 ---
 
