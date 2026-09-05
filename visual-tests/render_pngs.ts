@@ -6,7 +6,11 @@
  * the PNG is what xterm actually drew for the real library code.
  *
  * Usage:
- *   tsx render_pngs.ts [fixture]  --side=python|js|both  [--include-todos]
+ *   tsx render_pngs.ts [fixture]  --side=python|js|both
+ *
+ * There is no `--include-todos`: this line used to advertise one, and nothing
+ * ever parsed it. `--side=python` already covers todo-listed baselines, which is
+ * the case the flag was reaching for.
  */
 
 import { mkdir } from "node:fs/promises";

@@ -6,7 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { captureFixtures } from "../visual-tests/capture_js.ts";
 import { summarizeReports } from "../visual-tests/compare.ts";
-import { derivePairedFixtureNames, derivePythonBaselineFixtureNames } from "../visual-tests/discover-fixtures.ts";
+import {
+  deriveKnownDiffFixtureNames,
+  derivePairedFixtureNames,
+  derivePythonBaselineFixtureNames,
+} from "../visual-tests/discover-fixtures.ts";
 import { diffStyledGrids, parseAnsiToStyledGrid } from "../visual-tests/styled-grid.ts";
 
 describe("visual harness gating", () => {
@@ -44,19 +48,39 @@ describe("visual harness gating", () => {
     ).toEqual(["button_markup", "static_basic"]);
   });
 
-  it("excludes todo fixtures from the active visual gate", () => {
+  it("compares a todo fixture that has both sides instead of suppressing it", () => {
+    const entries = [
+      "button_markup.py",
+      "button_markup.tsx",
+      "header_basic.py",
+      "header_basic.tsx",
+      "python_only.py",
+    ];
+
+    // A todo entry no longer removes a pair from the comparison — it only
+    // records why the pair is expected to differ.
+    expect(derivePairedFixtureNames(entries)).toEqual(["button_markup", "header_basic"]);
+    expect(deriveKnownDiffFixtureNames(entries, new Set(["header_basic"]))).toEqual(
+      new Set(["header_basic"]),
+    );
+  });
+
+  it("does not call an unbuilt todo fixture a known diff", () => {
+    // No `.tsx`, so there is nothing to compare and nothing to know about.
     expect(
-      derivePairedFixtureNames(
-        [
-          "button_markup.py",
-          "button_markup.tsx",
-          "header_basic.py",
-          "header_basic.tsx",
-          "python_only.py",
-        ],
-        new Set(["header_basic"]),
-      ),
-    ).toEqual(["button_markup"]);
+      deriveKnownDiffFixtureNames(["tree_basic.py", "python_only.py"], new Set(["tree_basic"])),
+    ).toEqual(new Set());
+  });
+
+  it("keeps a known diff out of the failing count but still reports missing renders", () => {
+    const summary = summarizeReports([
+      { name: "ok", status: "match", knownDiff: false, pixelDiffCount: 0, pythonSize: "8x8", jsSize: "8x8" },
+      { name: "regressed", status: "diff", knownDiff: false, pixelDiffCount: 12, pythonSize: "8x8", jsSize: "8x8" },
+      { name: "deferred", status: "diff", knownDiff: true, pixelDiffCount: 400, pythonSize: "8x8", jsSize: "8x8" },
+      { name: "never-rendered", status: "missing-js", knownDiff: true, pixelDiffCount: 0, pythonSize: "-", jsSize: "-" },
+    ]);
+
+    expect(summary).toEqual({ matched: 1, diffed: 1, knownDiff: 1, missing: 1 });
   });
 
   it("includes todo python fixtures in baseline generation", () => {
@@ -167,7 +191,7 @@ describe("visual harness gating", () => {
       },
     ]);
 
-    expect(summary).toEqual({ matched: 1, diffed: 0, missing: 2 });
+    expect(summary).toEqual({ matched: 1, diffed: 0, knownDiff: 0, missing: 2 });
   });
 });
 

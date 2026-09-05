@@ -377,6 +377,27 @@ describe("Button", () => {
     session.unmount();
   });
 
+  // A label is clipped to the width the button paints, so a button wider than
+  // its `min-width` shows more of its label — not the 14 cells `min-width: 16`
+  // would allow. Both widths once had their own formula, and the pair disagreed
+  // exactly when they stopped being equal: a `-full-width` button painted 80
+  // cells around a label cropped to 14.
+  it("does not clip a full-width button's label to its min-width", async () => {
+    const session = await runTest(<Button label="Save all changes" classes="-full-width" />);
+
+    expect(session.lastFrame()).toContain("Save all changes");
+
+    session.unmount();
+  });
+
+  it("grows an auto-width button past min-width rather than clipping the label", async () => {
+    const session = await runTest(<Button label="Save all changes" />);
+
+    expect(session.lastFrame()).toContain("Save all changes");
+
+    session.unmount();
+  });
+
   it("posts ButtonPressed on enter key", async () => {
     const messages: string[] = [];
     const session = await runTest(
