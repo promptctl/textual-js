@@ -167,8 +167,8 @@ const BOOLEAN_TOKENS: Record<`${boolean}`, PrettyToken> = {
   false: { text: "False", kind: "boolFalse" },
 };
 
-// The short forms for the control characters that have one. Everything else in
-// the control range falls through to `\xNN` in `controlEscape` below.
+// The short forms for the control characters that have one. Everything Python
+// will not print falls through to the numeric escape in `controlEscape` below.
 //
 // Every path that produces leaf text goes through these, because a literal
 // newline in a leaf breaks the invariant the whole layout pass rests on: a
@@ -240,11 +240,25 @@ function singleLine(value: unknown): string {
     .join("");
 }
 
+// What Python's `repr` escapes is exactly what `str.isprintable()` calls
+// non-printable: every character whose General_Category is Other or Separator,
+// save the ASCII space. That is a property of the character, and writing it as
+// the code range that reads like the definition — `< 0x20 || 0x7f` — silently
+// prints U+0085 and U+200B as raw bytes into a cell nothing can see them in.
+// The lookahead excises the one Separator Python prints, so the class is the
+// whole rule and nothing downstream re-tests for a space.
+const NON_PRINTABLE = /^(?! )[\p{C}\p{Z}]$/u;
+
 function controlEscape(character: string): string {
   const code = character.codePointAt(0) ?? 0;
-  return code < 0x20 || code === 0x7f
-    ? `\\x${code.toString(16).padStart(2, "0")}`
-    : character;
+  return NON_PRINTABLE.test(character) ? numericEscape(code) : character;
+}
+
+// Python picks the escape's width from the code point itself, so `\xNN` alone
+// cannot express the rule: U+200B is `\u200b` to Python and never `\x200b`.
+function numericEscape(code: number): string {
+  const [prefix, digits] = code <= 0xff ? ["x", 2] : code <= 0xffff ? ["u", 4] : ["U", 8];
+  return `\\${prefix}${code.toString(16).padStart(digits, "0")}`;
 }
 
 /**

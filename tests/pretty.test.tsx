@@ -182,6 +182,28 @@ describe("Pretty formatting", () => {
     expect(repr("unié中")).toBe("'unié中'");
   });
 
+  it("escapes exactly what Python will not print, at the width Python writes it", () => {
+    // Python's `repr` escapes what `str.isprintable()` rejects — General_Category
+    // Other or Separator — and picks `\xNN` / `\uNNNN` / `\UNNNNNNNN` from the
+    // code point. A code range like `< 0x20 || 0x7f` looks like that rule and is
+    // not it: each of the first four below sits outside such a range and would
+    // paint as a raw invisible byte, which is the one class of error a terminal
+    // fixture is physically incapable of showing \u2014 which is also why every one
+    // is spelled as an escape here: an invisible literal in the source is a
+    // test nobody can review.
+    expect(repr("a\u0085b")).toBe("'a\\x85b'"); // Cc, C1 control
+    expect(repr("a\u00a0b")).toBe("'a\\xa0b'"); // Zs, no-break space
+    expect(repr("a\u200bb")).toBe("'a\\u200bb'"); // Cf, zero-width space
+    expect(repr("a\u2028b")).toBe("'a\\u2028b'"); // Zl, line separator
+    expect(repr("a\uffffb")).toBe("'a\\uffffb'"); // Cn, unassigned
+    expect(repr("a\u{1d173}b")).toBe("'a\\U0001d173b'"); // Cf above the BMP
+
+    // The ASCII space is the one Separator Python prints, and an astral glyph
+    // with a real category is printable like any other letter.
+    expect(repr("a b")).toBe("'a b'");
+    expect(repr("\u00e9\u4e2d\u{1f600}")).toBe("'\u00e9\u4e2d\u{1f600}'");
+  });
+
   it("renders a Map as a mapping and a Set as a set", () => {
     // The JavaScript spellings of Python's dict and set, so they get Python's
     // renderings. An empty set is `set()` rather than `{}`, which is the one
