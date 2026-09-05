@@ -23,9 +23,19 @@ export interface PrettyProps extends WidgetComponentProps {
 
 // Upstream declares only `height: auto`, which is what Ink's flexbox does
 // unprompted, so it is left out rather than restated — the same call Digits
-// made. `width` is not left out: upstream inherits Widget's `width: 1fr`, and
-// this port resolves a fraction against a basis of 1, so the inherited default
-// would be a one-column Pretty. `100%` is what `1fr` means here.
+// made. `width` is written down for the opposite reason: upstream declares
+// none at all. `Pretty.DEFAULT_CSS` is `height: auto` alone and
+// `Widget.DEFAULT_CSS` sets no width, so `styles.width` is `None` — which
+// `Widget._get_box_model` special-cases to fill the available space, and does
+// so unconditionally, where a real fraction is downgraded to `auto` in a
+// non-greedy context. There is no such special case here, so the fill has to
+// be stated, and `100%` states it: a percentage fills unconditionally too,
+// while `1fr` would resolve against `scalarToInkValue`'s fraction basis of 1
+// and give a one-column Pretty.
+//
+// Digits is the neighbour to not read this off. Its `width: 1fr` is real and
+// declared in `Digits.DEFAULT_CSS`; it is that widget's own rule, not a
+// Widget-wide default to inherit.
 //
 // Width matters more for this widget than for most, because it is also the
 // width the repr is laid out against. Taking it from the parent rather than
