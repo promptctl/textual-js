@@ -11,6 +11,7 @@ import {
   type ContentInput,
 } from "../content/index.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
+import { MeasuredSizeReader } from "../framework/measured-size.js";
 import {
   DISABLED_DIM_FACTOR,
   DISABLED_DIM_TARGET,
@@ -18,6 +19,7 @@ import {
   isHexColor,
   mixColor,
 } from "../styles/index.js";
+import { AUTO } from "../styles/box-geometry.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -32,6 +34,16 @@ export interface ButtonProps extends WidgetComponentProps {
 // Textual's Button is width:auto — it hugs its label rather than filling its
 // container, which is what keeps a 16-cell button from hit-testing across the
 // full screen width.
+//
+// `-full-width` is the opt-out, and it exists because a composing widget has no
+// other way to ask for one. Upstream spells it `Welcome #close { width: 100% }`
+// in Welcome's own DEFAULT_CSS; here a widget's cascade is built from its own
+// type's default stylesheets plus the screen's user CSS
+// (resolveStylesForWidget in styles/stylesheet.ts), so a parent's rule never
+// reaches a child of another type. The class is offered the same way `-primary`
+// offers a palette: Button publishes a policy, the parent opts in, and nothing
+// in Button knows who did. Remove it when the cascade grows the descendant
+// reach — ticket textual-style-cascade-apr.
 const DEFAULT_CSS = `
   Button {
     background: #272727;
@@ -45,6 +57,7 @@ const DEFAULT_CSS = `
   Button.-success { background: #4ebf71; color: #0a180e; }
   Button.-warning { background: #fea62b; color: #211505; }
   Button.-error { background: #b93c5b; color: #f5e5e9; }
+  Button.-full-width { width: 100%; }
 `;
 
 interface ButtonPalette {
@@ -261,22 +274,44 @@ export const Button = observer(function Button({
   const minWidth = readNumericBoxValue(styles.box.minWidth) ?? 0;
   const height = readNumericBoxValue(styles.box.height) ?? 3;
   const textAlign = styles.getEnum("text-align", ["left", "center", "right"] as const);
-  const contentWidth = (explicitWidth ?? minWidth) || (resolved.firstLine.cellLength + 2);
-  const normalizedLabel = normalizeButtonLabel(
-    resolved.firstLine.truncate(Math.max(0, contentWidth - 2), { overflow: "crop" }),
-    true,
-  );
-  const labelCore = widget.handle.isDisabledEffective ? dimButtonLabel(normalizedLabel, basePalette.background) : normalizedLabel;
   const emphasizeLabel = height > 1;
   const labelStyles = [
     emphasizeLabel ? "bold" : undefined,
     emphasizeLabel && widget.handle.isFocused ? "reverse" : undefined,
   ].filter((style): style is string => style !== undefined);
-  const labelContent = decorateButtonLabel(
-    Content.assemble(" ", labelCore, " "),
-    labelStyles,
-  );
-  const width = Math.max(explicitWidth ?? 0, minWidth, labelContent.cellLength);
+  // How wide to paint. The two answers below are not rivals — the width policy
+  // in the CSS says which one is the map and which is the territory.
+  //
+  // `width: auto` means *the content decides*, so the content is the source and
+  // the measurement is downstream of it. Reading the measurement there is
+  // circular, and not harmlessly: this widget renders an empty WidgetScope
+  // until `lifecycleReady`, and an empty scope has no resolved `alignSelf` to
+  // hug with, so Yoga stretches it to the container. A button that believed
+  // that first measurement painted 80 cells, which then kept the box at 80
+  // forever — the auto-width fixpoint landing on the wrong point.
+  //
+  // Any other width means *the box decides*, and then the measurement is the
+  // only honest answer, because the box's width need not be a number the
+  // component can read: a `%` scalar reaches Ink as a string, by design, so Ink
+  // resolves it against the parent (`Unit.PERCENT.toInk` in styles/scalar.ts).
+  // `readNumericBoxValue` returns undefined for it, and the old code silently
+  // painted the 16-cell min-width inside an 80-cell box. Same conclusion
+  // WidgetFrame reached for its border labels. [LAW:one-source-of-truth]
+  const contentDecidesWidth = styles.box.width === undefined || styles.box.width === AUTO;
+  const hugWidth = Math.max(explicitWidth ?? 0, minWidth, resolved.firstLine.cellLength + 2);
+  const renderRows = (width: number): React.JSX.Element[] => {
+    // [LAW:one-source-of-truth] The label is truncated to the width being
+    // painted. A second formula for the same fact is how a full-width button
+    // painted 80 cells around a label clipped to 14.
+    const normalizedLabel = normalizeButtonLabel(
+      resolved.firstLine.truncate(Math.max(0, width - 2), { overflow: "crop" }),
+      true,
+    );
+    const labelCore = widget.handle.isDisabledEffective ? dimButtonLabel(normalizedLabel, basePalette.background) : normalizedLabel;
+    const labelContent = decorateButtonLabel(
+      Content.assemble(" ", labelCore, " "),
+      labelStyles,
+    );
   const middleRowText = (() => {
     const line = Array.from({ length: width }, () => " ");
     const labelOffset =
@@ -330,12 +365,23 @@ export const Button = observer(function Button({
     </Box>
   );
 
+    // [LAW:dataflow-not-control-flow] A one-row button drops the shadow rows by
+    // emitting an empty list, not by a different render path.
+    return [
+      ...(height > 1 ? [renderButtonRow("▔".repeat(width), palette.top, palette.background, `button:${widget.nodeId}:top`)] : []),
+      middleRow,
+      ...(height > 1 ? [renderButtonRow("▁".repeat(width), palette.bottom, palette.background, `button:${widget.nodeId}:bottom`)] : []),
+    ];
+  };
+
   return (
     <WidgetScope widget={widget.handle}>
       <WidgetFrame widget={widget.handle} styles={styles} boxProps={{ flexDirection: "column" }}>
-        {height > 1 ? renderButtonRow("▔".repeat(width), palette.top, palette.background, `button:${widget.nodeId}:top`) : null}
-        {middleRow}
-        {height > 1 ? renderButtonRow("▁".repeat(width), palette.bottom, palette.background, `button:${widget.nodeId}:bottom`) : null}
+        <MeasuredSizeReader widget={widget.handle}>
+          {(measured) => (
+            <>{renderRows(contentDecidesWidth ? hugWidth : measured.width ?? hugWidth)}</>
+          )}
+        </MeasuredSizeReader>
       </WidgetFrame>
     </WidgetScope>
   );

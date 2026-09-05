@@ -8,7 +8,7 @@ import type { BoxProps } from "ink";
 // ./scalar.ts). It is a sizing *policy* rather than a size, so it is expressed
 // on the widget's outer box as a flex alignment and never handed to Ink as a
 // width — Ink reads a string width as a percentage.
-const AUTO = "auto";
+export const AUTO = "auto";
 
 // [LAW:one-source-of-truth] A widget's resolved box splits into exactly two
 // non-overlapping halves with one owner each: the *outer* half places and sizes
@@ -48,6 +48,19 @@ export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
     minWidth: box.minWidth,
     alignSelf: box.width === AUTO ? "flex-start" : undefined,
   };
+}
+
+// [LAW:one-source-of-truth] How this renderer spells Textual's `dock: bottom`.
+// Yoga honours an auto margin at runtime and Ink's TS type for `marginTop` is
+// narrowed to `number`, so the spelling needs a cast through `unknown` — and a
+// cast is exactly the kind of thing that must exist once. Both Footer and
+// Welcome dock a child to the bottom of a flex column; the second copy of this
+// line is the point at which the two would start being able to disagree.
+//
+// It works by leftover space: with spare height the child is pushed to the end,
+// with none the margin has no effect. Same code path either way.
+export function dockBottomBoxProps(): Partial<BoxProps> {
+  return { marginTop: "auto" } as unknown as Partial<BoxProps>;
 }
 
 export function innerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {

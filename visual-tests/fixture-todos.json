@@ -385,8 +385,8 @@
   },
   {
     "name": "welcome_default",
-    "stage": "7",
-    "component": "Welcome",
-    "reason": "Pre-seeded Python baseline for Stage 7 Welcome implementation"
+    "stage": "10",
+    "component": "Markdown",
+    "reason": "Welcome ships in Stage 7 (textual-stage7-widget-completion-0u8.8) and its .tsx is paired. The remaining diff is not Welcome: upstream's body is Container(Static(Markdown(WELCOME_MD))), so baseline rows 1-21 are markdown-RENDERED — a centred H1, a wrapped paragraph, an H2, and a blockquote whose rows carry a #f4005f accent and a leading marker glyph. This port has no Markdown widget, so Welcome paints WELCOME_MD as plain text and those rows differ in wrapping, styling and background coverage (Ink gives backgroundColor to Text, so body rows Welcome emits no glyph on stay unpainted rather than #1e1e1e). The last three rows -- the full-width success Button -- do match. Clears when Markdown lands with the other markdown_* entries in Stage 10."
   }
 ]

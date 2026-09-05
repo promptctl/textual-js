@@ -14,6 +14,7 @@ export {
   type LoadingIndicatorProps,
 } from "./loading-indicator-component.js";
 export { Pretty, type PrettyProps } from "./pretty-component.js";
+export { Welcome, WELCOME_MARKDOWN, type WelcomeProps } from "./welcome-component.js";
 export { InvalidPlaceholderVariant, type PlaceholderVariant } from "./placeholder.js";
 export { Input, type InputProps, type InputHandle } from "./input-component.js";
 export { InputChanged, InputSubmitted } from "./input.js";
