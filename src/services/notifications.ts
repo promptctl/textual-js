@@ -140,6 +140,13 @@ export class Notifications implements Iterable<Notification> {
       this.pruneExpired();
     }, delay);
 
+    // Expiry is housekeeping for a toast that is already on screen; it is never a
+    // reason for the program to stay alive. Un-unref'd, a pending timer holds
+    // Node's event loop for the whole timeout, so an app that notifies with a long
+    // timeout and then finishes hangs until the toast would have faded. Same
+    // reasoning as the launcher timer in services/url-opener.ts.
+    timer.unref();
+
     this.expiryTimers.set(notification.identity, timer);
   }
 
