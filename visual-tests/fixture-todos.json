@@ -240,18 +240,6 @@
     "reason": "Pre-seeded Python baseline for Stage 8 OptionList implementation"
   },
   {
-    "name": "pretty_basic",
-    "stage": "7",
-    "component": "Pretty",
-    "reason": "Pre-seeded Python baseline for Stage 7 Pretty implementation"
-  },
-  {
-    "name": "pretty_nested",
-    "stage": "7",
-    "component": "Pretty",
-    "reason": "Pre-seeded Python baseline for Stage 7 Pretty implementation"
-  },
-  {
     "name": "rich_log_basic",
     "stage": "9",
     "component": "RichLog",
