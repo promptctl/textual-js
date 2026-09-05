@@ -1,123 +1,221 @@
-# CLAUDE.md — Project Instructions for textual-js
+# CLAUDE.md — textual-js
 
-These instructions apply to every agent working in this repository.
+A TypeScript port of Python's Textual, rendering through React/Ink. Every claim in this
+file was checked against the repo. Check yours the same way before you add one — the
+last version of this file carried two errors for months because each was inherited,
+not verified.
 
-## Verification Requirements
+Entry point for implementation work: `spec/impl/PROMPT.md`. Node >= 18.
 
-Every change — code, tests, widget components, styling — must pass all four verification gates before being committed or declared complete. No gate may be skipped.
+---
 
-### Gate 1: Build
+## The oracle is Textual. Not rich-js. Not your reasoning about Textual.
 
-```bash
-npm run build
+`rich-js` is a rendering **dependency** of this port. It is not the behavioural
+**oracle**. A supplier is not a judge. Textual's `Content` is a separate
+implementation that shares ancestry with Rich's `Text` and has drifted from it, and
+where they disagree, Textual is right by definition — Textual is what we are porting.
+
+This is not hypothetical. An agent verified `Content.wrap` against Rich, found
+agreement, and shipped a test literally named *"breaks where Rich breaks."* They
+differ on five of eleven cases. At width 6:
+
+```
+Content("hello  world").wrap(6)  ->  ['hello', 'world']     # Textual
+Text("hello  world").wrap(c, 6)  ->  ['hello ', 'world']    # Rich
 ```
 
-Must exit 0. TypeScript compilation with no errors.
+Textual rstrips every divided line except the one that ends the paragraph. Rich does
+not. The test passed. The port was wrong.
 
-### Gate 2: Lint
+**Ask Textual directly. It costs one minute:**
 
 ```bash
-npm run lint
+cd visual-tests && uv run python -c \
+  "from textual.content import Content; print([str(l) for l in Content('hello  world').wrap(6)])"
 ```
 
-Must exit 0. Type-checking with `--noEmit`.
+When the answer surprises you, read the method: `inspect.getsource(Content.wrap)` in
+that same env. The pinned reference is textual 8.2.3, in the uv environment under
+`visual-tests/`.
 
-### Gate 3: Unit and integration tests
+The moment this rule dies is quiet and reasonable. You will be mid-implementation,
+`rich-js` will already be imported two lines up, its behaviour will be right there in
+TypeScript you can read, and you will think: *"rich-js is the same lineage — I'll
+match it and save the round trip."* That is the moment. The round trip is sixty
+seconds; the divergence you just enshrined is a test that asserts the wrong answer
+forever, and asserts it confidently. Run the Python.
+
+---
+
+## A green Gate 4 does not prove a primitive is faithful
+
+It proves **that fixture cannot see the difference.**
+
+The wrap bug above shipped through a zero-differing-pixel PNG match. The lorem text in
+the fixture is left-aligned, so the extra trailing space painted as background —
+invisible against the padding. Under centre or right alignment it would have been
+obvious on sight.
+
+So when a content primitive changes, the question is never "did the gates pass." It is
+**"what would this fixture be physically incapable of showing me?"** Trailing
+whitespace hides under left alignment. Colour errors hide when the colour has a close
+ANSI neighbour. Off-by-one width hides at the edge of a region nothing paints. Find the
+blind spot, then add the fixture that removes it.
+
+Passing is evidence, not proof. Treat a green run on a primitive change as "no
+contradiction found," and go looking for where the contradiction would be visible.
+
+---
+
+## The four gates
+
+All four, in order, none skipped. Do not run Gate 4 over code failing 1–3.
 
 ```bash
-npm test
+npm run build          # 1. tsc
+npm run lint           # 2. tsc --noEmit + two architectural scanners
+npm test               # 3. vitest run
+bash visual-tests/run.sh   # 4. real xterm PNGs vs committed Python baselines (npm run visual)
 ```
 
-Must exit 0. All suites pass, including tests from prior stages. A stage is never complete if prior-stage tests regress.
+**Gate 2 is two things.** Beyond `tsc --noEmit` it runs
+`scripts/check-framework-imports.ts` and `scripts/check-widget-source-rules.ts`. Those
+scripts exist because `[LAW:]` comments do not fail CI and scripts do:
 
-### Gate 4: Visual comparison against Python Textual
+- `check-framework-imports` keeps `AppRuntime` / `AppRuntimeOptions` imported only
+  inside `src/framework/**` and `src/app/**`. Other symbols from `_app-runtime.js` are
+  fine; the framework class itself is App's private collaborator.
+- `check-widget-source-rules` makes widgets paint by handing a `Content` to
+  `renderContent`. Ink's `<Text>` resolves colour depth through chalk, and inside the
+  visual-test xterm chalk settles at level 1 and quantises to the 16-colour palette —
+  `#0178D4` silently arrives as `#0000EE`. The rule forbids *naming* `Text` at all
+  rather than forbidding a `color` prop, so no `>` inside an attribute can slip past
+  the scan.
+
+**Gate 4 on this machine.** `run.sh` line 24 checks for exactly three tools:
 
 ```bash
-bash visual-tests/run.sh
+for tool in tsx docker magick; do
 ```
 
-This pipeline captures screenshots from both Python Textual and textual-js for the same widget layouts, then diffs them cell by cell. It requires `uv` and `tsx` on PATH. The pipeline will fail immediately and loudly if either tool is missing — do not work around this, install the tools.
+`tsx`, `docker`, `magick`. Not `uv` — `uv` belongs to the Python baseline
+regeneration path (`visual-tests/render-fixture-xvfb.sh`), which `run.sh` never calls.
 
-**What the visual comparison tells you:**
-
-- A **MATCH** means textual-js renders identically to Python Textual for that fixture.
-- A **DIFF** with a high match percentage (>90%) and only border/slider character differences is expected in early stages — Ink uses different box-drawing characters than Textual's custom renderer.
-- A **DIFF** where text content diverges (wrong words, missing widgets, broken layout) is a real bug. Investigate before committing.
-- **Every widget — old or new — must have a paired visual fixture** (`visual-tests/fixtures/<name>.py` + `<name>.tsx`) for every behavior its spec-tests file describes that is observable on screen. A widget without complete `.tsx` pairs is incomplete, regardless of whether its unit tests pass.
-
-**The visual comparison must never be silently skipped.** If `uv` or `tsx` is unavailable, that is a setup problem to fix, not a gate to bypass.
-
-### Verification order
-
-Run the gates in order. Do not run Gate 4 on code that fails Gates 1–3. The full sequence:
+**There is no Docker on this machine.** Podman is installed and its VM runs, but
+`run.sh` hardcodes the name `docker`. Use a session-scoped shim:
 
 ```bash
-npm run build && npm run lint && npm test && bash visual-tests/run.sh
+mkdir -p /tmp/shimbin && printf '#!/usr/bin/env bash\nexec podman "$@"\n' > /tmp/shimbin/docker && chmod +x /tmp/shimbin/docker
+PATH=/tmp/shimbin:$PATH bash visual-tests/run.sh <fixture>
 ```
 
-## Visual Test Fixtures
+Scoped to the command. Do **not** install a `docker` shim onto the global PATH, into
+`/usr/local/bin`, or into shell rc files — that is a machine-wide alias for a
+container runtime, invisible to every later session, made to satisfy one script.
+Ticket `textual-visual-tests-xf3` tracks teaching `run.sh` to accept either runtime;
+until it lands, the shim goes on the command line.
 
-Every widget component (a `.tsx` file in `src/widgets/` that renders via React/Ink) must ship with a paired `.py` and `.tsx` fixture for every observable behavior in its spec-tests file. This applies retroactively: a `.py` fixture without a matching `.tsx` is a gap, not a future task.
+**One capture environment, one file.** `visual-tests/capture-env` is a *file* of env
+directives — `KEY=VALUE` per line, or `-KEY` to remove one — not a directory. It
+exists because the PNG path and the cell-record path once disagreed:
+`progress_indeterminate` showed an unhighlighted rail in its cell record and a full bar
+in its PNG, because one path disabled Textual's animations and the other did not. Every
+capture path applies it whole. A per-path subset is how the two drift apart again.
 
-For each fixture pair:
+---
 
-1. `visual-tests/fixtures/<widget_name>.py` — a Python Textual app rendering the widget in the target configuration.
-2. `visual-tests/fixtures/<widget_name>.tsx` — a textual-js component rendering the same layout.
-3. Run `bash visual-tests/run.sh <widget_name>` and inspect the comparison output.
-4. Commit both fixtures alongside the widget implementation.
+## The fast loop
 
-### Stage completion is gated on fixture parity
-
-A stage is **not complete** until every widget it covers has paired `.py` + `.tsx` fixtures for every fixture variant the stage's spec-tests file describes. This explicitly applies to:
-
-- **Stage 5** (foundational widgets: Static, Label, Link, Rule, Sparkline, ProgressBar, LoadingIndicator, Header, Footer, Digits, Placeholder, etc.) — not done until every shipped widget's `.py` fixtures have matching `.tsx` files.
-- **Stage 6** (Button, Input, MaskedInput, Switch, Checkbox, RadioButton, RadioSet, Toggle, etc.) — same rule.
-- **Stage 7** (whatever interactive/composite widgets it covers per IMPLEMENTATION_ORDER.md) — same rule.
-- **Stage 8 onward** — same rule applies to every future stage.
-
-Backfilling missing `.tsx` pairs for already-shipped widgets is in-scope work, not optional cleanup. Any agent picking up the next ticket must check fixture parity for prior stages before declaring them done and advancing.
-
-### Diagnosing visual diffs: read the Python baseline bytes first
-
-Every Python fixture has a paired `visual-tests/snapshots/python/<name>.ansi` holding the **exact bytes Textual emitted** — every truecolor SGR sequence and every glyph — and a `<name>.txt` holding their plain text. This is the cheap ground truth. Before postulating any rendering-pipeline cause (xterm truecolor, Ink color emission, terminfo quirks, scroll/erase behavior), read these and confirm what color/character is actually expected; it disproves whole classes of speculation in seconds and almost always points at a typo or missing constant in the JS widget source.
-
-You can trust them because they are committed. A baseline is one captured frame in three representations — `<name>.png` (what Gate 4 measures), `<name>.ansi`, and `<name>.txt` — all tracked, all produced by one command under one environment (`visual-tests/capture-env`), and reviewed in one diff. Regenerate them together with `bash visual-tests/update-python-baselines.sh [fixture]`; never refresh one representation alone.
-
-Examples of cheap inspections:
+The container PNG round trip is the confirmation, not the iteration:
 
 ```bash
-# What colors does the Python baseline actually use? (truecolor SGR, deduped)
+npx tsx visual-tests/capture_js.ts <fixture>   # -> snapshots/js/<name>.txt, .ansi, .json
+diff visual-tests/snapshots/js/<name>.txt visual-tests/snapshots/python/<name>.txt
+```
+
+Converge with `capture_js.ts`. Confirm once with `run.sh`.
+
+---
+
+## Baselines: read the bytes before you theorise
+
+Each fixture has three committed representations of **one** frame under
+`visual-tests/snapshots/python/`:
+
+| | |
+|---|---|
+| `<name>.png` | what Gate 4 measures |
+| `<name>.ansi` | the exact bytes Textual emitted — every SGR, every glyph |
+| `<name>.txt` | their plain text |
+
+When a diff appears, read these *first*. They are cheap ground truth and they disprove
+whole classes of speculation in seconds:
+
+```bash
+# Which colours does the baseline actually use?
 grep -oE $'\033\[[0-9;]*m' visual-tests/snapshots/python/footer_with_bindings.ansi | sort -u
 
-# What text does the bottom row contain?
+# What is on the bottom row?
 tail -n 1 visual-tests/snapshots/python/footer_with_bindings.txt
-
-# Which row carries a given color, with its text?
-grep -n '38;2;191;186;177' visual-tests/snapshots/python/footer_with_bindings.ansi | cat -v | head
 ```
 
-`visual-tests/styled-grid.ts` exports `parseAnsiToStyledGrid` when a per-cell structure is genuinely easier to work with than the bytes. Derive it from the committed `.ansi` rather than storing a second copy — a stored grid is a baseline that can disagree with the one Gate 4 measures, which is exactly the trap this layout removes.
+The failure mode this replaces: a diff appears and the investigation opens with a
+theory about xterm truecolour, or terminfo, or Ink's colour emission — three paragraphs
+of plausible pipeline reasoning over a missing constant in a widget source file. The
+bytes are right there. Read them, then theorise.
 
-When writing a fixture-todos diagnosis, include specific `file:line` pointers and the verified expected vs actual color/character. Vague "JS X does not Y" entries rot fast and invite symptom-blaming on the next investigation.
+`visual-tests/styled-grid.ts` exports `parseAnsiToStyledGrid` when a per-cell structure
+is genuinely easier than the bytes. Derive it from the committed `.ansi`; never store a
+second copy. A stored grid is a baseline that can disagree with the one Gate 4
+measures.
 
-## Key Directories
+Regenerate the three **together**: `bash visual-tests/update-python-baselines.sh
+[fixture]` (`npm run visual:update-python`). Never refresh one alone — a `.png` newer
+than its `.ansi` is two frames wearing one name.
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/` | Implementation source |
-| `tests/` | Unit and integration tests (Vitest) |
-| `visual-tests/` | Cross-implementation visual comparison harness |
-| `visual-tests/fixtures/` | Paired Python + JS fixture files |
-| `spec/impl/` | Phase plan files and implementation prompt |
-| `spec/spec-src/` | Behavioral specifications (00–14) |
-| `spec/spec-tests/` | Test case specifications (test backlog) |
+---
 
-## Implementation Entry Point
+## Ink is not a compositor
 
-For phase-by-phase implementation, start with `spec/impl/PROMPT.md`. It contains the complete procedure for identifying the next stage and implementing it.
+Three traps, each of which type-checks, renders, and is wrong:
 
-## Tool Requirements
+- **`backgroundColor` belongs to `<Text>`, not `<Box>`.** A widget's background exists
+  only where the widget emits a glyph. Anything Textual draws as a filled block must
+  emit its *whole region* as content via `alignContentInBox` /
+  `alignContentInPaddedBox` in `src/content/align.ts`. CSS `align` + `padding` will
+  position the text correctly and leave the surrounding cells transparent.
+- **`"1fr"` resolves to ONE CELL here.** `scalarToInkValue` defaults `fractionBasis = 1`
+  (`src/styles/scalar.ts:164`), so `1 * 1 = 1`. Write `width: 100%`.
+- **Labels go out as `new Content(label)`.** Not `Content.fromText`. The `fromText` path
+  parses markup, so a label reading `[draft]` becomes a style tag and vanishes.
 
-- **Node 18+** with project dependencies (`npm install`)
-- **uv** — manages Python environment for visual tests ([install](https://docs.astral.sh/uv/getting-started/installation/))
-- **tsx** — runs TypeScript scripts for visual capture/compare (`npm install -g tsx`)
+---
+
+## Fixture parity is scope, not backlog
+
+Every widget ships paired `visual-tests/fixtures/<name>.py` **and** `<name>.tsx` for
+every on-screen behaviour in its spec-tests file. A `.py` with no `.tsx` is a gap in
+work already claimed done — not a future task. This applies retroactively; stage
+completion is gated on it; backfilling is in-scope.
+
+The count today is 119 `.py` against 51 `.tsx`, so you will meet this. And when you do,
+the reasonable voice arrives: *"that gap predates my ticket — I'll file it and move
+on."* Refuse it. YAGNI is right about speculative features and says nothing here: this
+is not a feature nobody asked for, it is the verification for a widget already shipped
+and already declared complete. Filing it converts a known hole into a backlog item
+nobody prioritises, and the stage stays green over it. Write the `.tsx`.
+
+---
+
+## Layout
+
+| Path | |
+|---|---|
+| `src/` | `app` `bindings` `commands` `content` `events` `framework` `geometry` `services` `styles` `suggestions` `testing` `validation` `widgets` |
+| `src/widgets/README.md` | the widget component pattern |
+| `tests/` | Vitest |
+| `visual-tests/` | the comparison harness; fixtures, snapshots, capture scripts |
+| `spec/impl/` | `IMPLEMENTATION_ORDER.md`, `PROMPT.md`, `INDEX.md`, `phase-01-foundation.md` … `phase-07-animation-conformance.md` |
+| `spec/spec-src/` | behavioural specifications |
+| `spec/spec-tests/` | test case specifications |
