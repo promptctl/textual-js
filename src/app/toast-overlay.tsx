@@ -86,7 +86,7 @@ export function toastGeometry(terminalWidth: number): { width: number; left: num
 }
 
 /**
- * Build one toast as the complete block of cells it occupies.
+ * Build one toast as the rows of cells it occupies.
  *
  * Ink gives `backgroundColor` to `Text` and not to `Box`, so a toast's panel
  * colour exists only where the toast emits a glyph. The padding rows, the run of
@@ -94,13 +94,17 @@ export function toastGeometry(terminalWidth: number): { width: number; left: num
  * as content here rather than left to flexbox — the same reason
  * `content/align.ts` paints its own alignment.
  */
-export function buildToastContent(
+export function buildToastRows(
   notification: Notification,
   width: number,
   variables: Record<string, string>,
-): Content {
+): Content[] {
   const palette = resolveToastPalette(notification.severity, variables);
-  const innerWidth = width - TOAST_BORDER_COLUMNS - TOAST_PADDING_COLUMNS * 2;
+
+  // Textual's `Toast` is border-box: the chrome eats into `width` rather than
+  // widening past it, so a terminal too narrow to hold border-plus-padding
+  // squeezes the content region to nothing and crops the rest.
+  const innerWidth = Math.max(0, width - TOAST_BORDER_COLUMNS - TOAST_PADDING_COLUMNS * 2);
 
   // Textual's `Toast.render`: the title is one styled line above the message, and
   // a toast with no title is the message alone. Assembling before wrapping is what
@@ -125,7 +129,7 @@ export function buildToastContent(
     ...Array.from({ length: TOAST_PADDING_ROWS }, () => blankRow),
   ];
 
-  const paintedRows = rows.map((line) =>
+  return rows.map((line) =>
     Content.assemble(
       [TOAST_BORDER_GLYPH, palette.border],
       Content.blank(TOAST_PADDING_COLUMNS),
@@ -134,16 +138,15 @@ export function buildToastContent(
       Content.blank(TOAST_PADDING_COLUMNS),
       // The panel colour goes on underneath, so the border and title spans set
       // above keep their foregrounds while every cell in the row gets the fill.
-    ).stylizeBefore(`on ${palette.background}`),
+    )
+      .stylizeBefore(`on ${palette.background}`)
+      .truncate(width, { overflow: "crop" }),
   );
-
-  return new Content("\n").join(paintedRows);
 }
 
 interface ToastBlock {
   readonly identity: string;
-  readonly content: Content;
-  readonly height: number;
+  readonly rows: readonly Content[];
 }
 
 function measureBlocks(
@@ -151,29 +154,44 @@ function measureBlocks(
   width: number,
   variables: Record<string, string>,
 ): ToastBlock[] {
-  return notifications.map((notification) => {
-    const content = buildToastContent(notification, width, variables);
-
-    return {
-      identity: notification.identity,
-      content,
-      height: content.plain.split("\n").length,
-    };
-  });
+  return notifications.map((notification) => ({
+    identity: notification.identity,
+    rows: buildToastRows(notification, width, variables),
+  }));
 }
 
 /**
- * The row the stack starts on.
+ * The rows of the stack that are on screen, and the row the stack starts on.
  *
  * The rack is `dock: bottom`, so the stack is positioned from its bottom edge:
  * the last toast's final row sits one row above the terminal floor, and
  * everything above it is pushed up by the toasts and the gaps between them.
+ *
+ * A stack taller than the rack loses rows off the top, because upstream's rack is
+ * `overflow-y: scroll` and re-runs `scroll_end` on every mount: the newest toast
+ * stays against the floor, the oldest scroll out of view, and the one straddling
+ * the top edge is cut part-way. The port has no scrollbar to move, so the rows
+ * above the viewport are simply never painted.
  */
-function stackTop(blocks: readonly ToastBlock[], terminalHeight: number): number {
-  const painted = blocks.reduce((total, block) => total + block.height, 0);
-  const gaps = Math.max(0, blocks.length - 1) * TOAST_TOP_MARGIN;
+export function fitStack(
+  blocks: readonly ToastBlock[],
+  terminalHeight: number,
+): { visible: ToastBlock[]; top: number } {
+  let budget = Math.max(0, terminalHeight - RACK_BOTTOM_MARGIN);
 
-  return Math.max(0, terminalHeight - RACK_BOTTOM_MARGIN - painted - gaps);
+  // Spent newest-first, so what runs out of rack is always the top of the stack.
+  const fitted = [...blocks]
+    .reverse()
+    .map((block, index) => {
+      budget = Math.max(0, budget - (index === 0 ? 0 : TOAST_TOP_MARGIN));
+      const shown = Math.min(block.rows.length, budget);
+      budget -= shown;
+
+      return { ...block, rows: block.rows.slice(block.rows.length - shown) };
+    })
+    .reverse();
+
+  return { visible: fitted.filter((block) => block.rows.length > 0), top: budget };
 }
 
 export const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null {
@@ -186,6 +204,7 @@ export const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element 
 
   const { width, left } = toastGeometry(app.terminalSize.width);
   const blocks = measureBlocks(notifications, width, app.themeVariables);
+  const { visible, top } = fitStack(blocks, app.terminalSize.height);
 
   // [LAW:one-source-of-truth] The stack renders straight from the app's
   // notification collection; nothing here keeps its own copy of what is showing.
@@ -198,12 +217,12 @@ export const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element 
       position="absolute"
       flexDirection="column"
       marginLeft={left}
-      marginTop={stackTop(blocks, app.terminalSize.height)}
+      marginTop={top}
       width={width}
     >
-      {blocks.map((block, index) => (
-        <Box key={block.identity} marginBottom={index === blocks.length - 1 ? 0 : TOAST_TOP_MARGIN}>
-          {renderContent(block.content, {}, `toast:${block.identity}`, width)}
+      {visible.map((block, index) => (
+        <Box key={block.identity} marginBottom={index === visible.length - 1 ? 0 : TOAST_TOP_MARGIN}>
+          {renderContent(new Content("\n").join(block.rows), {}, `toast:${block.identity}`, width)}
         </Box>
       ))}
     </Box>
