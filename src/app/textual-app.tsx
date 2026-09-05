@@ -60,6 +60,7 @@ import { observer } from "mobx-react-lite";
 import { Padding } from "rich-js";
 
 import { measureVisual, renderVisual, visualize } from "../content/index.js";
+import { ToastOverlay } from "./toast-overlay.js";
 import {
   type ActiveTooltip,
   type KeymapInput,
@@ -71,9 +72,7 @@ import { Size } from "../geometry/index.js";
 import type { BindingDeclaration } from "../bindings/index.js";
 import type { WidgetActions } from "../framework/widget-registry.js";
 import type { ProviderConstructor } from "../commands/index.js";
-import type { Notification } from "../services/notifications.js";
 import type { UrlOpener } from "../services/url-opener.js";
-import { Color } from "../styles/color.js";
 import type { App } from "./app.js";
 
 export interface TextualAppProps extends PropsWithChildren {
@@ -156,69 +155,6 @@ const TooltipOverlay = observer(function TooltipOverlay(): React.JSX.Element | n
     </Box>
   );
 });
-
-const ToastOverlay = observer(function ToastOverlay(): React.JSX.Element | null {
-  const app = useTextual();
-  const notifications = app.showNotifications ? app.notifications.list() : [];
-
-  if (notifications.length === 0) {
-    return null;
-  }
-
-  // [LAW:one-source-of-truth] Toast display renders directly from the app
-  // notification collection; widgets never mount their own toast views.
-  return (
-    <Box
-      position="absolute"
-      flexDirection="column"
-      marginLeft={Math.max(0, app.terminalSize.width - 32)}
-      marginTop={0}
-      width={32}
-    >
-      {notifications.map((notification) => (
-        <Box
-          key={notification.identity}
-          flexDirection="column"
-          borderStyle="round"
-          borderColor={getToastSeverityColor(app, notification).css}
-          paddingX={1}
-          marginBottom={1}
-        >
-          {renderToastTitle(notification)}
-          {renderVisual(
-            visualize(notification.message, { markup: notification.markup }),
-            {},
-            `toast:${notification.identity}:${notification.severityClass}:message`,
-          )}
-        </Box>
-      ))}
-    </Box>
-  );
-});
-
-function getToastSeverityColor(app: App, notification: Notification): Color {
-  const severityColors = {
-    "-information": app.activeTheme.primary,
-    "-warning": app.activeTheme.warning,
-    "-error": app.activeTheme.error,
-  };
-
-  // [LAW:single-enforcer] Toast severity styling is selected from the
-  // notification severity class once; the renderer consumes that class mapping.
-  return severityColors[notification.severityClass as keyof typeof severityColors] ?? app.activeTheme.primary;
-}
-
-function renderToastTitle(notification: Notification): React.JSX.Element | null {
-  if (notification.title === "") {
-    return null;
-  }
-
-  return renderVisual(
-    visualize(notification.title, { markup: notification.markup }),
-    { bold: true },
-    `toast:${notification.identity}:${notification.severityClass}:title`,
-  );
-}
 
 type ParsedTerminalKey = {
   name: string;

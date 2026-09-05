@@ -3,19 +3,19 @@
     "name": "command_palette_open",
     "stage": "future",
     "component": "CommandPalette",
-    "reason": "Pre-seeded Python baseline for CommandPalette overlay visual coverage"
+    "reason": "Unpaired: the palette is functionally implemented but its presentation is not Textual's — no system commands (App.getSystemCommands returns []), a pushed screen rather than an overlay, and different chrome throughout, so no .tsx can reproduce this baseline. Five gaps enumerated in textual-command-palette-y11"
   },
   {
     "name": "notifications_basic",
     "stage": "future",
     "component": "Notifications",
-    "reason": "Pre-seeded Python baseline for single-toast notification rendering"
+    "reason": "Paired and at exact text parity; every glyph and column matches the baseline. Differs only in colour: Textual paints the toast from textual-dark ($success #4EBF71 on $panel-lighten-1 #343F49) and this port's built-in palettes are not Textual's, so it paints #2E7D32 on #ECF0F6. Root cause is the theme table, not the toast — textual-theme-palette-jx1"
   },
   {
     "name": "notifications_severity",
     "stage": "future",
     "component": "Notifications",
-    "reason": "Pre-seeded Python baseline for stacked-toast severity rendering"
+    "reason": "Paired and at exact text parity, all three severities. Same single remaining difference as notifications_basic: the built-in theme palettes diverge from Textual's, so every severity colour is off — textual-theme-palette-jx1"
   },
   {
     "name": "collapsible_collapsed",

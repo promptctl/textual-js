@@ -137,6 +137,12 @@ async function captureFixture(name: string): Promise<void> {
     {
       size: { width: TERMINAL_WIDTH, height: TERMINAL_HEIGHT },
       appProps: (module.appProps ?? {}) as Record<string, unknown>,
+      // [LAW:one-source-of-truth] runner_js.tsx renders the fixture with the app's
+      // own defaults, where toasts and tooltips both exist; runTest defaults both
+      // off for unit tests that never asked for them. Restoring them here is what
+      // makes this path capture the same app the PNG path draws — the mirror of
+      // capture_python.py's run_test(tooltips=True, notifications=True).
+      transients: { tooltips: true, notifications: true },
     },
   );
 

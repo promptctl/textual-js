@@ -143,6 +143,34 @@ exists because the PNG path and the cell-record path once disagreed:
 in its PNG, because one path disabled Textual's animations and the other did not. Every
 capture path applies it whole. A per-path subset is how the two drift apart again.
 
+**`capture-env` governs the environment, not the app.** The other half of "what app
+are we running" lives in test-harness arguments, and both harnesses default it *off*:
+
+| | cell record | PNG |
+|---|---|---|
+| Python | `capture_python.py` → `run_test(...)` | `runner_py.py` → `app.run()` |
+| JS | `capture_js.ts` → `runTest(...)` | `runner_js.tsx` → normal app defaults |
+
+`App.run_test` takes `notifications=False, tooltips=False`; `runTest` reads
+`options.transients` and defaults the same pair to `false` (`run-test.tsx:406`). The
+`.run()` paths have both **on**. So a cell-record path that does not name them is
+rendering a *different app* than the PNG beside it, and both capture calls now pass
+them explicitly for that reason.
+
+This is not hypothetical either. Both notification fixtures shipped with committed
+baselines showing a bare background and no toast, and the two paths agreed for two
+unrelated reasons: `run_test(notifications=False)` sets `_disable_notifications`, so
+the `ToastRack` is never mounted and **no wait and no fixture edit could ever have
+produced a toast**; meanwhile the PNG path did mount it and then raced Textual's 5s
+`NOTIFICATION_TIMEOUT` against a stability detector that needs ~5s (1500ms settle plus
+five 250ms polls, once for the initial render and again after the `wait`). Agreement
+between two paths is only evidence when they agree *for the same reason*.
+
+The general shape, worth carrying past this one flag: anything transient — a toast, a
+tooltip, a cursor phase — must be **held open by the fixture** rather than captured
+mid-life, or the frame is decided by timing luck. Both notification fixtures pin a
+one-hour timeout to make the toast the resting state.
+
 ---
 
 ## The fast loop
