@@ -9,6 +9,10 @@ export { Label, type LabelProps } from "./label-component.js";
 export { Link, type LinkProps } from "./link-component.js";
 export { Digits, type DigitsProps } from "./digits-component.js";
 export { Placeholder, type PlaceholderProps } from "./placeholder-component.js";
+export {
+  LoadingIndicator,
+  type LoadingIndicatorProps,
+} from "./loading-indicator-component.js";
 export { InvalidPlaceholderVariant, type PlaceholderVariant } from "./placeholder.js";
 export { Input, type InputProps, type InputHandle } from "./input-component.js";
 export { InputChanged, InputSubmitted } from "./input.js";
