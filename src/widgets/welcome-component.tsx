@@ -97,8 +97,6 @@ export interface WelcomeProps extends WidgetComponentProps {
    * string cannot honour it. [LAW:composability]
    */
   content?: ContentSource;
-  /** The dismiss button's label. Upstream's is `OK`. */
-  buttonLabel?: string;
 }
 
 export const Welcome = observer(function Welcome({
@@ -107,7 +105,6 @@ export const Welcome = observer(function Welcome({
   borderTitle,
   borderSubtitle,
   content = WELCOME_BODY,
-  buttonLabel = "OK",
 }: WelcomeProps): React.JSX.Element {
   const widget = useWidget({
     id,
@@ -128,7 +125,7 @@ export const Welcome = observer(function Welcome({
           <Static id="text" content={content} />
         </Box>
         <Box {...dockBottomBoxProps()}>
-          <Button id="close" classes="-full-width" label={buttonLabel} variant="success" />
+          <Button id="close" classes="-full-width" label="OK" variant="success" />
         </Box>
       </WidgetFrame>
     </WidgetScope>
