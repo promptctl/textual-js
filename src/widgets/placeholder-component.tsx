@@ -83,9 +83,16 @@ export function Placeholder({
   // alongside the prop, and the two would disagree the moment the prop changed;
   // storing the offset leaves the variant derived from both. Zero clicks is
   // exactly the prop. [LAW:one-source-of-truth]
-  const [cycleSteps, setCycleSteps] = React.useState(0);
+  //
+  // A count of steps means nothing on its own — only relative to the variant it
+  // was counted from — so the two are one value and cannot come apart. That is
+  // what makes a new `variant` prop take effect outright: upstream holds the
+  // variant in a reactive, and assigning one replaces it, so arriving at a new
+  // prop spends the clicks made against the old one instead of stacking on them.
+  const [cycle, setCycle] = React.useState({ from: baseVariant, steps: 0 });
+  const steps = cycle.from === baseVariant ? cycle.steps : 0;
 
-  const activeVariant = cyclePlaceholderVariant(baseVariant, cycleSteps);
+  const activeVariant = cyclePlaceholderVariant(baseVariant, steps);
 
   // Held stable across renders so the content memo downstream can hit: a fresh
   // closure every render would re-wrap the lorem, grapheme by grapheme, for
@@ -102,7 +109,7 @@ export function Placeholder({
     defaultCss: DEFAULT_CSS,
     handlers: {
       onClick: () => {
-        setCycleSteps((steps) => steps + 1);
+        setCycle({ from: baseVariant, steps: steps + 1 });
       },
     },
   };

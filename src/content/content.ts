@@ -17,6 +17,10 @@ export interface ContentTruncateOptions {
 export type ContentInput = string | Content | RichText | null | undefined;
 export type ContentPart = string | Content | RichText | [string, string?];
 
+// Upstream's `_wrap_and_format` takes `tab_size` as a parameter and `wrap`
+// never passes one, so eight is the only width a wrapped tab has ever had.
+const WRAP_TAB_SIZE = 8;
+
 function normalizeSpanStyle(style: string | Style): string {
   return typeof style === "string" ? style : style.toString();
 }
@@ -150,12 +154,19 @@ export class Content {
       return [new Content("")];
     }
 
+    // A tab is a jump to the next tab stop, not a character with a width, so it
+    // is spelled out as the spaces it stands for before any break is looked
+    // for — upstream's `_wrap_and_format` expands each line the same way, ahead
+    // of `divide_line`. Left as a tab it would measure one cell instead of up to
+    // eight, and the break its spaces open would not exist to be found.
+    const expanded = this.expandTabs(WRAP_TAB_SIZE);
+
     // [LAW:one-source-of-truth] Only the break *offsets* are computed here.
     // Turning an offset pair into content is `slice`'s job, so a wrapped line
     // carries the same spans the same characters had before the wrap — this
     // used to rebuild each line from `spans` clipped at zero, which gave every
     // line but the first the styling of the text's opening characters.
-    return wrapOffsets(this.plain, width).map(([start, end]) => this.slice(start, end));
+    return wrapOffsets(expanded.plain, width).map(([start, end]) => expanded.slice(start, end));
   }
 
   fold(width: number): Content[] {
@@ -455,16 +466,38 @@ function paragraphOffsets(paragraph: string, offset: number, width: number): [nu
 
   while (start < clusters.length) {
     const [end, next] = nextLineBreak(clusters, start, width);
-    lines.push([
-      offset + clusters[start].index,
-      offset + (clusters[end]?.index ?? paragraph.length),
-    ]);
+    lines.push([clusters[start].index, clusters[end]?.index ?? paragraph.length]);
     start = next;
   }
 
   // An empty paragraph is a blank line, not the absence of one: a text with a
   // doubled break draws that break as a row.
-  return lines.length === 0 ? [[offset, offset]] : lines;
+  if (lines.length === 0) {
+    return [[offset, offset]];
+  }
+
+  // The spaces a break was made at belong to the break, not to the line that
+  // broke, so every line but the paragraph's last gives them up — upstream
+  // rstrips exactly those and exempts the last one. That exemption is why
+  // "a  b" comes back from a wide wrap whole: its one line is the last line.
+  //
+  // Trimming the offset rather than the text keeps every line a `slice` of the
+  // original, so a wrapped line still carries the spans its characters had.
+  return lines.map(([lineStart, lineEnd], index): [number, number] => [
+    offset + lineStart,
+    offset + (index === lines.length - 1 ? lineEnd : trimTrailingSpaces(paragraph, lineStart, lineEnd)),
+  ]);
+}
+
+/** `end` pulled back past the spaces that trail this line, but never past `start`. */
+function trimTrailingSpaces(paragraph: string, start: number, end: number): number {
+  let trimmed = end;
+
+  while (trimmed > start && paragraph[trimmed - 1] === " ") {
+    trimmed -= 1;
+  }
+
+  return trimmed;
 }
 
 /**

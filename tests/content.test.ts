@@ -411,34 +411,62 @@ describe("Content wrap", () => {
     expect(new Content("文a").wrap(1).map((line) => line.plain)).toEqual(["文", "a"]);
   });
 
-  it("breaks where Rich breaks, across the whole space-run family", () => {
-    // Every expectation here is Rich's own output, read off
-    // `Text(s).wrap(Console(), w)` rather than reasoned about — the rule is
-    // narrow and easy to state wrongly. It is: a line keeps every character
-    // that fits, trailing spaces included, and the next line starts at the next
-    // non-space. Note how the same input gives three different first lines at
-    // widths 5, 6 and 7; a rule that collapsed whitespace, or that dropped the
-    // last space that fit, would agree with exactly one of them.
+  it("gives up the spaces at a break, and keeps the ones that end a paragraph", () => {
+    // Every expectation here is read off `Content(s).wrap(w)` in textual 8.2.3.
+    // This is exactly where Textual and Rich part company, so the source
+    // matters more than usual: Rich keeps whatever trailing spaces fit, giving
+    // "hello " at width 6 and "hello  " at 7, while Textual rstrips every line
+    // but the paragraph's last and answers "hello" at all three widths. These
+    // cases were pinned to Rich until that was checked against the real thing.
     const wrapped = (text: string, width: number): string[] =>
       new Content(text).wrap(width).map((line) => line.plain);
 
     expect(wrapped("hello  world", 5)).toEqual(["hello", "world"]);
-    expect(wrapped("hello  world", 6)).toEqual(["hello ", "world"]);
-    expect(wrapped("hello  world", 7)).toEqual(["hello  ", "world"]);
-    expect(wrapped("hello  world", 8)).toEqual(["hello  ", "world"]);
-    expect(wrapped("hello   world", 6)).toEqual(["hello ", "world"]);
-    expect(wrapped("abcdef ghij", 8)).toEqual(["abcdef ", "ghij"]);
-    expect(wrapped("abcdef ghij", 7)).toEqual(["abcdef ", "ghij"]);
+    expect(wrapped("hello  world", 6)).toEqual(["hello", "world"]);
+    expect(wrapped("hello  world", 7)).toEqual(["hello", "world"]);
+    expect(wrapped("hello  world", 8)).toEqual(["hello", "world"]);
+    expect(wrapped("hello   world", 6)).toEqual(["hello", "world"]);
+    expect(wrapped("abcdef ghij", 8)).toEqual(["abcdef", "ghij"]);
+    expect(wrapped("abcdef ghij", 7)).toEqual(["abcdef", "ghij"]);
     expect(wrapped("abcdef ghij", 6)).toEqual(["abcdef", "ghij"]);
     expect(wrapped("a b c d", 3)).toEqual(["a b", "c d"]);
     expect(wrapped("one two", 7)).toEqual(["one two"]);
     expect(wrapped("one two", 3)).toEqual(["one", "two"]);
+
+    // The paragraph's last line is exempt, which is why the rule cannot be
+    // stated as "trim every wrapped line" — and the exemption is per paragraph,
+    // not per content, so "bb " keeps its space while "aa" does not.
+    expect(wrapped("a  ", 10)).toEqual(["a  "]);
+    expect(wrapped("aa  bb  \ncc", 3)).toEqual(["aa", "bb ", "cc"]);
   });
 
   it("keeps a double space that is not at a break", () => {
-    // The rule is scoped to the break point; Rich preserves "a  b" whole at
-    // width 10, so this is not a general whitespace collapse.
+    // The trim is scoped to the break; Textual returns "a  b" whole at width
+    // 10, so this is not a general whitespace collapse.
     expect(new Content("a  b").wrap(10).map((line) => line.plain)).toEqual(["a  b"]);
+  });
+
+  it("spells a tab out to its tab stop before looking for a break", () => {
+    // Read off `Content(s).wrap(w)` in textual 8.2.3, not reasoned about. A tab
+    // is a jump to the next multiple of eight, so its width depends on where it
+    // lands: one cell of text before it leaves seven, and eight columns of text
+    // before it leave a whole eight. Measured as a single character instead —
+    // which is what this did — "a\tb ccc" stayed one 7-cell line at width 10,
+    // and at width 5 it broke as ["a\tb ", "ccc"], printing a raw tab into a
+    // cell grid that has no way to render one.
+    const wrapped = (text: string, width: number): string[] =>
+      new Content(text).wrap(width).map((line) => line.plain);
+
+    expect(wrapped("a\tb ccc", 10)).toEqual(["a       b", "ccc"]);
+    expect(wrapped("a\tb ccc", 5)).toEqual(["a", "b ccc"]);
+    expect(wrapped("\tab", 20)).toEqual(["        ab"]);
+    expect(wrapped("ab\tcd", 20)).toEqual(["ab      cd"]);
+    expect(wrapped("a\t\tb", 30)).toEqual(["a               b"]);
+
+    // A tab already sitting on a tab stop advances a full eight, rather than
+    // collapsing to nothing — the case an `% 8` written the other way round
+    // would get wrong.
+    expect(wrapped("12345678\tx", 20)).toEqual(["12345678        x"]);
   });
 
   it("never breaks inside a grapheme cluster", () => {
@@ -449,7 +477,7 @@ describe("Content wrap", () => {
     const family = "👨‍👩‍👧‍👦";
 
     expect(new Content(`${family} ab`).wrap(4).map((line) => line.plain)).toEqual([
-      `${family} `,
+      family,
       "ab",
     ]);
     expect(new Content(`${family}${family}`).wrap(2).map((line) => line.plain)).toEqual([

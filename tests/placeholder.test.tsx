@@ -402,6 +402,42 @@ describe("Placeholder widget", () => {
     session.unmount();
   });
 
+  it("takes a new variant prop outright, rather than adding it to the clicks already made", async () => {
+    // Upstream keeps the variant in a reactive, so assigning one replaces it —
+    // a placeholder set to "size" shows the size whether it was clicked before
+    // or not. Here the prop is that assignment. Combining it with the earlier
+    // click instead would land one past every variant asked for: "size" would
+    // render the lorem, and "text" would render the label.
+    let setVariant!: (variant: string) => void;
+
+    function Harness(): React.JSX.Element {
+      const [variant, set] = React.useState("default");
+      setVariant = set;
+      return <Placeholder label="Sidebar" variant={variant} />;
+    }
+
+    const session = await runTest(<Harness />, {
+      appProps: { css: "Placeholder { height: 5; }" },
+    });
+    await session.app.whenIdle();
+
+    await session.pilot.click("Placeholder");
+    await session.app.whenIdle();
+    expect(screenText(session)).toContain("80 x 5");
+
+    setVariant("size");
+    await session.app.whenIdle();
+    expect(screenText(session)).toContain("80 x 5");
+    expect(screenText(session)).not.toContain("Lorem ipsum");
+
+    setVariant("text");
+    await session.app.whenIdle();
+    expect(screenText(session)).toContain("Lorem ipsum");
+    expect(screenText(session)).not.toContain("Sidebar");
+
+    session.unmount();
+  });
+
   it("keeps its colour across re-renders, claiming one index and not one per render", async () => {
     // Claiming advances a counter the whole app shares, so a claim that ran
     // again on re-render would hand this instance a different palette entry and
