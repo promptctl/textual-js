@@ -278,7 +278,16 @@ async def capture_fixture(fixture_path: Path) -> None:
     ansi_path = SNAPSHOTS_DIR / f"{name}.ansi"
     txt_path = SNAPSHOTS_DIR / f"{name}.txt"
 
-    async with app.run_test(size=(TERMINAL_WIDTH, TERMINAL_HEIGHT), tooltips=True, headless=True) as pilot:
+    # [LAW:one-source-of-truth] The real-terminal path runs `app.run()`, where the
+    # toast rack and the tooltip both exist. `run_test` defaults both off, so every
+    # flag here is restoring the app the PNG path renders — not configuring a
+    # different one. `notifications=False` is why the two notification fixtures had
+    # committed cell records showing a bare background: `_disable_notifications`
+    # keeps the ToastRack from ever being mounted, so no wait and no fixture change
+    # could have made a toast appear in the .ansi.
+    async with app.run_test(
+        size=(TERMINAL_WIDTH, TERMINAL_HEIGHT), tooltips=True, notifications=True, headless=True
+    ) as pilot:
         await pilot.pause()
 
         if hasattr(module, "capture"):
