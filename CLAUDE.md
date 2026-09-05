@@ -216,10 +216,11 @@ Five traps, each of which type-checks, renders, and is wrong:
   render body, or through a class the child's own DEFAULT_CSS publishes — Button's
   `-full-width` is the port's spelling of `Welcome #close { width: 100% }`. Ticket
   `textual-style-cascade-apr`.
-- **A `%` width reaches Ink as a string, not a number.** `makeScalarSpec`
-  (`stylesheet.ts:1352`) parses but never normalizes, so `width: 100%` arrives as
-  `"100%"` — which is right, because Ink then resolves it against the parent — but any
-  widget reading `styles.box.width` as a number gets `undefined` and silently falls back.
+- **A `%` width reaches Ink as a string, not a number.** `Unit.PERCENT.toInk`
+  (`scalar.ts:98`) returns `` `${value}%` `` — deliberately, because Ink resolves a
+  string width against the parent and a number would freeze it. So `width: 100%`
+  arrives as `"100%"`, and any widget reading `styles.box.width` as a number gets
+  `undefined` and silently falls back.
   That is how a full-width Button painted its 16-cell `min-width` inside an 80-cell box.
   Read the measured region instead, *unless* the width is `auto`: an auto widget's box
   hugs the content, so its measurement is downstream of its own paint, and before

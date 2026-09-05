@@ -98,14 +98,21 @@ visual-tests/
 ## Comparison Output
 
 ```
-Comparing 3 PNG fixture pair(s)...
+Comparing 4 PNG fixture pair(s)...
 
   static_basic: MATCH (764x566, 0 differing pixels)
   button_variants: DIFF (918 differing pixels, diff: snapshots/diff/button_variants.png)
   switch_states: DIFF (size mismatch: Python 764x566, JS 780x566)
+  welcome_default: KNOWN DIFF (548359 differing pixels, diff: snapshots/diff/welcome_default.png)
 
-Summary: 1 match, 2 diff, 0 skipped
+Summary: 1 match, 2 diff, 1 known diff, 0 missing
 ```
+
+`KNOWN DIFF` is a pair whose `fixture-todos.json` entry names a reason it still
+differs (step 6 above). It is printed with its pixel count but held out of the
+failing total. `missing` counts a pair whose PNG never rendered — a known diff
+downgrades a *difference*, never an absent render, so a missing PNG still fails
+the gate.
 
 Open the `snapshots/diff/*.png` files to inspect mismatches visually.
 
