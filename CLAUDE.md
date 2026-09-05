@@ -189,7 +189,7 @@ than its `.ansi` is two frames wearing one name.
 
 ## Ink is not a compositor
 
-Three traps, each of which type-checks, renders, and is wrong:
+Five traps, each of which type-checks, renders, and is wrong:
 
 - **`backgroundColor` belongs to `<Text>`, not `<Box>`.** A widget's background exists
   only where the widget emits a glyph. Anything Textual draws as a filled block must
@@ -198,6 +198,24 @@ Three traps, each of which type-checks, renders, and is wrong:
   position the text correctly and leave the surrounding cells transparent.
 - **`"1fr"` resolves to ONE CELL here.** `scalarToInkValue` defaults `fractionBasis = 1`
   (`src/styles/scalar.ts:164`), so `1 * 1 = 1`. Write `width: 100%`.
+- **A widget's DEFAULT_CSS cannot style its children.** `resolveStylesForWidget`
+  (`src/styles/stylesheet.ts:2008`) builds a widget's cascade from *its own type's*
+  default stylesheets plus the screen's user CSS. Textual puts every mounted class's
+  `DEFAULT_CSS` into one app stylesheet, so upstream's `Welcome #text { margin: 0 1 }`
+  reaches the child Static; written here it parses, registers, matches nothing, and
+  reports no error. Composed widgets pass geometry to their children through the
+  render body, or through a class the child's own DEFAULT_CSS publishes — Button's
+  `-full-width` is the port's spelling of `Welcome #close { width: 100% }`. Ticket
+  `textual-style-cascade-apr`.
+- **A `%` width reaches Ink as a string, not a number.** `makeScalarSpec`
+  (`stylesheet.ts:1352`) parses but never normalizes, so `width: 100%` arrives as
+  `"100%"` — which is right, because Ink then resolves it against the parent — but any
+  widget reading `styles.box.width` as a number gets `undefined` and silently falls back.
+  That is how a full-width Button painted its 16-cell `min-width` inside an 80-cell box.
+  Read the measured region instead, *unless* the width is `auto`: an auto widget's box
+  hugs the content, so its measurement is downstream of its own paint, and before
+  `lifecycleReady` the unstyled scope stretches to the container and hands back a
+  measurement that locks the widget at full width.
 - **`Content.fromText` parses markup; `new Content` does not.** Choose on what the
   string *is*, never on the word "label". A caller's opaque text takes `new Content` —
   a Placeholder reading `[draft]` otherwise loses seven visible characters to an unknown
@@ -215,7 +233,7 @@ every on-screen behaviour in its spec-tests file. A `.py` with no `.tsx` is a ga
 work already claimed done — not a future task. This applies retroactively; stage
 completion is gated on it; backfilling is in-scope.
 
-The count today is 119 `.py` against 51 `.tsx`, so you will meet this. And when you do,
+The count today is 120 `.py` against 56 `.tsx`, so you will meet this. And when you do,
 the reasonable voice arrives: *"that gap predates my ticket — I'll file it and move
 on."* Refuse it. YAGNI is right about speculative features and says nothing here: this
 is not a feature nobody asked for, it is the verification for a widget already shipped

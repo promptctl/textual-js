@@ -4,7 +4,17 @@ Compares textual-js PNG screenshots against committed Python Textual baseline PN
 
 ## How It Works
 
-1. **Fixtures** — Each active fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout. The active fixture set is discovered from paired filenames on disk minus names listed in `fixture-todos.json`.
+1. **Fixtures** — Each active fixture exists as a pair: a Python Textual app (`*.py`) and a textual-js component (`*.tsx`) that render the same widget layout. The comparison set is every such pair on disk; `fixture-todos.json` no longer removes pairs from it.
+
+   What a todo entry means depends on whether the `.tsx` exists, and the directory is the only place that fact is stored:
+
+   | `.py` | `.tsx` | in `fixture-todos.json` | |
+   |---|---|---|---|
+   | ✓ | — | ✓ | **Unimplemented.** Nothing to compare. Its Python baseline is still rendered by `visual:update-python`. |
+   | ✓ | ✓ | ✓ | **Known diff.** Compared and printed with its pixel count, but excluded from the failing total — the entry's `reason` says why it differs and when it clears. |
+   | ✓ | ✓ | — | **Gated.** Any difference fails the gate. |
+
+   A missing PNG is never excused by a todo entry; only a *difference* is.
 
 2. **Python baselines** — `npm run visual:update-python` renders Python Textual fixtures and commits `visual-tests/snapshots/python/*.png` as reviewed reference artifacts. The default gate does not regenerate these files. Python-only future fixtures are rendered only when listed in `fixture-todos.json`.
 
@@ -70,7 +80,7 @@ visual-tests/
   render-ansi-xvfb.sh    # Display one ANSI frame in xterm and screenshot it
   render_pngs.ts         # Docker/Xvfb screenshot renderer
   compare.ts             # PNG diff tool
-  fixture-todos.json     # Future fixtures excluded from the active JS gate
+  fixture-todos.json     # Unimplemented fixtures, and known diffs held out of the gate
   run.sh                 # Pipeline orchestrator
   update-python-baselines.sh # Explicit Python baseline refresh task
 ```
@@ -82,7 +92,7 @@ visual-tests/
 3. Run `npm run visual:update-python -- <name>` to generate and review the Python baseline PNG.
 4. Commit `visual-tests/snapshots/python/<name>.png`.
 5. When implementing the textual-js side, create `fixtures/<name>.tsx` with a default-exported React component that renders the same widget layout.
-6. Remove `<name>` from `fixture-todos.json`; this makes the fixture part of the hard visual gate.
+6. Remove `<name>` from `fixture-todos.json`; this makes the fixture part of the hard visual gate. If it is implemented but still expected to differ for a reason you can name and schedule, rewrite the entry's `reason` instead of removing it — the pair is then compared and reported as `KNOWN DIFF`.
 7. Run `./visual-tests/run.sh <name>` to capture JS and compare.
 
 ## Comparison Output

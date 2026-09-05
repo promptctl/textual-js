@@ -50,6 +50,19 @@ export function outerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
   };
 }
 
+// [LAW:one-source-of-truth] How this renderer spells Textual's `dock: bottom`.
+// Yoga honours an auto margin at runtime and Ink's TS type for `marginTop` is
+// narrowed to `number`, so the spelling needs a cast through `unknown` — and a
+// cast is exactly the kind of thing that must exist once. Both Footer and
+// Welcome dock a child to the bottom of a flex column; the second copy of this
+// line is the point at which the two would start being able to disagree.
+//
+// It works by leftover space: with spare height the child is pushed to the end,
+// with none the margin has no effect. Same code path either way.
+export function dockBottomBoxProps(): Partial<BoxProps> {
+  return { marginTop: "auto" } as unknown as Partial<BoxProps>;
+}
+
 export function innerBoxGeometry(box: Partial<BoxProps>): Partial<BoxProps> {
   const { marginTop, marginRight, marginBottom, marginLeft, width, minWidth, display, ...inner } = box;
 

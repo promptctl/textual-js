@@ -27,6 +27,7 @@ import {
   getKeyDisplay,
   type ActiveBinding,
 } from "../framework/_app-runtime.js";
+import { dockBottomBoxProps } from "../styles/box-geometry.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 
 // Textual's own footer palette, cell-for-cell. Ground truth for every value
@@ -185,15 +186,11 @@ export const Footer = observer(function Footer({
   const fillWidth = Math.max(0, totalBarWidth - chipsTotalWidth - reservedRightWidth);
 
   // [LAW:dataflow-not-control-flow] The Footer always docks at the bottom of
-  // its flex-column parent. `marginTop: auto` pushes it to the end whenever
-  // there's leftover space; with no leftover space it has no effect — same
-  // code path either way, the flex container's spare height varies the layout
-  // outcome. This mirrors Textual's `dock: bottom` for the Footer widget.
-  // Yoga supports auto margins at runtime; Ink's TS type for marginTop is
-  // narrowed to `number` and does not advertise this. Cast through unknown.
-  const dockBottomStyle = { marginTop: "auto" } as unknown as { marginTop: number };
+  // its flex-column parent — same code path whether or not there is spare
+  // height for the auto margin to consume. This mirrors Textual's
+  // `dock: bottom` on the Footer widget.
   return (
-    <Box {...dockBottomStyle}>
+    <Box {...dockBottomBoxProps()}>
       <WidgetScope widget={widget.handle}>
         <Box flexDirection="row">
           {bindings.map((binding) => (

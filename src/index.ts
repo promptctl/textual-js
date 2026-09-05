@@ -397,6 +397,8 @@ export {
   Switch,
   SwitchChanged,
   ToggleChanged,
+  Welcome,
+  WELCOME_MARKDOWN,
   type ButtonProps,
   type ContentSource,
   type ButtonVariant,
@@ -424,4 +426,5 @@ export {
   type StaticProps,
   type SummaryFunction,
   type SwitchProps,
+  type WelcomeProps,
 } from "./widgets/index.js";
