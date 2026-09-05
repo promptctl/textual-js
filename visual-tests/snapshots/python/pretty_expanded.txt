@@ -1,0 +1,11 @@
+{
+    'widgets': ['Header', 'Footer', 'Placeholder', 'LoadingIndicator'],
+    'counts': {
+        'shipped': 6,
+        'remaining': 2,
+        'skipped': None,
+        'unverified': True
+    },
+    'note': '[draft]',
+    'complete': False
+}
