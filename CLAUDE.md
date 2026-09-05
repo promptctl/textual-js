@@ -114,12 +114,21 @@ container), but its `js` branch drives `tsx runner_js.tsx`. `uv` belongs to base
 regeneration.
 
 **There is no Docker on this machine.** Podman is installed and its VM runs, but
-`run.sh` hardcodes the name `docker`. Use a session-scoped shim:
+`run.sh` hardcodes the name `docker`. Two things are needed, not one — the shim, and
+an empty registry config:
 
 ```bash
 mkdir -p /tmp/shimbin && printf '#!/usr/bin/env bash\nexec podman "$@"\n' > /tmp/shimbin/docker && chmod +x /tmp/shimbin/docker
-PATH=/tmp/shimbin:$PATH bash visual-tests/run.sh <fixture>
+mkdir -p /tmp/emptydockercfg && printf '{}' > /tmp/emptydockercfg/config.json
+DOCKER_CONFIG=/tmp/emptydockercfg PATH=/tmp/shimbin:$PATH bash visual-tests/run.sh <fixture>
 ```
+
+`DOCKER_CONFIG` is not optional here. `~/.docker/config.json` on this machine declares
+gcloud credential helpers; podman honours them, tries to authenticate against a
+registry it has no business talking to, and dies with an **SSL certificate error**.
+That error reads exactly like a network or TLS problem and is neither — it is the
+credential helper. Pointing `DOCKER_CONFIG` at an empty config removes the helper from
+podman's view without touching the real file, which docker/gcloud still own.
 
 Scoped to the command. Do **not** install a `docker` shim onto the global PATH, into
 `/usr/local/bin`, or into shell rc files — that is a machine-wide alias for a
