@@ -662,10 +662,15 @@ export class Color {
     const [red, green, blue] = this.rgb;
     const [otherRed, otherGreen, otherBlue] = other.rgb;
 
+    // Truncated, not rounded, because Textual's `Color.blend` wraps each
+    // channel in `int()`. The two disagree on every half-cell: `#121212`
+    // blended halfway to `#881177` is Textual's (77, 17, 68) and a rounding
+    // implementation's (77, 18, 69), which is a visible off-by-one against
+    // every committed baseline that shows a blended colour.
     return new Color(
-      red + (otherRed - red) * clampedFactor,
-      green + (otherGreen - green) * clampedFactor,
-      blue + (otherBlue - blue) * clampedFactor,
+      Math.trunc(red + (otherRed - red) * clampedFactor),
+      Math.trunc(green + (otherGreen - green) * clampedFactor),
+      Math.trunc(blue + (otherBlue - blue) * clampedFactor),
       this.alpha + (other.alpha - this.alpha) * clampedFactor,
     ).clamped;
   }

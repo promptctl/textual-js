@@ -246,18 +246,6 @@
     "reason": "Pre-seeded Python baseline for Stage 8 OptionList implementation"
   },
   {
-    "name": "placeholder_default",
-    "stage": "7",
-    "component": "Placeholder",
-    "reason": "Pre-seeded Python baseline for Stage 7 Placeholder implementation"
-  },
-  {
-    "name": "placeholder_variants",
-    "stage": "7",
-    "component": "Placeholder",
-    "reason": "Pre-seeded Python baseline for Stage 7 Placeholder implementation"
-  },
-  {
     "name": "pretty_basic",
     "stage": "7",
     "component": "Pretty",
