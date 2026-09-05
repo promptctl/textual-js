@@ -4,9 +4,12 @@
 export { Button, type ButtonProps } from "./button-component.js";
 export { ButtonPressed, type ButtonVariant } from "./button.js";
 export { Static, type StaticProps } from "./static-component.js";
+export type { ContentSource } from "./content-widget.js";
 export { Label, type LabelProps } from "./label-component.js";
 export { Link, type LinkProps } from "./link-component.js";
 export { Digits, type DigitsProps } from "./digits-component.js";
+export { Placeholder, type PlaceholderProps } from "./placeholder-component.js";
+export { InvalidPlaceholderVariant, type PlaceholderVariant } from "./placeholder.js";
 export { Input, type InputProps, type InputHandle } from "./input-component.js";
 export { InputChanged, InputSubmitted } from "./input.js";
 export { Switch, type SwitchProps } from "./switch-component.js";

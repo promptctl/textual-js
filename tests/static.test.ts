@@ -2,7 +2,7 @@ import { Panel } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import { Content } from "../src/index.js";
-import { StaticModel as Static, Placeholder, InvalidPlaceholderVariant } from "../src/widgets/static.js";
+import { StaticModel as Static } from "../src/widgets/static.js";
 
 describe("Static widget", () => {
   it("constructs with empty content by default", () => {
@@ -48,32 +48,3 @@ describe("Static widget", () => {
   });
 });
 
-describe("Placeholder widget", () => {
-  it("constructs with default variant", () => {
-    const placeholder = new Placeholder();
-    expect(placeholder.variant).toBe("default");
-  });
-
-  it("constructs with a valid variant", () => {
-    const placeholder = new Placeholder("size");
-    expect(placeholder.variant).toBe("size");
-  });
-
-  it("rejects invalid variant at construction", () => {
-    expect(() => new Placeholder("bogus")).toThrow(InvalidPlaceholderVariant);
-  });
-
-  it("rejects invalid variant on assignment", () => {
-    const placeholder = new Placeholder();
-
-    expect(() => {
-      placeholder.variant = "bogus";
-    }).toThrow(InvalidPlaceholderVariant);
-  });
-
-  it("accepts valid variant reassignment", () => {
-    const placeholder = new Placeholder("default");
-    placeholder.variant = "text";
-    expect(placeholder.variant).toBe("text");
-  });
-});

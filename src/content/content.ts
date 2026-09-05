@@ -17,6 +17,10 @@ export interface ContentTruncateOptions {
 export type ContentInput = string | Content | RichText | null | undefined;
 export type ContentPart = string | Content | RichText | [string, string?];
 
+// Upstream's `_wrap_and_format` takes `tab_size` as a parameter and `wrap`
+// never passes one, so eight is the only width a wrapped tab has ever had.
+const WRAP_TAB_SIZE = 8;
+
 function normalizeSpanStyle(style: string | Style): string {
   return typeof style === "string" ? style : style.toString();
 }
@@ -137,43 +141,32 @@ export class Content {
     return Content.assemble(...parts);
   }
 
+  /**
+   * Break this content into lines at word boundaries, no line wider than
+   * `width` cells.
+   *
+   * Line breaks in the text are honoured as breaks, and every line is cut from
+   * this content with `slice`, so styling survives the wrap. `fold` is the
+   * blunter sibling: it breaks mid-word wherever the width runs out.
+   */
   wrap(width: number): Content[] {
-    if (this.plain.length === 0) {
+    if (width <= 0 || this.plain.length === 0) {
       return [new Content("")];
     }
 
-    const lines: Content[] = [];
-    const words = this.plain.split(/\s+/).filter((word) => word.length > 0);
-    let currentLine = "";
-    const currentSpans: Span[] = [];
+    // A tab is a jump to the next tab stop, not a character with a width, so it
+    // is spelled out as the spaces it stands for before any break is looked
+    // for — upstream's `_wrap_and_format` expands each line the same way, ahead
+    // of `divide_line`. Left as a tab it would measure one cell instead of up to
+    // eight, and the break its spaces open would not exist to be found.
+    const expanded = this.expandTabs(WRAP_TAB_SIZE);
 
-    for (const word of words) {
-      const wordStart = this.plain.indexOf(word, currentLine.length + (lines.length > 0 ? 0 : 0));
-      const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
-
-      if (cellLen(testLine) > width && currentLine.length > 0) {
-        lines.push(
-          new Content(
-            currentLine,
-            clipSpans(this.spans, 0, currentLine.length),
-          ),
-        );
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-
-    if (currentLine.length > 0 || lines.length === 0) {
-      lines.push(
-        new Content(
-          currentLine,
-          clipSpans(this.spans, 0, currentLine.length),
-        ),
-      );
-    }
-
-    return lines;
+    // [LAW:one-source-of-truth] Only the break *offsets* are computed here.
+    // Turning an offset pair into content is `slice`'s job, so a wrapped line
+    // carries the same spans the same characters had before the wrap — this
+    // used to rebuild each line from `spans` clipped at zero, which gave every
+    // line but the first the styling of the text's opening characters.
+    return wrapOffsets(expanded.plain, width).map(([start, end]) => expanded.slice(start, end));
   }
 
   fold(width: number): Content[] {
@@ -451,6 +444,142 @@ export class Content {
 
 function normalizeIndex(index: number, length: number): number {
   return Math.max(0, Math.min(length, index < 0 ? length + index : index));
+}
+
+/** The `[start, end)` offset of each wrapped line, greedily filling `width` cells. */
+function wrapOffsets(text: string, width: number): [number, number][] {
+  let start = 0;
+
+  return text.split("\n").flatMap((paragraph) => {
+    const offsets = paragraphOffsets(paragraph, start, width);
+    // The break itself is one character, and belongs to no line.
+    start += paragraph.length + 1;
+
+    return offsets;
+  });
+}
+
+function paragraphOffsets(paragraph: string, offset: number, width: number): [number, number][] {
+  const clusters = graphemeClusters(paragraph);
+  const lines: [number, number][] = [];
+  let start = 0;
+
+  while (start < clusters.length) {
+    const [end, next] = nextLineBreak(clusters, start, width);
+    lines.push([clusters[start].index, clusters[end]?.index ?? paragraph.length]);
+    start = next;
+  }
+
+  // An empty paragraph is a blank line, not the absence of one: a text with a
+  // doubled break draws that break as a row.
+  if (lines.length === 0) {
+    return [[offset, offset]];
+  }
+
+  // The spaces a break was made at belong to the break, not to the line that
+  // broke, so every line but the paragraph's last gives them up — upstream
+  // rstrips exactly those and exempts the last one. That exemption is why
+  // "a  b" comes back from a wide wrap whole: its one line is the last line.
+  //
+  // Trimming the offset rather than the text keeps every line a `slice` of the
+  // original, so a wrapped line still carries the spans its characters had.
+  return lines.map(([lineStart, lineEnd], index): [number, number] => [
+    offset + lineStart,
+    offset + (index === lines.length - 1 ? lineEnd : trimTrailingSpaces(paragraph, lineStart, lineEnd)),
+  ]);
+}
+
+/** `end` pulled back past the spaces that trail this line, but never past `start`. */
+function trimTrailingSpaces(paragraph: string, start: number, end: number): number {
+  let trimmed = end;
+
+  while (trimmed > start && paragraph[trimmed - 1] === " ") {
+    trimmed -= 1;
+  }
+
+  return trimmed;
+}
+
+/**
+ * One user-perceived character: where it starts, how wide it prints, and
+ * whether it is the space that breaks a line.
+ *
+ * Grapheme clusters rather than code points, because a family emoji is seven
+ * code points that each measure two cells and together measure two. Walking
+ * code points both mis-measures that cluster as eight cells and lets a break
+ * land inside it, splitting one glyph across two lines.
+ */
+interface GraphemeCluster {
+  readonly index: number;
+  readonly cells: number;
+  readonly isSpace: boolean;
+}
+
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemeClusters(paragraph: string): GraphemeCluster[] {
+  return [...GRAPHEME_SEGMENTER.segment(paragraph)].map(({ index, segment }) => ({
+    index,
+    cells: cellLen(segment),
+    isSpace: segment === " ",
+  }));
+}
+
+/**
+ * Where the line starting at cluster `start` ends, and which cluster the next
+ * line begins at. Both are cluster indices; `end` is the first cluster the line
+ * does not include.
+ *
+ * Rich's rule, which these follow: a line keeps every character that fits,
+ * trailing spaces included, and the next line starts at the next non-space.
+ * "hello  world" is "hello"/"world" at width 5, "hello "/"world" at 6, and
+ * "hello  "/"world" at 7 — the spaces that fit stay put, and only the run at
+ * the break is skipped.
+ */
+function nextLineBreak(
+  clusters: readonly GraphemeCluster[],
+  start: number,
+  width: number,
+): [number, number] {
+  let cells = 0;
+  let lastSpace = -1;
+  let index = start;
+
+  while (index < clusters.length) {
+    const cluster = clusters[index];
+
+    if (cells + cluster.cells > width) {
+      // Ending the line: at the overflowing space itself, or back at the start
+      // of the word being split. A word longer than the whole line has no space
+      // to retreat to and is cut where the width ran out — and a cluster wider
+      // than the whole line leaves nothing to cut, so it takes the line alone
+      // rather than yielding an empty one the caller would loop on forever.
+      const end = cluster.isSpace
+        ? index
+        : lastSpace >= start
+          ? lastSpace + 1
+          : Math.max(index, start + 1);
+
+      return [end, skipSpaceClusters(clusters, end)];
+    }
+
+    lastSpace = cluster.isSpace ? index : lastSpace;
+    cells += cluster.cells;
+    index += 1;
+  }
+
+  return [clusters.length, clusters.length];
+}
+
+/** The first cluster at or after `from` that is not a space. */
+function skipSpaceClusters(clusters: readonly GraphemeCluster[], from: number): number {
+  let index = from;
+
+  while (clusters[index]?.isSpace === true) {
+    index += 1;
+  }
+
+  return index;
 }
 
 function clipSpans(spans: readonly Span[], start: number, end: number): Span[] {

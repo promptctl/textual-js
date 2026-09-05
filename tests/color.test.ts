@@ -79,7 +79,11 @@ describe("color normalization", () => {
     expect(gradient.get_color(0.5).hex6).toBe("#FF0000");
     expect(gradient.getColor(2).hex6).toBe("#FFFFFF");
     expect(Gradient.from_colors("black", "white").getColor(1).hex6).toBe("#FFFFFF");
-    expect(new Gradient([0, "black"], [1, "white"], { quality: 3 }).getColor(0.5).hex6).toBe("#808080");
+    // 0x7F, not 0x80: Textual's Color.blend truncates each channel with
+    // `int()`, so black halfway to white is 127. Verified against
+    // textual 8.2.3 — `Gradient.from_colors("black", "white").get_color(0.5)`
+    // is `#7F7F7F` there too.
+    expect(new Gradient([0, "black"], [1, "white"], { quality: 3 }).getColor(0.5).hex6).toBe("#7F7F7F");
     expect(() => new Gradient([0.2, "red"], [1, "blue"])).toThrow(/start/);
     expect(() => Gradient.fromColors("red")).toThrow(/at least two/);
   });

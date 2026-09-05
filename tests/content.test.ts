@@ -2,6 +2,7 @@ import { RichText } from "rich-js";
 import { describe, expect, it } from "vitest";
 
 import { Content } from "../src/index.js";
+import { alignContentInBox, alignContentInPaddedBox } from "../src/content/align.js";
 
 describe("Content construction", () => {
   it("stores plain text and spans as the canonical payload", () => {
@@ -351,6 +352,220 @@ describe("Content wrap", () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0]!.plain).toBe("");
+  });
+
+  it("keeps a word that ends exactly on the width", () => {
+    // The separating space belongs to neither word, so "world" ending on cell
+    // 11 fits. Counting that space against the line is what sends the last
+    // word to the next line and leaves every wrapped paragraph a word narrow.
+    const lines = new Content("hello world again").wrap(11);
+
+    expect(lines.map((line) => line.plain)).toEqual(["hello world", "again"]);
+  });
+
+  it("breaks at a line break in the text", () => {
+    const lines = new Content("one\ntwo three").wrap(20);
+
+    expect(lines.map((line) => line.plain)).toEqual(["one", "two three"]);
+  });
+
+  it("draws a blank line for a blank line", () => {
+    const lines = new Content("one\n\ntwo").wrap(20);
+
+    expect(lines.map((line) => line.plain)).toEqual(["one", "", "two"]);
+  });
+
+  it("cuts a word too long for the line where the width runs out", () => {
+    const lines = new Content("supercalifragilistic").wrap(6);
+
+    expect(lines.map((line) => line.plain)).toEqual(["superc", "alifra", "gilist", "ic"]);
+  });
+
+  it("carries each line's own styling, not the first line's", () => {
+    // The regression this pins: rebuilding every line from spans clipped at
+    // offset zero gave line two the style of the text's opening characters.
+    const content = new Content("plain words bold words", [
+      { start: 12, end: 22, style: "bold" },
+    ]);
+
+    const lines = content.wrap(11);
+
+    expect(lines.map((line) => line.plain)).toEqual(["plain words", "bold words"]);
+    expect(lines[0]!.spans).toEqual([]);
+    expect(lines[1]!.spans).toEqual([{ start: 0, end: 10, style: "bold" }]);
+  });
+
+  it("counts a wide character as the two cells it occupies", () => {
+    const lines = new Content("文文文 ab").wrap(6);
+
+    expect(lines.map((line) => line.plain)).toEqual(["文文文", "ab"]);
+  });
+
+  it("gives a character wider than the whole line a line of its own", () => {
+    // Forward progress, not aesthetics: a line that took no characters would
+    // hand the caller back its own starting offset, and the wrap would spin
+    // until the heap ran out. Rich substitutes a space for the glyph here;
+    // this port overflows the line instead, because every line it returns is a
+    // slice of the original and substituting a character would break that.
+    expect(new Content("文").wrap(1).map((line) => line.plain)).toEqual(["文"]);
+    expect(new Content("文a").wrap(1).map((line) => line.plain)).toEqual(["文", "a"]);
+  });
+
+  it("gives up the spaces at a break, and keeps the ones that end a paragraph", () => {
+    // Every expectation here is read off `Content(s).wrap(w)` in textual 8.2.3.
+    // This is exactly where Textual and Rich part company, so the source
+    // matters more than usual: Rich keeps whatever trailing spaces fit, giving
+    // "hello " at width 6 and "hello  " at 7, while Textual rstrips every line
+    // but the paragraph's last and answers "hello" at all three widths. These
+    // cases were pinned to Rich until that was checked against the real thing.
+    const wrapped = (text: string, width: number): string[] =>
+      new Content(text).wrap(width).map((line) => line.plain);
+
+    expect(wrapped("hello  world", 5)).toEqual(["hello", "world"]);
+    expect(wrapped("hello  world", 6)).toEqual(["hello", "world"]);
+    expect(wrapped("hello  world", 7)).toEqual(["hello", "world"]);
+    expect(wrapped("hello  world", 8)).toEqual(["hello", "world"]);
+    expect(wrapped("hello   world", 6)).toEqual(["hello", "world"]);
+    expect(wrapped("abcdef ghij", 8)).toEqual(["abcdef", "ghij"]);
+    expect(wrapped("abcdef ghij", 7)).toEqual(["abcdef", "ghij"]);
+    expect(wrapped("abcdef ghij", 6)).toEqual(["abcdef", "ghij"]);
+    expect(wrapped("a b c d", 3)).toEqual(["a b", "c d"]);
+    expect(wrapped("one two", 7)).toEqual(["one two"]);
+    expect(wrapped("one two", 3)).toEqual(["one", "two"]);
+
+    // The paragraph's last line is exempt, which is why the rule cannot be
+    // stated as "trim every wrapped line" — and the exemption is per paragraph,
+    // not per content, so "bb " keeps its space while "aa" does not.
+    expect(wrapped("a  ", 10)).toEqual(["a  "]);
+    expect(wrapped("aa  bb  \ncc", 3)).toEqual(["aa", "bb ", "cc"]);
+  });
+
+  it("keeps a double space that is not at a break", () => {
+    // The trim is scoped to the break; Textual returns "a  b" whole at width
+    // 10, so this is not a general whitespace collapse.
+    expect(new Content("a  b").wrap(10).map((line) => line.plain)).toEqual(["a  b"]);
+  });
+
+  it("spells a tab out to its tab stop before looking for a break", () => {
+    // Read off `Content(s).wrap(w)` in textual 8.2.3, not reasoned about. A tab
+    // is a jump to the next multiple of eight, so its width depends on where it
+    // lands: one cell of text before it leaves seven, and eight columns of text
+    // before it leave a whole eight. Measured as a single character instead —
+    // which is what this did — "a\tb ccc" stayed one 7-cell line at width 10,
+    // and at width 5 it broke as ["a\tb ", "ccc"], printing a raw tab into a
+    // cell grid that has no way to render one.
+    const wrapped = (text: string, width: number): string[] =>
+      new Content(text).wrap(width).map((line) => line.plain);
+
+    expect(wrapped("a\tb ccc", 10)).toEqual(["a       b", "ccc"]);
+    expect(wrapped("a\tb ccc", 5)).toEqual(["a", "b ccc"]);
+    expect(wrapped("\tab", 20)).toEqual(["        ab"]);
+    expect(wrapped("ab\tcd", 20)).toEqual(["ab      cd"]);
+    expect(wrapped("a\t\tb", 30)).toEqual(["a               b"]);
+
+    // A tab already sitting on a tab stop advances a full eight, rather than
+    // collapsing to nothing — the case an `% 8` written the other way round
+    // would get wrong.
+    expect(wrapped("12345678\tx", 20)).toEqual(["12345678        x"]);
+  });
+
+  it("never breaks inside a grapheme cluster", () => {
+    // A family emoji is seven code points that each measure two cells and
+    // together measure two. Measuring per code point both calls the cluster
+    // four times too wide and lets a break land inside it, so this used to
+    // return ["👨‍👩‍", "👧‍👦", "ab"] — one glyph torn into two.
+    const family = "👨‍👩‍👧‍👦";
+
+    expect(new Content(`${family} ab`).wrap(4).map((line) => line.plain)).toEqual([
+      family,
+      "ab",
+    ]);
+    expect(new Content(`${family}${family}`).wrap(2).map((line) => line.plain)).toEqual([
+      family,
+      family,
+    ]);
+  });
+});
+
+describe("content alignment in a box", () => {
+  const box = { width: 9, height: 3 };
+  const TOP_LEFT = { horizontal: "left", vertical: "top" } as const;
+
+  function rows(content: Content): string[] {
+    return content.plain.split("\n");
+  }
+
+  it("paints every cell of the box, not only the cells with text in them", () => {
+    // The reason this exists at all: Ink colours Text and not Box, so an
+    // unpainted cell is a hole in a widget's background.
+    const aligned = alignContentInBox(new Content("hi"), box, {
+      horizontal: "center",
+      vertical: "middle",
+    });
+
+    expect(rows(aligned)).toEqual(["         ", "   hi    ", "         "]);
+  });
+
+  it("puts a block in the corner it was told to", () => {
+    expect(
+      rows(alignContentInBox(new Content("hi"), box, { horizontal: "right", vertical: "bottom" })),
+    ).toEqual(["         ", "         ", "       hi"]);
+
+    expect(
+      rows(alignContentInBox(new Content("hi"), box, { horizontal: "left", vertical: "top" })),
+    ).toEqual(["hi       ", "         ", "         "]);
+  });
+
+  it("moves a multi-line block as one, rather than centring each line on itself", () => {
+    // Textual centres the widest line and every other line shifts with it. Per
+    // line centring would put "cd" at column 3 instead of 2. Odd slack goes to
+    // the right, as Python's floor division does.
+    const aligned = alignContentInBox(new Content("abcd\ncd"), box, {
+      horizontal: "center",
+      vertical: "top",
+    });
+
+    expect(rows(aligned).slice(0, 2)).toEqual(["  abcd   ", "  cd     "]);
+  });
+
+  it("crops a block taller than the box from the bottom, whatever the alignment", () => {
+    // A paragraph that begins mid-sentence is never the intended reading, so
+    // "middle" on an over-tall block still starts at the first line.
+    const aligned = alignContentInBox(new Content("one\ntwo\nthree\nfour\nfive"), box, {
+      horizontal: "left",
+      vertical: "middle",
+    });
+
+    expect(rows(aligned)).toEqual(["one      ", "two      ", "three    "]);
+  });
+
+  it("keeps every row exactly the box's width, even around a glyph too wide for it", () => {
+    // The invariant this function exists to provide, checked where it is most
+    // fragile: a cluster that cannot be cut in half. `truncate` drops such a
+    // glyph rather than leaving it whole, so the row is filled out with blanks
+    // instead of overflowing — a row wider than the box would push the widget
+    // out of the region Ink measured it into.
+    const cells = (content: Content): number[] =>
+      content.plain.split("\n").map((row) => new Content(row).cellLength);
+
+    expect(cells(alignContentInBox(new Content("文"), { width: 1, height: 2 }, TOP_LEFT))).toEqual([
+      1, 1,
+    ]);
+    expect(
+      cells(alignContentInBox(new Content("a文b"), { width: 2, height: 2 }, TOP_LEFT)),
+    ).toEqual([2, 2]);
+    expect(cells(alignContentInBox(new Content("文文"), { width: 3, height: 1 }, TOP_LEFT))).toEqual(
+      [3],
+    );
+  });
+
+  it("insets the block on every side and still paints the inset cells", () => {
+    const aligned = alignContentInPaddedBox(new Content("abcdefghij"), box, 1, {
+      horizontal: "left",
+      vertical: "top",
+    });
+
+    expect(rows(aligned)).toEqual(["         ", " abcdefg ", "         "]);
   });
 });
 
