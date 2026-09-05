@@ -212,6 +212,33 @@ describe("Pretty formatting", () => {
     expect(repr(() => 1)).toBe("[Function: anonymous]");
     expect(repr({ handler: function named() {} })).toBe("{'handler': [Function: named]}");
   });
+
+  it("keeps a value's own repr on the one row the layout counted", () => {
+    // An `Error` whose message spans lines is the ordinary way a newline
+    // reaches a leaf. The layout pass measures the token once and indents it
+    // once, so a literal newline inside it paints a second row that nothing
+    // measured and nothing indented — the container's fit decision would
+    // describe output that was never produced. Two children, because a
+    // single-child container's fit is the same inequality with or without the
+    // indent and so cannot tell the two apart.
+    expect(repr({ err: new Error("a\nb"), tail: 1 })).toBe("{'err': Error: a\\nb, 'tail': 1}");
+
+    // The other two values that hand uncontrolled text to a leaf: a symbol's
+    // description, and a function's `name` — an identifier in practice, and
+    // settable to anything at all through `defineProperty`.
+    expect(repr(Symbol("a\nb"))).toBe("Symbol(a\\nb)");
+    expect(repr(Object.defineProperty(() => 1, "name", { value: "a\nb" }))).toBe(
+      "[Function: a\\nb]",
+    );
+
+    // ...and escapes nothing further. A quoted string's repr doubles its
+    // backslashes because it is Python source that has to round-trip; this is
+    // the value's own rendered form, where the same doubling would misreport
+    // the value. `/a\.b/g` is a regexp matching a literal dot, and `/a\\.b/g`
+    // is a different one — routing this through the string table to share code
+    // has to fail here, loudly.
+    expect(repr(/a\.b/g)).toBe("/a\\.b/g");
+  });
 });
 
 describe("Pretty widget", () => {

@@ -167,15 +167,29 @@ const BOOLEAN_TOKENS: Record<`${boolean}`, PrettyToken> = {
   false: { text: "False", kind: "boolFalse" },
 };
 
-// The escapes Python's `repr` writes as a short form. Everything else in the
-// control range falls through to `\xNN` below; the chosen quote is escaped by
-// `pythonStringRepr`, which is why neither quote appears here.
-const STRING_ESCAPES = new Map<string, string>([
-  ["\\", "\\\\"],
+// The short forms for the control characters that have one. Everything else in
+// the control range falls through to `\xNN` in `controlEscape` below.
+//
+// Every path that produces leaf text goes through these, because a literal
+// newline in a leaf breaks the invariant the whole layout pass rests on: a
+// token is counted once by `tokenCells` and indented once by its `PrettyLine`,
+// so a second physical row inside one is a row nothing measured and nothing
+// indented, and the enclosing container's fit decision describes output that
+// was never produced.
+const CONTROL_ESCAPES = new Map<string, string>([
   ["\n", "\\n"],
   ["\r", "\\r"],
   ["\t", "\\t"],
 ]);
+
+// A quoted repr escapes its backslashes on top of that, because it is Python
+// source for the string and `'a\.b'` has to round-trip. Derived from the table
+// above rather than restated, so the shared entries cannot drift apart.
+//
+// The fallback repr deliberately does *not* get this entry: it is a value's own
+// already-rendered form, so doubling its backslashes would misreport the value
+// rather than protect the layout — `/a\.b/g` is the case that shows it.
+const STRING_ESCAPES = new Map<string, string>([...CONTROL_ESCAPES, ["\\", "\\\\"]]);
 
 function token(text: string, kind: PrettyTokenKind): PrettyToken {
   return { text, kind };
@@ -202,19 +216,35 @@ function container(
 function pythonStringRepr(value: string): string {
   const quote = value.includes("'") && !value.includes('"') ? '"' : "'";
   const body = [...value]
-    .map((character) => STRING_ESCAPES.get(character) ?? escapeCharacter(character, quote))
+    .map(
+      (character) =>
+        STRING_ESCAPES.get(character) ??
+        (character === quote ? `\\${character}` : controlEscape(character)),
+    )
     .join("");
   return `${quote}${body}${quote}`;
 }
 
-function escapeCharacter(character: string, quote: string): string {
+/**
+ * A value's own rendered form, made safe to carry as a single leaf token.
+ *
+ * The three callers are the only ones handing uncontrolled text to `token`: an
+ * object's `String` fallback, a symbol's description, and a function's `name` —
+ * which is an identifier in practice and settable to anything through
+ * `defineProperty`. Every other token is a literal brace or separator, or
+ * `pythonStringRepr` output whose newline is already the two-character escape.
+ */
+function singleLine(value: unknown): string {
+  return [...String(value)]
+    .map((character) => CONTROL_ESCAPES.get(character) ?? controlEscape(character))
+    .join("");
+}
+
+function controlEscape(character: string): string {
   const code = character.codePointAt(0) ?? 0;
-  const isControl = code < 0x20 || code === 0x7f;
-  return character === quote
-    ? `\\${character}`
-    : isControl
-      ? `\\x${code.toString(16).padStart(2, "0")}`
-      : character;
+  return code < 0x20 || code === 0x7f
+    ? `\\x${code.toString(16).padStart(2, "0")}`
+    : character;
 }
 
 /**
@@ -254,9 +284,9 @@ function treeOf(value: unknown, ancestors: ReadonlySet<object>): PrettyTree {
     // Node's own inspector spells this `[Function: name]` and that is the
     // convention a JavaScript reader already knows.
     case "function":
-      return leaf(token(`[Function: ${value.name || "anonymous"}]`, "plain"));
+      return leaf(token(`[Function: ${singleLine(value.name) || "anonymous"}]`, "plain"));
     case "symbol":
-      return leaf(token(String(value), "plain"));
+      return leaf(token(singleLine(value), "plain"));
     case "object":
       return objectTree(value, ancestors);
   }
@@ -303,7 +333,7 @@ function objectTree(value: object | null, ancestors: ReadonlySet<object>): Prett
   if (isPlainObject(value)) {
     return container("{", "}", Object.entries(value).map(pair));
   }
-  return leaf(token(String(value), "plain"));
+  return leaf(token(singleLine(value), "plain"));
 }
 
 function isPlainObject(value: object): boolean {
