@@ -19,6 +19,7 @@ import {
   isHexColor,
   mixColor,
 } from "../styles/index.js";
+import { AUTO } from "../styles/box-geometry.js";
 import { ButtonPressed, type ButtonVariant } from "./button.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { WidgetFrame } from "./widget-frame.js";
@@ -273,21 +274,11 @@ export const Button = observer(function Button({
   const minWidth = readNumericBoxValue(styles.box.minWidth) ?? 0;
   const height = readNumericBoxValue(styles.box.height) ?? 3;
   const textAlign = styles.getEnum("text-align", ["left", "center", "right"] as const);
-  const contentWidth = (explicitWidth ?? minWidth) || (resolved.firstLine.cellLength + 2);
-  const normalizedLabel = normalizeButtonLabel(
-    resolved.firstLine.truncate(Math.max(0, contentWidth - 2), { overflow: "crop" }),
-    true,
-  );
-  const labelCore = widget.handle.isDisabledEffective ? dimButtonLabel(normalizedLabel, basePalette.background) : normalizedLabel;
   const emphasizeLabel = height > 1;
   const labelStyles = [
     emphasizeLabel ? "bold" : undefined,
     emphasizeLabel && widget.handle.isFocused ? "reverse" : undefined,
   ].filter((style): style is string => style !== undefined);
-  const labelContent = decorateButtonLabel(
-    Content.assemble(" ", labelCore, " "),
-    labelStyles,
-  );
   // How wide to paint. The two answers below are not rivals — the width policy
   // in the CSS says which one is the map and which is the territory.
   //
@@ -301,14 +292,26 @@ export const Button = observer(function Button({
   //
   // Any other width means *the box decides*, and then the measurement is the
   // only honest answer, because the box's width need not be a number the
-  // component can read: `%` scalars reach Ink as the string "100%"
-  // (makeScalarSpec in styles/stylesheet.ts parses but does not normalize), so
-  // `readNumericBoxValue` returns undefined and the old code silently painted
-  // the 16-cell min-width inside an 80-cell box. Same conclusion WidgetFrame
-  // reached for its border labels. [LAW:one-source-of-truth]
-  const contentDecidesWidth = styles.box.width === undefined || styles.box.width === "auto";
-  const hugWidth = Math.max(explicitWidth ?? 0, minWidth, labelContent.cellLength);
+  // component can read: a `%` scalar reaches Ink as a string, by design, so Ink
+  // resolves it against the parent (`Unit.PERCENT.toInk` in styles/scalar.ts).
+  // `readNumericBoxValue` returns undefined for it, and the old code silently
+  // painted the 16-cell min-width inside an 80-cell box. Same conclusion
+  // WidgetFrame reached for its border labels. [LAW:one-source-of-truth]
+  const contentDecidesWidth = styles.box.width === undefined || styles.box.width === AUTO;
+  const hugWidth = Math.max(explicitWidth ?? 0, minWidth, resolved.firstLine.cellLength + 2);
   const renderRows = (width: number): React.JSX.Element[] => {
+    // [LAW:one-source-of-truth] The label is truncated to the width being
+    // painted. A second formula for the same fact is how a full-width button
+    // painted 80 cells around a label clipped to 14.
+    const normalizedLabel = normalizeButtonLabel(
+      resolved.firstLine.truncate(Math.max(0, width - 2), { overflow: "crop" }),
+      true,
+    );
+    const labelCore = widget.handle.isDisabledEffective ? dimButtonLabel(normalizedLabel, basePalette.background) : normalizedLabel;
+    const labelContent = decorateButtonLabel(
+      Content.assemble(" ", labelCore, " "),
+      labelStyles,
+    );
   const middleRowText = (() => {
     const line = Array.from({ length: width }, () => " ");
     const labelOffset =

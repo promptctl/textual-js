@@ -8,7 +8,7 @@ import type { BoxProps } from "ink";
 // ./scalar.ts). It is a sizing *policy* rather than a size, so it is expressed
 // on the widget's outer box as a flex alignment and never handed to Ink as a
 // width — Ink reads a string width as a percentage.
-const AUTO = "auto";
+export const AUTO = "auto";
 
 // [LAW:one-source-of-truth] A widget's resolved box splits into exactly two
 // non-overlapping halves with one owner each: the *outer* half places and sizes
