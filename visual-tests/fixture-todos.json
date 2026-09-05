@@ -138,12 +138,6 @@
     "reason": "Pre-seeded Python baseline for Stage 8 ListView implementation"
   },
   {
-    "name": "loading_indicator",
-    "stage": "7",
-    "component": "LoadingIndicator",
-    "reason": "Pre-seeded Python baseline for Stage 7 LoadingIndicator implementation"
-  },
-  {
     "name": "log_basic",
     "stage": "9",
     "component": "Log",
