@@ -6,15 +6,29 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { Box, Text } from "ink";
+import stripAnsi from "strip-ansi";
 
 import { runTest } from "../src/testing/run-test.js";
 import { Rule } from "../src/index.js";
 
+// The line carries the rule's colour as SGR, so a row is read as the cells it
+// paints rather than the bytes that paint them.
 function lineOf(frame: string, glyph: string): string {
-  return frame.split("\n").find((row) => row.includes(glyph))?.trim() ?? "";
+  return stripAnsi(frame).split("\n").find((row) => row.includes(glyph))?.trim() ?? "";
 }
 
 describe("Rule fills from layout", () => {
+  // Textual 8.2.3 paints the line `#004578`, and emits it as truecolor. A colour
+  // handed to Ink as `borderColor` went through chalk, which quantises it to the
+  // 16-colour palette inside the visual-test xterm.
+  it("paints the line in the rule's colour, in truecolor", async () => {
+    const session = await runTest(<Rule id="r" />);
+
+    expect(session.lastFrame!()).toMatch(/38;2;0;69;120[0-9;]*m(\x1b\[[0-9;]*m)*─/);
+
+    session.unmount();
+  });
+
   it("paints a horizontal line across the width it was measured at", async () => {
     const session = await runTest(
       <Box flexDirection="column">

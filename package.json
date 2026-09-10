@@ -22,6 +22,7 @@
     "demo:smoke": "tsx examples/kitchen-sink.tsx --smoke",
     "lint": "tsc --noEmit && tsx scripts/check-framework-imports.ts && tsx scripts/check-widget-source-rules.ts",
     "clean": "rm -rf dist",
+    "postinstall": "patch-package",
     "visual": "bash visual-tests/run.sh",
     "visual:update-python": "bash visual-tests/update-python-baselines.sh"
   },
@@ -58,6 +59,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^18.3.0",
     "ink-testing-library": "^4.0.0",
+    "patch-package": "^8.0.1",
     "strip-ansi": "^7.2.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

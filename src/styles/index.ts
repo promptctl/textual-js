@@ -17,8 +17,12 @@ export {
 } from "./resolved-styles.js";
 export {
   BORDER_STYLE_NAMES,
-  inkBorderStyle,
+  edgeBoxProps,
   parseEdgeType,
+  type Edge,
+  type EdgeBoxProps,
+  type EdgeGrounds,
+  type Edges,
   type EdgeType,
   type VisibleEdgeType,
 } from "./edge-types.js";

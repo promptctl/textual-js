@@ -7,7 +7,7 @@ import type { EdgeType } from "./edge-types.js";
 
 export interface BorderValue {
   style: EdgeType;
-  color?: string | Color;
+  color: string | Color;
 }
 
 export interface ResolvedRuleMap {
@@ -16,6 +16,9 @@ export interface ResolvedRuleMap {
 
 export interface ResolvedInkStyles {
   box: Partial<BoxProps>;
+  // The Ink border that draws the outline. It is not part of `box`, because an
+  // outline is drawn on a different box from the border.
+  outline: Partial<BoxProps>;
   text: Partial<TextProps>;
   style: Record<string, unknown>;
   components: Record<string, ResolvedRuleMap>;
@@ -54,6 +57,7 @@ function ruleToInkColor(value: unknown): string | undefined {
 
 export class ResolvedStyles {
   box: Partial<BoxProps> = {};
+  outline: Partial<BoxProps> = {};
   text: Partial<TextProps> = {};
   style: Record<string, unknown> = {};
   components = observable.map<string, ResolvedRuleMap>();
@@ -86,6 +90,7 @@ export class ResolvedStyles {
 
   update(nextStyles: ResolvedInkStyles): void {
     this.box = nextStyles.box;
+    this.outline = nextStyles.outline;
     this.text = nextStyles.text;
     this.style = nextStyles.style;
     this.components.replace(Object.entries(nextStyles.components));

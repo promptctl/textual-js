@@ -4,7 +4,7 @@ import { Box, type BoxProps } from "ink";
 import { Content, renderContent } from "../content/index.js";
 import type { Widget } from "../framework/widget.js";
 import type { ResolvedStyles, BorderValue } from "../styles/index.js";
-import { colorToInkValue, inkBorderStyle } from "../styles/index.js";
+import { colorToInkValue } from "../styles/index.js";
 import { innerBoxGeometry } from "../styles/box-geometry.js";
 import { MeasuredSizeReader } from "../framework/measured-size.js";
 
@@ -38,6 +38,13 @@ function renderAlignedLabel(
   );
 }
 
+// A label belongs to the row of one edge and is drawn in that edge's colour.
+// Textual draws no label where there is no edge; the port still draws one there,
+// in the widget's own text colour.
+function labelTextProps(edge: BorderValue | undefined): { color?: string } {
+  return { color: edge === undefined || edge.style === "" ? undefined : colorToInkValue(edge.color) };
+}
+
 export interface WidgetFrameProps {
   widget: Widget;
   styles: ResolvedStyles;
@@ -51,7 +58,6 @@ export function WidgetFrame({
   children,
   boxProps = {},
 }: WidgetFrameProps): React.JSX.Element {
-  const outline = styles.getRule<BorderValue>("outline");
   // [LAW:no-defensive-null-guards] Border-title-align is genuinely optional —
   // most widgets don't declare it. tryEnum returns undefined when absent;
   // "center" is the documented default, kept at the consumer as the
@@ -59,9 +65,6 @@ export function WidgetFrame({
   const alignChoices = ["left", "center", "right"] as const;
   const titleAlign = styles.tryEnum("border-title-align", alignChoices) ?? "center";
   const subtitleAlign = styles.tryEnum("border-subtitle-align", alignChoices) ?? "center";
-  const textProps = {
-    color: typeof styles.box.borderColor === "string" ? styles.box.borderColor : undefined,
-  };
   // [LAW:one-source-of-truth] Margin and width policy belong to the widget's
   // outer box (WidgetScope), which is the node the layout measures.
   // Applying them here too would double every margin.
@@ -79,18 +82,22 @@ export function WidgetFrame({
   return (
     <MeasuredSizeReader widget={widget}>
       {({ width }) => (
-        <Box
-          flexDirection="column"
-          {...(outline === undefined
-            ? {}
-            : {
-                borderStyle: inkBorderStyle(outline.style),
-                borderColor: colorToInkValue(outline.color),
-              })}
-        >
-          {renderAlignedLabel(widget.borderTitle, titleAlign, width, textProps, `frame:${widget.nodeId}:title`)}
+        <Box flexDirection="column" {...styles.outline}>
+          {renderAlignedLabel(
+            widget.borderTitle,
+            titleAlign,
+            width,
+            labelTextProps(styles.getRule<BorderValue>("border-top")),
+            `frame:${widget.nodeId}:title`,
+          )}
           {inner}
-          {renderAlignedLabel(widget.borderSubtitle, subtitleAlign, width, textProps, `frame:${widget.nodeId}:subtitle`)}
+          {renderAlignedLabel(
+            widget.borderSubtitle,
+            subtitleAlign,
+            width,
+            labelTextProps(styles.getRule<BorderValue>("border-bottom")),
+            `frame:${widget.nodeId}:subtitle`,
+          )}
         </Box>
       )}
     </MeasuredSizeReader>

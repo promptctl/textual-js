@@ -185,6 +185,12 @@ function readSpacing(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+// The resolved box names every border side as shown or not (`edgeBoxProps`), and
+// a shown side takes one cell; a side that is not drawn takes none.
+function readBorderSide(shown: unknown): number {
+  return shown === true ? 1 : 0;
+}
+
 // [LAW:parse-dont-validate] `measuredWidth` arrives already discriminated from
 // `MeasuredSizeReader`: a number is a real measurement, `undefined` is "not
 // placed yet, size yourself". This used to re-check `<= 0` because the caller
@@ -199,11 +205,11 @@ export function resolveVisualRenderWidth(
     return undefined;
   }
 
-  const borderWidth = boxProps.borderStyle === undefined ? 0 : 2;
   const horizontalSpacing =
     readSpacing(boxProps.paddingLeft) +
     readSpacing(boxProps.paddingRight) +
-    borderWidth;
+    readBorderSide(boxProps.borderLeft) +
+    readBorderSide(boxProps.borderRight);
 
   // [LAW:single-enforcer] Container-to-content width translation happens at
   // one seam so every visual-bearing widget renders rich content against the
@@ -231,9 +237,11 @@ export function resolveVisualRenderHeight(
     return undefined;
   }
 
-  const borderHeight = boxProps.borderStyle === undefined ? 0 : 2;
   const verticalSpacing =
-    readSpacing(boxProps.paddingTop) + readSpacing(boxProps.paddingBottom) + borderHeight;
+    readSpacing(boxProps.paddingTop) +
+    readSpacing(boxProps.paddingBottom) +
+    readBorderSide(boxProps.borderTop) +
+    readBorderSide(boxProps.borderBottom);
 
   return Math.max(0, measuredHeight - verticalSpacing);
 }
