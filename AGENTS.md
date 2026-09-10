@@ -25,11 +25,11 @@ See `CLAUDE.md` for the full verification protocol and project conventions.
 
 Do not mention unrelated tracked, untracked, or otherwise pre-existing worktree changes in status updates, summaries, commit messages, or final responses. Raise only direct blockers to the requested task itself, without discussing general worktree state.
 
-<!-- BEGIN LINKS INTEGRATION -->
-## links Agent-Native Workflow
+<!-- BEGIN LIT INTEGRATION -->
+## lit Agent-Native Workflow
 
-This repository is configured for agent-native issue tracking with `lit`.
+This repository uses `lit` for agent-native issue tracking.
 
-Run `lit quickstart` to get instructions.
+Start by running `lit quickstart` to load the workflow instructions. It prints how tickets are found, created, updated, and closed here, so running it first means the rest of your work follows the conventions this repo expects. It's a quick, read-only command — no need to check in before running it.
 
-<!-- END LINKS INTEGRATION -->
+<!-- END LIT INTEGRATION -->
