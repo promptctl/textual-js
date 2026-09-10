@@ -243,7 +243,7 @@ every on-screen behaviour in its spec-tests file. A `.py` with no `.tsx` is a ga
 work already claimed done — not a future task. This applies retroactively; stage
 completion is gated on it; backfilling is in-scope.
 
-The count today is 120 `.py` against 56 `.tsx`, so you will meet this. And when you do,
+The count today is 121 `.py` against 57 `.tsx`, so you will meet this. And when you do,
 the reasonable voice arrives: *"that gap predates my ticket — I'll file it and move
 on."* Refuse it. YAGNI is right about speculative features and says nothing here: this
 is not a feature nobody asked for, it is the verification for a widget already shipped
@@ -263,3 +263,12 @@ nobody prioritises, and the stage stays green over it. Write the `.tsx`.
 | `spec/impl/` | `IMPLEMENTATION_ORDER.md`, `PROMPT.md`, `INDEX.md`, `phase-01-foundation.md` … `phase-07-animation-conformance.md` |
 | `spec/spec-src/` | behavioural specifications |
 | `spec/spec-tests/` | test case specifications |
+
+<!-- BEGIN LIT INTEGRATION -->
+## lit Agent-Native Workflow
+
+This repository uses `lit` for agent-native issue tracking.
+
+Start by running `lit quickstart` to load the workflow instructions. It prints how tickets are found, created, updated, and closed here, so running it first means the rest of your work follows the conventions this repo expects. It's a quick, read-only command — no need to check in before running it.
+
+<!-- END LIT INTEGRATION -->

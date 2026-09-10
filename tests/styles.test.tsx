@@ -152,7 +152,7 @@ describe("styles and useStyles", () => {
     expect(styled.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
     expect(styled.resolvedStyles.box.paddingLeft).toBe(2);
     expect(styled.resolvedStyles.box.paddingTop).toBe(1);
-    expect(styled.resolvedStyles.box.borderStyle).toBe("round");
+    expect(styled.resolvedStyles.box.borderStyle).toMatchObject({ topLeft: "╭", top: "─", topRight: "╮" });
     expect(styled.resolvedStyles.box.borderColor).toBe(normalizeColor("magenta"));
     expect(styled.resolvedStyles.box.width).toBe(12);
     expect(styled.resolvedStyles.text.color).toBe(normalizeColor("white"));

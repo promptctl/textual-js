@@ -286,6 +286,7 @@ export {
   scalarToInkValue,
   type BorderQuad,
   type BorderValue,
+  type EdgeType,
   type BorderRowGlyphs,
   type HslColor,
   type HsvColor,

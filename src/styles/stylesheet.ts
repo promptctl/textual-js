@@ -6,6 +6,7 @@ import { Color } from "./color.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
 import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, type ScalarAxis, scalarToInkValue, scalarToRawValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
+import { inkBorderStyle, parseEdgeType } from "./edge-types.js";
 import {
   compareSelectorSpecificity,
   matchesSelector,
@@ -1030,19 +1031,10 @@ function parseSpacing(rawValue: string): Spacing {
 
 function parseBorder(rawValue: string): BorderValue {
   const [style, color] = rawValue.trim().split(/\s+/, 2);
-  const validStyles = new Set(["solid", "double", "round", "heavy", "thick", "dashed", "tall", "wide", "none", "hidden"]);
-
-  if (style === undefined || !validStyles.has(style)) {
-    throw new StyleValueError(`Invalid border "${rawValue}"`);
-  }
-
   const normalizedColor =
     color === undefined || color.startsWith("var(") ? color : Color.parse(color);
 
-  return {
-    style: style === "none" || style === "hidden" ? "" : style,
-    color: normalizedColor,
-  };
+  return { style: parseEdgeType(style), color: normalizedColor };
 }
 
 function parseFractional(rawValue: string): number {
@@ -1899,7 +1891,7 @@ function rulesToInk(
   const contentAlignVertical = rules["content-align-vertical"] as AlignValue["vertical"] | undefined;
 
   if (border !== undefined) {
-    box.borderStyle = border.style === "" ? undefined : border.style;
+    box.borderStyle = inkBorderStyle(border.style);
 
     if (border.color !== undefined) {
       box.borderColor = colorToInkValue(border.color);
