@@ -3,9 +3,10 @@ import { autoObservable } from "../framework/auto-observable.js";
 import type { BoxProps, TextProps } from "ink";
 import { Color } from "./color.js";
 import { HexColorParseError, isHexColor } from "./disabled-dim.js";
+import type { EdgeType } from "./edge-types.js";
 
 export interface BorderValue {
-  style: string;
+  style: EdgeType;
   color?: string | Color;
 }
 

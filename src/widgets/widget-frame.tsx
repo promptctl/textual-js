@@ -4,7 +4,7 @@ import { Box, type BoxProps } from "ink";
 import { Content, renderContent } from "../content/index.js";
 import type { Widget } from "../framework/widget.js";
 import type { ResolvedStyles, BorderValue } from "../styles/index.js";
-import { colorToInkValue } from "../styles/index.js";
+import { colorToInkValue, inkBorderStyle } from "../styles/index.js";
 import { innerBoxGeometry } from "../styles/box-geometry.js";
 import { MeasuredSizeReader } from "../framework/measured-size.js";
 
@@ -81,10 +81,10 @@ export function WidgetFrame({
       {({ width }) => (
         <Box
           flexDirection="column"
-          {...(outline === undefined || outline.style.length === 0
+          {...(outline === undefined
             ? {}
             : {
-                borderStyle: outline.style as BoxProps["borderStyle"],
+                borderStyle: inkBorderStyle(outline.style),
                 borderColor: colorToInkValue(outline.color),
               })}
         >

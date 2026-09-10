@@ -276,15 +276,11 @@ describe("Placeholder widget", () => {
   it("reports its content area in the size variant, not its outer region", async () => {
     // Verified against textual 8.2.3: `Widget.size` is documented as "The size
     // of the content area" and returns `content_region.size`, so a 40x7
-    // Placeholder with `padding: 1 2; border: round` reports 34 x 3 there.
+    // Placeholder with `padding: 1 2; border: solid` reports 34 x 3 there.
     // Upstream's `_on_resize` renders exactly that value.
-    //
-    // `round` rather than Textual's usual `solid` because this port hands
-    // border style names to Ink unmapped and Ink knows neither `solid` nor
-    // most of the others — a separate defect, filed as textual-styles-3of.
     const session = await runTest(<Placeholder variant="size" />, {
       appProps: {
-        css: "Placeholder { width: 40; height: 7; padding: 1 2; border: round red; }",
+        css: "Placeholder { width: 40; height: 7; padding: 1 2; border: solid red; }",
       },
     });
     await session.app.whenIdle();

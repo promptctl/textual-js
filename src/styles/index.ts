@@ -15,6 +15,13 @@ export {
   type ResolvedInkStyles,
   type ResolvedRuleMap,
 } from "./resolved-styles.js";
+export {
+  BORDER_STYLE_NAMES,
+  inkBorderStyle,
+  parseEdgeType,
+  type EdgeType,
+  type VisibleEdgeType,
+} from "./edge-types.js";
 export { Styles, createStylesProxy } from "./styles.js";
 export { StylesCache } from "./styles-cache.js";
 export {
