@@ -1991,7 +1991,19 @@ function rulesToInk(
   // A border cell sits on the background the widget's text is painted on, or on
   // what lies beneath the widget. Nothing here composites one widget over
   // another, so beneath is the terminal's own background.
-  const grounds: EdgeGrounds = { inner: text.backgroundColor as string | undefined, outer: undefined };
+  //
+  // A fully transparent background is `undefined` here, not its `rgba(…,0)`
+  // spelling: "no background, the terminal's shows through" is precisely what
+  // EdgeGrounds documents `undefined` to mean, and the rgba form is a colour
+  // rich-js's parser rejects outright — `background: transparent` on a bordered
+  // widget threw `Failed to parse color: "rgba(0,0,0,0)"` before this read the
+  // Color instead of the string it had already been flattened into.
+  const background = rules.background;
+  const inner =
+    background instanceof Color && background.is_transparent
+      ? undefined
+      : (text.backgroundColor as string | undefined);
+  const grounds: EdgeGrounds = { inner, outer: undefined };
   Object.assign(box, edgeBoxProps(edgesOf(rules, "border"), grounds));
 
   return {
