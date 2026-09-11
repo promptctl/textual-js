@@ -179,6 +179,22 @@ describe("toast stack", () => {
   });
 });
 
+describe("notification severity", () => {
+  it("names the offending value when a caller invents a severity", () => {
+    // The union binds TypeScript callers only, and this ships as compiled JS, so
+    // the constructor is where an invented severity has to be caught. Before it
+    // was, the bad value reached the palette as the token `--undefined` and threw
+    // an error blaming the theme for the caller's typo.
+    expect(() => new Notification("saved", { severity: "warnign" as never })).toThrow(
+      /severity must be one of information, warning, error; received "warnign"/,
+    );
+  });
+
+  it("still defaults an omitted severity to information", () => {
+    expect(new Notification("saved").severity).toBe("information");
+  });
+});
+
 describe("toast palette", () => {
   it("reads each severity from its own pair of theme tokens", () => {
     expect(resolveToastPalette("information", PALETTE)).toEqual({
