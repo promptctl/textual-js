@@ -136,9 +136,25 @@ describe("toast stack", () => {
     // the newest toast keeps its floor position and the overflow leaves at the top.
     const { visible, top } = fitStack(blocksOf(3, 4), 11);
 
-    expect(top).toBe(0);
+    // The 14-row stack scrolled to its end shows its last 10 rows in a rack of
+    // 10: a leftover gap row, toast-1, a gap, toast-2. So the newest toast still
+    // ends one row above the floor and the stack starts one row down, rather
+    // than the gap above the scrolled-off toast being charged and then lost.
+    expect(top).toBe(1);
     expect(visible.map((block) => block.identity)).toEqual(["toast-1", "toast-2"]);
     expect(visible.map((block) => block.rows.length)).toEqual([4, 4]);
+  });
+
+  it("keeps the newest toast on the floor at every height that scrolls the stack", () => {
+    // The regression the height-11 case is one instance of: whatever is dropped
+    // off the top, the rows the rack actually spends still fill it to the floor.
+    for (let height = 6; height <= 20; height += 1) {
+      const { visible, top } = fitStack(blocksOf(3, 4), height);
+      const painted = visible.reduce((total, block) => total + block.rows.length, 0);
+      const gaps = Math.max(0, visible.length - 1);
+
+      expect(top + painted + gaps).toBe(height - 1);
+    }
   });
 
   it("cuts the straddling toast part-way, because the scroll offset is a whole row", () => {

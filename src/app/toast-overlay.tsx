@@ -178,14 +178,25 @@ export function fitStack(
   terminalHeight: number,
 ): { visible: ToastBlock[]; top: number } {
   let budget = Math.max(0, terminalHeight - RACK_BOTTOM_MARGIN);
+  let placed = 0;
 
   // Spent newest-first, so what runs out of rack is always the top of the stack.
   const fitted = [...blocks]
     .reverse()
-    .map((block, index) => {
-      budget = Math.max(0, budget - (index === 0 ? 0 : TOAST_TOP_MARGIN));
-      const shown = Math.min(block.rows.length, budget);
-      budget -= shown;
+    .map((block) => {
+      // A gap separates this toast from one already on screen below it, so the
+      // first toast that paints has nothing to be separated from. Keyed on what
+      // has been placed rather than on position, because the newest toast is
+      // only incidentally the first one to paint.
+      const gap = placed === 0 ? 0 : TOAST_TOP_MARGIN;
+      const shown = Math.max(0, Math.min(block.rows.length, budget - gap));
+
+      // A toast scrolled entirely off the top costs nothing, its gap included.
+      // Charging for the space above a toast that is never painted spends a row
+      // that is then returned to no one, and the stack lifts off the floor it is
+      // docked to.
+      budget -= shown === 0 ? 0 : gap + shown;
+      placed += shown;
 
       return { ...block, rows: block.rows.slice(block.rows.length - shown) };
     })
