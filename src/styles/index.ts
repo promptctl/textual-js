@@ -60,11 +60,11 @@ export {
   scalarToInkValue,
   type ScalarAxis,
 } from "./scalar.js";
+export { colorToInkValue } from "./ink-color.js";
 export {
   generateTcss,
   align_help_text,
   color_property_help_text,
-  colorToInkValue,
   normalizeStyleAssignment,
   parseTcss,
   resolveStylesForWidget,

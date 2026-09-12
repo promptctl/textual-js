@@ -89,10 +89,14 @@ export function parseEdgeType(name: string): EdgeType {
   return edgeType;
 }
 
-/** One side of a border, ready to draw: its style, and its colour as Ink spells it. */
+/**
+ * One side of a border, ready to draw: its style, and its colour as Ink spells
+ * it. `undefined` is a colour that carries nothing to paint — a `transparent`
+ * edge — and leaves the cell in the terminal's own foreground.
+ */
 export interface Edge {
   readonly style: EdgeType;
-  readonly color: string;
+  readonly color: string | undefined;
 }
 
 export interface Edges {
