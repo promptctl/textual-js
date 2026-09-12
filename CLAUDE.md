@@ -228,7 +228,15 @@ than its `.ansi` is two frames wearing one name.
 
 `patches/ink+5.2.1.patch` is applied by `patch-package` on every install —
 `"postinstall": "patch-package"` in package.json, `patch-package` 8.0.1 in
-devDependencies. Nothing else in the tree carries the fix.
+**dependencies**. Nothing else in the tree carries the fix.
+
+Three things keep that true for a consumer installing this package, and all three
+are load-bearing: `patch-package` is a runtime dependency because `devDependencies`
+are not installed for a nested or `--omit=dev` install, `patches` is in the `files`
+array because the tarball would otherwise ship without the patch and
+`patch-package` would exit quietly having found nothing, and `ink` is pinned to
+exactly `5.2.1` because the patch is generated against that build and a floating
+`^5.2.0` may resolve to one whose `styles.js` it cannot apply to.
 
 **What it changes.** Ink's `commitUpdate` (`node_modules/ink/build/reconciler.js`)
 applies only the style keys that *changed* between renders, and stock
@@ -298,7 +306,7 @@ Six traps, each of which type-checks, renders, and is wrong:
 - **`"1fr"` resolves to ONE CELL here.** `scalarToInkValue` defaults `fractionBasis = 1`
   (`src/styles/scalar.ts:164`), so `1 * 1 = 1`. Write `width: 100%`.
 - **A widget's DEFAULT_CSS cannot style its children.** `resolveStylesForWidget`
-  (`src/styles/stylesheet.ts:2008`) builds a widget's cascade from *its own type's*
+  (`src/styles/stylesheet.ts:2000`) builds a widget's cascade from *its own type's*
   default stylesheets plus the screen's user CSS. Textual puts every mounted class's
   `DEFAULT_CSS` into one app stylesheet, so upstream's `Welcome #text { margin: 0 1 }`
   reaches the child Static; written here it parses, registers, matches nothing, and
