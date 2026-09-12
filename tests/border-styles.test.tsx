@@ -73,6 +73,19 @@ function cellSgr(line: string, glyph: string): string {
   return sgrBefore(line, glyph).slice(-2).join(";");
 }
 
+/**
+ * The background in force where `glyph` sits — the last background SGR before
+ * it, whether that is a colour (`48;…`) or the reset to the terminal's own
+ * (`49`). `undefined` is a row that has set no background at all yet.
+ *
+ * A cell's background is not always re-emitted at the cell: a run keeps the
+ * background the previous cell set, so reading only the SGRs adjacent to the
+ * glyph would miss it.
+ */
+function groundAt(line: string, glyph: string): string | undefined {
+  return sgrBefore(line, glyph).findLast((sgr) => sgr === "49" || sgr.startsWith("48;"));
+}
+
 describe("border styles", () => {
   // [LAW:verifiable-goals] A style the stylesheet starts accepting without a
   // frame here fails this test, so the parser and the renderer cannot drift
@@ -100,6 +113,26 @@ describe("border styles", () => {
     const [top = ""] = await rawFrameOf("border: panel #0178D4");
 
     expect(sgrBefore(top, "▊")).toEqual(expect.arrayContaining(["38;2;1;120;212", "7"]));
+  });
+
+  // The reverse flag alone does not say which background a reversed cell is cut
+  // out of, and the two reversed roles differ in exactly that. Textual 8.2.3's
+  // `get_box` builds the four cell styles as `(inner, outer,
+  // Style(outer.background, inner.foreground, reverse=True),
+  // Style(inner.background, outer.foreground, reverse=True))` — so role 2 is
+  // grounded on `outer` and role 3 on `inner`, and swapping them would leave
+  // every other assertion here passing.
+  //
+  // `BORDER_LOCATIONS["panel"]` is `((2, 0, 1), …)`, so panel's leading `▊` is
+  // role 2; `BORDER_LOCATIONS["tab"][1]` is `(0, 1, 3)`, so tab's trailing `▊`
+  // is role 3. Nothing in this port composites one widget over another, so
+  // `outer` is the terminal's own background and paints none.
+  it("grounds a reversed edge cell on the background its role names", async () => {
+    const [panelTop = ""] = await rawFrameOf("border: panel #0178D4");
+    const [, tabMiddle = ""] = await rawFrameOf("border: tab #0178D4");
+
+    expect(groundAt(panelTop, "▊")).toBeUndefined();
+    expect(groundAt(tabMiddle, "▊")).toBe("48;2;77;17;68");
   });
 
   // Textual 8.2.3, same CSS: `['┌────', '┃ x  ', '┃    ']`, the top row
