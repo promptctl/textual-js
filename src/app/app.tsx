@@ -598,6 +598,15 @@ export class App<Result = unknown> {
     this.notificationService.unnotify(notification);
   }
 
+  // [LAW:one-source-of-truth] The generated palette ($success, $text-error,
+  // $panel-lighten-1 and the rest) is derived by ThemeManager. Chrome that has to
+  // name one of those tokens — the toast overlay does — reads it from here rather
+  // than recomputing lighten()/getContrastText() against activeTheme, which would
+  // be a second palette free to drift from the one CSS resolves against.
+  get themeVariables(): Record<string, string> {
+    return this.themeBroker.getCssVariables();
+  }
+
   get theme(): string {
     return this.themeBroker.theme;
   }

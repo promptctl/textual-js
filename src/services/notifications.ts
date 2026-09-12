@@ -3,8 +3,43 @@ import { autoObservable } from "../framework/auto-observable.js";
 
 import type { Content } from "../content/index.js";
 
-export type NotificationSeverity = "information" | "warning" | "error";
+// [LAW:one-source-of-truth] The union is derived from the list rather than
+// spelled a second time, so a severity cannot exist in one and not the other.
+const NOTIFICATION_SEVERITIES = ["information", "warning", "error"] as const;
+
+export type NotificationSeverity = (typeof NOTIFICATION_SEVERITIES)[number];
 export type NotificationContent = string | Content;
+
+function isNotificationSeverity(value: unknown): value is NotificationSeverity {
+  return (NOTIFICATION_SEVERITIES as readonly unknown[]).includes(value);
+}
+
+/**
+ * Prove a caller's severity is one of the three, or fail naming the value.
+ *
+ * [LAW:parse-dont-validate] The union binds TypeScript callers at compile time
+ * and binds compiled-JS callers not at all, so `notify(message, "warnign")`
+ * arrives here as an ordinary string. This constructor is the one place a
+ * severity enters the app, which makes it the one place worth asking: past it
+ * the value is known to be a severity, so the toast palette indexes it without
+ * a lookup guard and every other reader is spared the question.
+ *
+ * [LAW:no-silent-failure] Failing beats defaulting to `information`. An
+ * unrecognized severity is a caller bug, and a toast quietly painted in the
+ * wrong colour hides it behind plausible output — the same reason
+ * `resolveToastPalette` throws on a missing theme token instead of substituting.
+ */
+function parseNotificationSeverity(value: unknown): NotificationSeverity {
+  const severity = value ?? "information";
+
+  if (!isNotificationSeverity(severity)) {
+    throw new TypeError(
+      `notification severity must be one of ${NOTIFICATION_SEVERITIES.join(", ")}; received ${JSON.stringify(value)}`,
+    );
+  }
+
+  return severity;
+}
 
 export interface NotificationInit {
   title?: NotificationContent;
@@ -31,7 +66,7 @@ export class Notification {
     init: NotificationInit = {},
   ) {
     this.title = init.title ?? "";
-    this.severity = init.severity ?? "information";
+    this.severity = parseNotificationSeverity(init.severity);
     this.timeout = init.timeout ?? Notification.timeout;
     this.createdAt = init.createdAt ?? Date.now();
     this.markup = init.markup ?? true;
@@ -139,6 +174,13 @@ export class Notifications implements Iterable<Notification> {
       // timer-driven and access-driven cleanup share one deletion rule.
       this.pruneExpired();
     }, delay);
+
+    // Expiry is housekeeping for a toast that is already on screen; it is never a
+    // reason for the program to stay alive. Un-unref'd, a pending timer holds
+    // Node's event loop for the whole timeout, so an app that notifies with a long
+    // timeout and then finishes hangs until the toast would have faded. Same
+    // reasoning as the launcher timer in services/url-opener.ts.
+    timer.unref();
 
     this.expiryTimers.set(notification.identity, timer);
   }
