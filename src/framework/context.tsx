@@ -145,6 +145,16 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
   bindingsRef.current = makeBindings(options.bindings ?? []);
   const classes = normalizeClasses(options.classes);
   const classesKey = classes.join(" ");
+  // [LAW:no-ambient-temporal-coupling] The registration effect below depends on
+  // what these lists SAY, not on which array object said it. Depending on the
+  // array identity makes re-registration a fact about the caller's allocation
+  // habits: a widget that spells `componentClasses={["toggle--button"]}` inline
+  // — the natural way to write it — hands React a new array every render, and
+  // the effect unregisters and re-registers the widget forever. It fails as a
+  // render loop with no mention of arrays, identity, or this hook. The join is
+  // the same fix `classesKey` above already applies to `classes`.
+  const componentClassesKey = (options.componentClasses ?? []).join(" ");
+  const baseTypeNamesKey = (options.baseTypeNames ?? []).join(" ");
 
   useLayoutEffect(() => {
     app.registerWidgetType(options.typeName, {
@@ -187,11 +197,11 @@ export function useWidget(options: UseWidgetOptions): UseWidgetResult {
     options.defaultCss,
     options.scopedCss,
     options.typeName,
-    options.baseTypeNames,
+    baseTypeNamesKey,
     options.inheritCss,
     options.inheritBindings,
     options.inheritComponentClasses,
-    options.componentClasses,
+    componentClassesKey,
     options.borderTitle,
     options.borderSubtitle,
     options.typeToken,
