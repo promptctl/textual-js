@@ -11,6 +11,21 @@ export interface SelectorMatchHost {
   getPreviousSiblings(nodeId: string): Widget[];
 }
 
+// [LAW:one-type-per-behavior] Everything a selector can interrogate about the
+// thing it is matching. A Widget is one such node; a component-class scope
+// (`.toggle--button` hanging off its owner) is another, and the two differ only
+// in the answers they give — never in the matching, which is why this interface
+// exists and the matcher below names it instead of Widget. Widget satisfies it
+// structurally, so nothing at the call sites changed.
+export interface StyleNode {
+  readonly id?: string;
+  readonly nodeId: string;
+  readonly parent: StyleNode | undefined;
+  matchesType(typeName: string): boolean;
+  hasClass(className: string): boolean;
+  hasPseudoClass(name: string): boolean;
+}
+
 export interface SelectorSpecificity {
   ids: number;
   classes: number;
@@ -28,7 +43,7 @@ type SegmentSelectorData =
   | { type: "pseudo"; name: string }
   | { type: "universal" };
 
-export type SegmentSelector = SegmentSelectorData & { match(widget: Widget): boolean };
+export type SegmentSelector = SegmentSelectorData & { match(node: StyleNode): boolean };
 
 export interface ParsedSelectorSegment {
   selectors: SegmentSelector[];
@@ -204,29 +219,29 @@ function makeUniversal(): SegmentSelector {
 }
 
 function makeType(name: string): SegmentSelector {
-  return { type: "type", name, match: (widget) => widget.matchesType(name) };
+  return { type: "type", name, match: (node) => node.matchesType(name) };
 }
 
 function makeClass(name: string): SegmentSelector {
-  return { type: "class", name, match: (widget) => widget.hasClass(name) };
+  return { type: "class", name, match: (node) => node.hasClass(name) };
 }
 
 function makeId(name: string): SegmentSelector {
-  return { type: "id", name, match: (widget) => widget.id === name };
+  return { type: "id", name, match: (node) => node.id === name };
 }
 
 function makePseudo(name: string): SegmentSelector {
-  return { type: "pseudo", name, match: (widget) => widget.hasPseudoClass(name) };
+  return { type: "pseudo", name, match: (node) => node.hasPseudoClass(name) };
 }
 
 // [LAW:one-source-of-truth] COMBINATOR_CANDIDATES is the canonical mapping
 // from combinator symbol to the set of widgets that the previous selector
 // segment may bind to. The matcher iterates this set unconditionally; it does
 // not branch on combinator symbol.
-type CombinatorCandidates = (host: SelectorMatchHost, widget: Widget) => Iterable<Widget>;
+type CombinatorCandidates = (host: SelectorMatchHost, node: StyleNode) => Iterable<StyleNode>;
 
-function* walkAncestors(widget: Widget): Iterable<Widget> {
-  let current = widget.parent;
+function* walkAncestors(node: StyleNode): Iterable<StyleNode> {
+  let current = node.parent;
   while (current !== undefined) {
     yield current;
     current = current.parent;
@@ -234,22 +249,22 @@ function* walkAncestors(widget: Widget): Iterable<Widget> {
 }
 
 const COMBINATOR_CANDIDATES: Readonly<Record<string, CombinatorCandidates>> = {
-  ">": (_host, widget) => (widget.parent === undefined ? [] : [widget.parent]),
-  "+": (host, widget) => {
-    const sibling = host.getPreviousSibling(widget.nodeId);
+  ">": (_host, node) => (node.parent === undefined ? [] : [node.parent]),
+  "+": (host, node) => {
+    const sibling = host.getPreviousSibling(node.nodeId);
     return sibling === undefined ? [] : [sibling];
   },
-  "~": (host, widget) => host.getPreviousSiblings(widget.nodeId),
-  " ": (_host, widget) => walkAncestors(widget),
+  "~": (host, node) => host.getPreviousSiblings(node.nodeId),
+  " ": (_host, node) => walkAncestors(node),
 };
 
 function matchSelectorFrom(
   host: SelectorMatchHost,
-  widget: Widget,
+  node: StyleNode,
   selector: ParsedSelector,
   segmentIndex: number,
 ): boolean {
-  if (!selector.segments[segmentIndex].selectors.every((part) => part.match(widget))) {
+  if (!selector.segments[segmentIndex].selectors.every((part) => part.match(node))) {
     return false;
   }
 
@@ -259,7 +274,7 @@ function matchSelectorFrom(
 
   const combinator = selector.combinators[segmentIndex - 1];
 
-  for (const candidate of COMBINATOR_CANDIDATES[combinator](host, widget)) {
+  for (const candidate of COMBINATOR_CANDIDATES[combinator](host, node)) {
     if (matchSelectorFrom(host, candidate, selector, segmentIndex - 1)) {
       return true;
     }
@@ -268,6 +283,6 @@ function matchSelectorFrom(
   return false;
 }
 
-export function matchesSelector(host: SelectorMatchHost, widget: Widget, selector: ParsedSelector): boolean {
-  return matchSelectorFrom(host, widget, selector, selector.segments.length - 1);
+export function matchesSelector(host: SelectorMatchHost, node: StyleNode, selector: ParsedSelector): boolean {
+  return matchSelectorFrom(host, node, selector, selector.segments.length - 1);
 }

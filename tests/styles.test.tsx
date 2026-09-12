@@ -109,6 +109,27 @@ const DerivedStyledLabel = observer(function DerivedStyledLabel(props: {
   );
 });
 
+const ComponentStyledLabel = observer(function ComponentStyledLabel(props: {
+  id: string;
+  classes?: string;
+  defaultCss: string;
+}): React.JSX.Element {
+  const widget = useWidget({
+    id: props.id,
+    classes: props.classes,
+    typeName: "ComponentStyledLabel",
+    defaultCss: props.defaultCss,
+    componentClasses: ["part--one", "part--two"],
+  });
+  const styles = useStyles(widget.handle);
+
+  return (
+    <Box {...styles.box}>
+      <Text {...styles.text}>{props.id}</Text>
+    </Box>
+  );
+});
+
 describe("styles and useStyles", () => {
   it("resolves DEFAULT_CSS and user CSS into Ink-compatible props with cascade ordering", async () => {
     const app = new App();
@@ -209,6 +230,55 @@ describe("styles and useStyles", () => {
 
     expect(dynamic.resolvedStyles.getRule("background")).toEqual(Color.parse("rebeccapurple"));
     expect(renders.some((entry) => entry.startsWith(`${normalizeColor("rebeccapurple")}@`))).toBe(true);
+
+    instance.unmount();
+    instance.cleanup();
+  });
+
+  // A component class is a styled scope inside a widget — upstream's
+  // COMPONENT_CLASSES, addressed as `Owner > .part--one`. Asserted through the
+  // cascade rather than through any widget that happens to use one, because the
+  // seam is the cascade's.
+  it("resolves each component class as its own scope, layered over the widget's own rules", async () => {
+    const app = new App();
+
+    const instance = render(
+      <TextualApp app={app}>
+        <ComponentStyledLabel
+          id="component-scoped"
+          classes="-on"
+          defaultCss={`
+            ComponentStyledLabel {
+              color: #e0e0e0;
+              background: #1e1e1e;
+            }
+            ComponentStyledLabel > .part--one {
+              background: #242f38;
+            }
+            ComponentStyledLabel.-on > .part--one {
+              color: #8ad4a1;
+            }
+          `}
+        />
+      </TextualApp>,
+    );
+
+    await app.whenIdle();
+
+    const styles = (app.registry.getByCssId("component-scoped") as Widget).resolvedStyles;
+
+    // The scope's own rules win where they exist...
+    expect(styles.component("part--one").getColor("background")).toBe("#242f38");
+    expect(styles.component("part--one").getColor("color")).toBe("#8ad4a1");
+    // ...and the owner's show through where they do not. A scope nothing
+    // selects is the owner's style exactly, which is what lets a label painted
+    // through a component class stay the widget's colour until a rule says
+    // otherwise.
+    expect(styles.component("part--two").getColor("background")).toBe("#1e1e1e");
+    expect(styles.component("part--two").getColor("color")).toBe("#e0e0e0");
+    // The owner is not its own component scope: a rule addressed to the part
+    // must not leak back up onto the widget.
+    expect(styles.getColor("background")).toBe("#1e1e1e");
 
     instance.unmount();
     instance.cleanup();
