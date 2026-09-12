@@ -14,6 +14,7 @@ import {
   parseSelectorList,
   type ParsedSelector,
   type SelectorMatchHost,
+  type StyleNode,
 } from "./selectors.js";
 import type { WidgetTypeMetadata } from "../framework/_app-runtime.js";
 import type { Widget } from "../framework/widget.js";
@@ -1886,8 +1887,7 @@ function rulesToInk(
     width: number;
     height: number;
   },
-  componentClasses: string[] = [],
-): Pick<ResolvedInkStyles, "box" | "outline" | "text" | "style" | "components"> {
+): Pick<ResolvedInkStyles, "box" | "outline" | "text" | "style"> {
   const box: Record<string, unknown> = {};
   const text: Record<string, unknown> = {};
   const alignHorizontal = rules["align-horizontal"] as AlignValue["horizontal"] | undefined;
@@ -1993,20 +1993,47 @@ function rulesToInk(
     // [LAW:one-source-of-truth] Rich/content style data is derived from the
     // same resolved rule map that feeds Ink props; no component owns a fork.
     style: { ...text },
-    components: Object.fromEntries(componentClasses.map((className) => [className, { ...rules }])),
   };
 }
 
-export function resolveStylesForWidget(
+// A component class is a styled scope hanging off its owner: Textual writes it
+// `ToggleButton > .toggle--button`, so the scope is a child node whose only
+// class is the component's name. Giving it that shape is what lets the one
+// selector matcher resolve it — the alternative, a second matcher that knows
+// component selectors are "owner plus a trailing class", would be a second
+// place where the cascade gets decided.
+//
+// [LAW:parse-dont-validate] The scope is built, not asserted: a StyleNode is a
+// thing selectors can match, so nothing downstream re-checks what it is.
+function componentScope(owner: StyleNode, componentClass: string): StyleNode {
+  return {
+    id: undefined,
+    nodeId: `${owner.nodeId}::${componentClass}`,
+    parent: owner,
+    matchesType: () => false,
+    hasClass: (className) => className === componentClass,
+    // Pseudo-classes belong to the owner's segment in every Textual component
+    // rule (`&:focus > .toggle--label`), never to the component's own.
+    hasPseudoClass: () => false,
+  };
+}
+
+// [LAW:single-enforcer] The one cascade. A widget and each of its
+// component-class scopes are resolved by this same function over the same
+// stylesheets; what differs between them is the node the selectors are matched
+// against and whether there are inline styles to layer on top. Splitting it so
+// components got their own resolver is how the two would drift.
+function resolveRuleMap(
   host: StyleResolutionHost,
-  widget: Widget,
+  node: StyleNode,
+  stylesheets: ParsedStylesheet[],
+  defaultStylesheets: ParsedStylesheet[],
+  inlineStyles: Iterable<[string, string]>,
   parentCustomProperties: Record<string, string>,
   inheritedTextStyle?: unknown,
-): ResolvedInkStyles {
+): Pick<ResolvedInkStyles, "rules" | "customProperties"> {
   const candidatesByProperty = new Map<string, CascadeValue[]>();
   const customProperties = { ...parentCustomProperties };
-  const stylesheets = host.getActiveStylesheetsFor(widget.typeName);
-  const defaultStylesheets = host.getWidgetTypeMetadata(widget.typeName).defaultStylesheets;
   let cascadeOrder = 0;
 
   const addCandidate = (candidate: CascadeValue): void => {
@@ -2019,7 +2046,7 @@ export function resolveStylesForWidget(
   // pipeline so DEFAULT_CSS, user CSS, and inline styles cannot drift apart.
   for (const stylesheet of stylesheets) {
     for (const rule of stylesheet.rules) {
-      const matchingSelectors = rule.selectors.filter((selector) => matchesSelector(host, widget, selector));
+      const matchingSelectors = rule.selectors.filter((selector) => matchesSelector(host, node, selector));
 
       for (const selector of matchingSelectors) {
         for (const declaration of rule.declarations) {
@@ -2040,7 +2067,7 @@ export function resolveStylesForWidget(
     }
   }
 
-  for (const [property, rawValue] of widget.styles.entries()) {
+  for (const [property, rawValue] of inlineStyles) {
     const inlineDeclaration: ParsedDeclaration = {
       property,
       value: parseValue(property, rawValue),
@@ -2079,7 +2106,7 @@ export function resolveStylesForWidget(
     const defaultFallback = defaultStylesheets
       .flatMap((stylesheet) =>
         stylesheet.rules.flatMap((rule) =>
-          rule.selectors.some((selector) => matchesSelector(host, widget, selector))
+          rule.selectors.some((selector) => matchesSelector(host, node, selector))
             ? rule.declarations
                 .flatMap((declaration) => expandedDeclarationEntries(declaration))
                 .filter((candidate) => candidate.property === property && candidate.rawValue.trim() !== "initial")
@@ -2147,8 +2174,53 @@ export function resolveStylesForWidget(
     rules["text-style"] = inheritedTextStyle;
   }
 
+  return { rules, customProperties };
+}
+
+export function resolveStylesForWidget(
+  host: StyleResolutionHost,
+  widget: Widget,
+  parentCustomProperties: Record<string, string>,
+  inheritedTextStyle?: unknown,
+): ResolvedInkStyles {
+  const metadata = host.getWidgetTypeMetadata(widget.typeName);
+  const stylesheets = host.getActiveStylesheetsFor(widget.typeName);
+  const { rules, customProperties } = resolveRuleMap(
+    host,
+    widget,
+    stylesheets,
+    metadata.defaultStylesheets,
+    widget.styles.entries(),
+    parentCustomProperties,
+    inheritedTextStyle,
+  );
+
   return {
-    ...rulesToInk(rules, host.terminalSize, host.getWidgetTypeMetadata(widget.typeName).componentClasses),
+    ...rulesToInk(rules, host.terminalSize),
+    // A component scope is painted inside its owner, so it starts from the
+    // owner's resolved rules and the rules that matched the component node win
+    // over them. That layering is the whole behaviour of Textual's
+    // `get_visual_style(name)`, and it is why `.toggle--label` reads the
+    // widget's colour and background under every rule that does not mention it:
+    // no selector matches the component node when the widget is blurred, and
+    // what is left is the owner's own style.
+    components: Object.fromEntries(
+      metadata.componentClasses.map((componentClass) => [
+        componentClass,
+        {
+          ...rules,
+          ...resolveRuleMap(
+            host,
+            componentScope(widget, componentClass),
+            stylesheets,
+            metadata.defaultStylesheets,
+            [],
+            customProperties,
+            rules["text-style"],
+          ).rules,
+        },
+      ]),
+    ),
     rules,
     customProperties,
   };

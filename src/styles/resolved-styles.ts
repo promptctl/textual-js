@@ -46,61 +46,13 @@ function ruleToInkColor(value: unknown): string | undefined {
   return value instanceof Color || typeof value === "string" ? colorToInkValue(value) : undefined;
 }
 
-export class ResolvedStyles {
-  box: Partial<BoxProps> = {};
-  outline: Partial<BoxProps> = {};
-  text: Partial<TextProps> = {};
-  style: Record<string, unknown> = {};
-  components = observable.map<string, ResolvedRuleMap>();
-  readonly rules = observable.map<string, unknown>();
-  readonly customProperties = observable.map<string, string>();
-  version = 0;
-  private readonly listeners = new Set<() => void>();
-
-  constructor() {
-    autoObservable(
-      this,
-      {
-        rules: false,
-        components: false,
-        customProperties: false,
-        hasRule: false,
-        getRule: false,
-        getColor: false,
-        tryColor: false,
-        getCustomColor: false,
-        tryCustomColor: false,
-        getEnum: false,
-        tryEnum: false,
-        listeners: false,
-        subscribe: false,
-      },
-      { autoBind: true },
-    );
-  }
-
-  update(nextStyles: ResolvedInkStyles): void {
-    this.box = nextStyles.box;
-    this.outline = nextStyles.outline;
-    this.text = nextStyles.text;
-    this.style = nextStyles.style;
-    this.components.replace(Object.entries(nextStyles.components));
-    this.rules.replace(Object.entries(nextStyles.rules));
-    this.customProperties.replace(Object.entries(nextStyles.customProperties));
-    this.version += 1;
-
-    for (const listener of this.listeners) {
-      listener();
-    }
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
+// [LAW:single-enforcer] One implementation of "read a resolved rule", shared by
+// a widget's own styles and by each of its component-class scopes. A component
+// scope is resolved by the same cascade against the same stylesheets, so it
+// reads its rules through the same accessors; a second copy of this logic is a
+// second place for `color` to mean something slightly different.
+export class RuleReader {
+  constructor(private readonly rules: ReadonlyMap<string, unknown>) {}
 
   hasRule(name: string): boolean {
     return this.rules.has(name);
@@ -144,28 +96,6 @@ export class ResolvedStyles {
     return inkValue;
   }
 
-  getCustomColor(name: string): string {
-    const value = this.customProperties.get(name);
-    if (value === undefined) {
-      throw new RuleResolutionError(name, "custom property not set");
-    }
-    if (!isHexColor(value)) {
-      throw new HexColorParseError(value);
-    }
-    return value;
-  }
-
-  tryCustomColor(name: string): string | undefined {
-    const value = this.customProperties.get(name);
-    if (value === undefined) {
-      return undefined;
-    }
-    if (!isHexColor(value)) {
-      throw new HexColorParseError(value);
-    }
-    return value;
-  }
-
   getEnum<T extends string>(name: string, allowed: readonly T[]): T {
     if (!this.rules.has(name)) {
       throw new RuleResolutionError(name, "rule not present in cascade");
@@ -193,4 +123,125 @@ export class ResolvedStyles {
     }
     return value as T;
   }
+}
+
+export class ResolvedStyles {
+  box: Partial<BoxProps> = {};
+  outline: Partial<BoxProps> = {};
+  text: Partial<TextProps> = {};
+  style: Record<string, unknown> = {};
+  readonly components = observable.map<string, RuleReader>();
+  readonly rules = observable.map<string, unknown>();
+  readonly customProperties = observable.map<string, string>();
+  version = 0;
+  private readonly listeners = new Set<() => void>();
+  private readonly ownRules = new RuleReader(this.rules);
+
+  constructor() {
+    autoObservable(
+      this,
+      {
+        rules: false,
+        components: false,
+        customProperties: false,
+        ownRules: false,
+        component: false,
+        hasRule: false,
+        getRule: false,
+        getColor: false,
+        tryColor: false,
+        getCustomColor: false,
+        tryCustomColor: false,
+        getEnum: false,
+        tryEnum: false,
+        listeners: false,
+        subscribe: false,
+      },
+      { autoBind: true },
+    );
+  }
+
+  update(nextStyles: ResolvedInkStyles): void {
+    this.box = nextStyles.box;
+    this.outline = nextStyles.outline;
+    this.text = nextStyles.text;
+    this.style = nextStyles.style;
+    this.components.replace(
+      Object.entries(nextStyles.components).map(([name, rules]) => [name, new RuleReader(new Map(Object.entries(rules)))]),
+    );
+    this.rules.replace(Object.entries(nextStyles.rules));
+    this.customProperties.replace(Object.entries(nextStyles.customProperties));
+    this.version += 1;
+
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  // [LAW:no-defensive-null-guards] A component class the widget never declared
+  // is a widget bug, not a styling condition to fall back from. The widget
+  // type's componentClasses decide which names resolve; asking for any other one
+  // is a typo that should surface here rather than paint an unstyled glyph.
+  component(name: string): RuleReader {
+    const reader = this.components.get(name);
+    if (reader === undefined) {
+      throw new RuleResolutionError(name, "not a component class of this widget type");
+    }
+    return reader;
+  }
+
+  hasRule(name: string): boolean {
+    return this.ownRules.hasRule(name);
+  }
+
+  getRule<TValue>(name: string): TValue | undefined {
+    return this.ownRules.getRule<TValue>(name);
+  }
+
+  getColor(name: string): string {
+    return this.ownRules.getColor(name);
+  }
+
+  tryColor(name: string): string | undefined {
+    return this.ownRules.tryColor(name);
+  }
+
+  getEnum<T extends string>(name: string, allowed: readonly T[]): T {
+    return this.ownRules.getEnum(name, allowed);
+  }
+
+  tryEnum<T extends string>(name: string, allowed: readonly T[]): T | undefined {
+    return this.ownRules.tryEnum(name, allowed);
+  }
+
+  getCustomColor(name: string): string {
+    const value = this.customProperties.get(name);
+    if (value === undefined) {
+      throw new RuleResolutionError(name, "custom property not set");
+    }
+    if (!isHexColor(value)) {
+      throw new HexColorParseError(value);
+    }
+    return value;
+  }
+
+  tryCustomColor(name: string): string | undefined {
+    const value = this.customProperties.get(name);
+    if (value === undefined) {
+      return undefined;
+    }
+    if (!isHexColor(value)) {
+      throw new HexColorParseError(value);
+    }
+    return value;
+  }
+
 }
