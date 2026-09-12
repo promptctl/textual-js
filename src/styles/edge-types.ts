@@ -1,5 +1,7 @@
 import type { BoxProps } from "ink";
 
+import { Content } from "../content/content.js";
+import { renderContentToAnsi } from "../content/render.js";
 import { StyleValueError } from "./scalar.js";
 
 // Textual's border vocabulary — `BORDER_CHARS` and `BORDER_LOCATIONS` in
@@ -32,24 +34,17 @@ export type VisibleEdgeType = (typeof VISIBLE_EDGE_TYPES)[number];
 /** A parsed border style. `""` is no border at all. */
 export type EdgeType = VisibleEdgeType | "";
 
-// A reversed cell is painted with the border colour as its background, so its
-// glyph is the part that shows a background colour through. Ink paints border
-// glyphs in foreground only and can draw just the complement: for `▊` (left
-// three quarters) that is a bar across the right quarter, and `▕` (right eighth)
-// is the nearest block glyph that is a bar on the right edge.
-const FOREGROUND_OF_REVERSED = { "▊": "▕" } as const;
-
-// The role is the index into the four cell styles Textual's `get_box` builds:
-// 0 inner, 1 outer, 2 and 3 the reversed pair. Only a glyph with a known
-// complement can sit in a reversed role, so the table cannot name one Ink has no
-// way to draw.
-type Cell =
-  | readonly [glyph: string, role: 0 | 1]
-  | readonly [glyph: keyof typeof FOREGROUND_OF_REVERSED, role: 2 | 3];
+// The role is the index into the four cell styles Textual's `get_box` builds.
+// Each is the edge colour over a ground: 0 over the widget's own background, 1
+// over what lies beneath the widget, and 2 and 3 those two reversed, so the edge
+// colour fills the cell and the glyph is cut out of it in the ground's colour.
+type Role = 0 | 1 | 2 | 3;
+type Cell = readonly [glyph: string, role: Role];
 type Row = readonly [left: Cell, middle: Cell, right: Cell];
 type BorderBox = readonly [top: Row, middle: Row, bottom: Row];
 
-const BORDER_BOXES: Record<VisibleEdgeType, BorderBox> = {
+const BORDER_BOXES: Record<EdgeType, BorderBox> = {
+  "": [[[" ", 0], [" ", 0], [" ", 0]], [[" ", 0], [" ", 0], [" ", 0]], [[" ", 0], [" ", 0], [" ", 0]]],
   ascii: [[["+", 0], ["-", 0], ["+", 0]], [["|", 0], [" ", 0], ["|", 0]], [["+", 0], ["-", 0], ["+", 0]]],
   blank: [[[" ", 0], [" ", 0], [" ", 0]], [[" ", 0], [" ", 0], [" ", 0]], [[" ", 0], [" ", 0], [" ", 0]]],
   block: [[["▄", 1], ["▄", 1], ["▄", 1]], [["█", 0], [" ", 0], ["█", 0]], [["▀", 1], ["▀", 1], ["▀", 1]]],
@@ -94,33 +89,127 @@ export function parseEdgeType(name: string): EdgeType {
   return edgeType;
 }
 
-type InkBoxStyle = Exclude<NonNullable<BoxProps["borderStyle"]>, string>;
+/**
+ * One side of a border, ready to draw: its style, and its colour as Ink spells
+ * it. `undefined` is a colour that carries nothing to paint — a `transparent`
+ * edge — and leaves the cell in the terminal's own foreground.
+ */
+export interface Edge {
+  readonly style: EdgeType;
+  readonly color: string | undefined;
+}
 
-function inkGlyph(cell: Cell): string {
-  return cell[1] === 2 || cell[1] === 3 ? FOREGROUND_OF_REVERSED[cell[0]] : cell[0];
+export interface Edges {
+  readonly top: Edge;
+  readonly right: Edge;
+  readonly bottom: Edge;
+  readonly left: Edge;
 }
 
 /**
- * The box Ink draws for an edge type: always a glyph object, never one of Ink's
- * own style names, whose vocabulary is not Textual's. `""` is no Ink border, so
- * Ink reserves no cells for it — the zero spacing Textual gives it too.
+ * The two backgrounds a border cell is painted over — Textual's `inner` (the
+ * widget's own) and `outer` (what lies beneath the widget). `undefined` paints no
+ * background, so the terminal's shows through.
  */
-export function inkBorderStyle(edgeType: EdgeType): InkBoxStyle | undefined {
-  if (edgeType === "") {
-    return undefined;
+export interface EdgeGrounds {
+  readonly inner: string | undefined;
+  readonly outer: string | undefined;
+}
+
+const ROLE_PAINT: Record<Role, { readonly ground: keyof EdgeGrounds; readonly inverse: boolean }> = {
+  0: { ground: "inner", inverse: false },
+  1: { ground: "outer", inverse: false },
+  2: { ground: "outer", inverse: true },
+  3: { ground: "inner", inverse: true },
+};
+
+// A painted cell is a pure function of the four things that reach rich-js, and
+// the same handful of cells is repainted constantly: `rulesToInk` paints a
+// border and an outline for every widget on every style recalculation, and a
+// widget that declares neither still paints eight space glyphs. One cell costs
+// ~6µs to render, so a tree-wide recascade spent milliseconds re-deriving bytes
+// it had already derived.
+//
+// [LAW:dataflow-not-control-flow] Caching keeps every widget on one path: every
+// cell is always painted, and only the cost varies. Skipping the paint for an
+// undeclared border instead would make the operations themselves depend on the
+// input, which is the variance this table exists to remove.
+//
+// [LAW:no-shared-mutable-globals] Owned by this module and reachable only
+// through `paintCell`. Every entry is recomputable from its key, so dropping
+// the whole cache is always safe — which is what keeps it bounded when a border
+// colour animates and every frame mints a key nothing will ask for again.
+const PAINTED_CELL_LIMIT = 4096;
+const paintedCells = new Map<string, string>();
+
+function paintedCell(key: string, paint: () => string): string {
+  const painted = paintedCells.get(key);
+
+  if (painted !== undefined) {
+    return painted;
   }
 
-  const [[topLeft, top, topRight], [left, , right], [bottomLeft, bottom, bottomRight]] =
-    BORDER_BOXES[edgeType];
+  if (paintedCells.size >= PAINTED_CELL_LIMIT) {
+    paintedCells.clear();
+  }
+
+  const value = paint();
+  paintedCells.set(key, value);
+
+  return value;
+}
+
+// [LAW:single-enforcer] A border cell reaches Ink already rendered by the bridge
+// that paints every widget's text, never through Ink's `borderColor`. Ink colours
+// a border through chalk, which settles at 16 colours inside the visual-test
+// xterm and quantises truecolor, and it gives a border no background at all. A
+// pre-rendered glyph carries both, and Ink still tiles it along the edge.
+function paintCell(box: BorderBox, row: 0 | 1 | 2, column: 0 | 1 | 2, edge: Edge, grounds: EdgeGrounds): string {
+  const [glyph, role] = box[row][column];
+  const { ground, inverse } = ROLE_PAINT[role];
+  const background = grounds[ground];
+
+  // NUL joins the fields because it is the one character none of them can hold.
+  // A space would not: every undeclared edge paints a space glyph, so a space
+  // separator would let two distinct cells collide on one key.
+  const key = [glyph, edge.color ?? "", background ?? "", String(inverse)].join("\u0000");
+
+  return paintedCell(key, () =>
+    renderContentToAnsi(new Content(glyph), { color: edge.color, backgroundColor: background, inverse }, 1),
+  );
+}
+
+export type EdgeBoxProps = Required<
+  Pick<BoxProps, "borderStyle" | "borderTop" | "borderRight" | "borderBottom" | "borderLeft">
+>;
+
+/**
+ * The Ink border that draws `edges` as Textual's `render_line` does.
+ *
+ * Every Ink slot takes its cell from the edge Textual draws it from: the whole
+ * top row, corners included, from the top edge; the sides from the left and
+ * right edges' middle row; the bottom row from the bottom edge. Ink draws a
+ * corner only beside a shown side — Textual's `has_left` and `has_right` — and
+ * reserves a cell only on a shown side, so an edge with no style takes no space.
+ */
+export function edgeBoxProps(edges: Edges, grounds: EdgeGrounds): EdgeBoxProps {
+  const top = BORDER_BOXES[edges.top.style];
+  const bottom = BORDER_BOXES[edges.bottom.style];
 
   return {
-    topLeft: inkGlyph(topLeft),
-    top: inkGlyph(top),
-    topRight: inkGlyph(topRight),
-    left: inkGlyph(left),
-    right: inkGlyph(right),
-    bottomLeft: inkGlyph(bottomLeft),
-    bottom: inkGlyph(bottom),
-    bottomRight: inkGlyph(bottomRight),
+    borderStyle: {
+      topLeft: paintCell(top, 0, 0, edges.top, grounds),
+      top: paintCell(top, 0, 1, edges.top, grounds),
+      topRight: paintCell(top, 0, 2, edges.top, grounds),
+      left: paintCell(BORDER_BOXES[edges.left.style], 1, 0, edges.left, grounds),
+      right: paintCell(BORDER_BOXES[edges.right.style], 1, 2, edges.right, grounds),
+      bottomLeft: paintCell(bottom, 2, 0, edges.bottom, grounds),
+      bottom: paintCell(bottom, 2, 1, edges.bottom, grounds),
+      bottomRight: paintCell(bottom, 2, 2, edges.bottom, grounds),
+    },
+    borderTop: edges.top.style !== "",
+    borderRight: edges.right.style !== "",
+    borderBottom: edges.bottom.style !== "",
+    borderLeft: edges.left.style !== "",
   };
 }

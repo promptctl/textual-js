@@ -17,8 +17,12 @@ export {
 } from "./resolved-styles.js";
 export {
   BORDER_STYLE_NAMES,
-  inkBorderStyle,
+  edgeBoxProps,
   parseEdgeType,
+  type Edge,
+  type EdgeBoxProps,
+  type EdgeGrounds,
+  type Edges,
   type EdgeType,
   type VisibleEdgeType,
 } from "./edge-types.js";
@@ -56,11 +60,11 @@ export {
   scalarToInkValue,
   type ScalarAxis,
 } from "./scalar.js";
+export { colorToInkValue } from "./ink-color.js";
 export {
   generateTcss,
   align_help_text,
   color_property_help_text,
-  colorToInkValue,
   normalizeStyleAssignment,
   parseTcss,
   resolveStylesForWidget,

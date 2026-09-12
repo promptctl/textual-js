@@ -7,6 +7,8 @@ import { Box } from "ink";
 import { observer } from "mobx-react-lite";
 import { runInAction } from "mobx";
 
+import { Content } from "../content/content.js";
+import { renderContentToAnsi } from "../content/render.js";
 import { WidgetScope, useStyles, useWidget } from "../framework/context.js";
 import { composeWidgetClasses, type WidgetComponentProps } from "./component-pattern.js";
 import { RuleModel, type RuleOrientation } from "./rule.js";
@@ -39,10 +41,15 @@ const UNPAINTED_EDGES = {
  * ends up asking Ink to paint an edge it never filled in. The `false`s are
  * load-bearing: Ink shows an edge unless it is explicitly `false`
  * (`style.borderTop !== false`, ink/build/styles.js), so an omitted edge paints.
+ *
+ * [LAW:single-enforcer] The glyph reaches Ink already painted by the bridge that
+ * paints every widget's text, never through Ink's `borderColor`: Ink colours a
+ * border through chalk, which settles at 16 colours inside the visual-test xterm
+ * and quantises the line's truecolor.
  */
-function edgeFill(edge: RuleEdge, glyph: string) {
+function edgeFill(edge: RuleEdge, glyph: string, color: string) {
   return {
-    borderStyle: { ...UNPAINTED_EDGES, [edge]: glyph },
+    borderStyle: { ...UNPAINTED_EDGES, [edge]: renderContentToAnsi(new Content(glyph), { color }, 1) },
     borderTop: edge === "top",
     borderBottom: false,
     borderLeft: edge === "left",
@@ -141,7 +148,7 @@ export const Rule = observer(function Rule({
   // after the one that measured it.
   return (
     <WidgetScope widget={widget.handle}>
-      <Box width={axis.width} height={axis.height} borderColor={color} {...edgeFill(axis.edge, glyph)} />
+      <Box width={axis.width} height={axis.height} {...edgeFill(axis.edge, glyph, color)} />
     </WidgetScope>
   );
 });

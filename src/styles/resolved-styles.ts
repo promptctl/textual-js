@@ -3,11 +3,12 @@ import { autoObservable } from "../framework/auto-observable.js";
 import type { BoxProps, TextProps } from "ink";
 import { Color } from "./color.js";
 import { HexColorParseError, isHexColor } from "./disabled-dim.js";
+import { colorToInkValue } from "./ink-color.js";
 import type { EdgeType } from "./edge-types.js";
 
 export interface BorderValue {
   style: EdgeType;
-  color?: string | Color;
+  color: string | Color;
 }
 
 export interface ResolvedRuleMap {
@@ -16,6 +17,9 @@ export interface ResolvedRuleMap {
 
 export interface ResolvedInkStyles {
   box: Partial<BoxProps>;
+  // The Ink border that draws the outline. It is not part of `box`, because an
+  // outline is drawn on a different box from the border.
+  outline: Partial<BoxProps>;
   text: Partial<TextProps>;
   style: Record<string, unknown>;
   components: Record<string, ResolvedRuleMap>;
@@ -34,26 +38,17 @@ export class RuleResolutionError extends Error {
   }
 }
 
-const TRANSPARENT_RGBA = "rgba(0,0,0,0)";
-
-// Mirrors stylesheet.colorToInkValue without taking a dependency on it
-// (stylesheet.ts already imports ResolvedStyles, so importing the helper
-// here would create a cycle).
+// [LAW:one-source-of-truth] One mapping from a resolved rule to the colour Ink
+// and rich-js are handed, shared with `rulesToInk` rather than mirrored here.
+// It lives in its own module because `stylesheet.ts` imports this one, so
+// importing the helper back from there would cycle.
 function ruleToInkColor(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (value instanceof Color) {
-    return value.alpha === 1 ? value.hex6.toLowerCase() : value.css;
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  return undefined;
+  return value instanceof Color || typeof value === "string" ? colorToInkValue(value) : undefined;
 }
 
 export class ResolvedStyles {
   box: Partial<BoxProps> = {};
+  outline: Partial<BoxProps> = {};
   text: Partial<TextProps> = {};
   style: Record<string, unknown> = {};
   components = observable.map<string, ResolvedRuleMap>();
@@ -86,6 +81,7 @@ export class ResolvedStyles {
 
   update(nextStyles: ResolvedInkStyles): void {
     this.box = nextStyles.box;
+    this.outline = nextStyles.outline;
     this.text = nextStyles.text;
     this.style = nextStyles.style;
     this.components.replace(Object.entries(nextStyles.components));
@@ -122,7 +118,7 @@ export class ResolvedStyles {
       throw new RuleResolutionError(name, "rule not present in cascade");
     }
     const inkValue = ruleToInkColor(this.rules.get(name));
-    if (inkValue === undefined || inkValue === TRANSPARENT_RGBA) {
+    if (inkValue === undefined) {
       throw new RuleResolutionError(name, "rule resolved to transparent or empty value");
     }
     if (!isHexColor(inkValue)) {
@@ -139,7 +135,7 @@ export class ResolvedStyles {
       return undefined;
     }
     const inkValue = ruleToInkColor(this.rules.get(name));
-    if (inkValue === undefined || inkValue === TRANSPARENT_RGBA) {
+    if (inkValue === undefined) {
       return undefined;
     }
     if (!isHexColor(inkValue)) {

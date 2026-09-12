@@ -1,0 +1,85 @@
+diff --git a/node_modules/ink/build/reconciler.js b/node_modules/ink/build/reconciler.js
+index 55acec7..f6d9ab0 100644
+--- a/node_modules/ink/build/reconciler.js
++++ b/node_modules/ink/build/reconciler.js
+@@ -184,9 +184,9 @@ export default createReconciler({
+         if (!props && !style) {
+             return null;
+         }
+-        return { props, style };
++        return { props, style, currentStyle: newProps['style'] ?? {} };
+     },
+-    commitUpdate(node, { props, style }) {
++    commitUpdate(node, { props, style, currentStyle }) {
+         if (props) {
+             for (const [key, value] of Object.entries(props)) {
+                 if (key === 'style') {
+@@ -205,7 +205,7 @@ export default createReconciler({
+             }
+         }
+         if (style && node.yogaNode) {
+-            applyStyles(node.yogaNode, style);
++            applyStyles(node.yogaNode, style, currentStyle);
+         }
+     },
+     commitTextUpdate(node, _oldText, newText) {
+diff --git a/node_modules/ink/build/styles.js b/node_modules/ink/build/styles.js
+index 12cdd64..c1d09d9 100644
+--- a/node_modules/ink/build/styles.js
++++ b/node_modules/ink/build/styles.js
+@@ -190,22 +190,22 @@ const applyDisplayStyles = (node, style) => {
+         node.setDisplay(style.display === 'flex' ? Yoga.DISPLAY_FLEX : Yoga.DISPLAY_NONE);
+     }
+ };
+-const applyBorderStyles = (node, style) => {
+-    if ('borderStyle' in style) {
+-        const borderWidth = style.borderStyle ? 1 : 0;
+-        if (style.borderTop !== false) {
+-            node.setBorder(Yoga.EDGE_TOP, borderWidth);
+-        }
+-        if (style.borderBottom !== false) {
+-            node.setBorder(Yoga.EDGE_BOTTOM, borderWidth);
+-        }
+-        if (style.borderLeft !== false) {
+-            node.setBorder(Yoga.EDGE_LEFT, borderWidth);
+-        }
+-        if (style.borderRight !== false) {
+-            node.setBorder(Yoga.EDGE_RIGHT, borderWidth);
+-        }
+-    }
++// Backported from Ink 7.1.1: `style` is the diff of changed keys, so the side
++// flags are read from the whole current style whenever any border key changed.
++const applyBorderStyles = (node, style, currentStyle) => {
++    const hasBorderChanges = 'borderStyle' in style ||
++        'borderTop' in style ||
++        'borderBottom' in style ||
++        'borderLeft' in style ||
++        'borderRight' in style;
++    if (!hasBorderChanges) {
++        return;
++    }
++    const borderWidth = currentStyle.borderStyle ? 1 : 0;
++    node.setBorder(Yoga.EDGE_TOP, currentStyle.borderTop === false ? 0 : borderWidth);
++    node.setBorder(Yoga.EDGE_BOTTOM, currentStyle.borderBottom === false ? 0 : borderWidth);
++    node.setBorder(Yoga.EDGE_LEFT, currentStyle.borderLeft === false ? 0 : borderWidth);
++    node.setBorder(Yoga.EDGE_RIGHT, currentStyle.borderRight === false ? 0 : borderWidth);
+ };
+ const applyGapStyles = (node, style) => {
+     if ('gap' in style) {
+@@ -218,14 +218,14 @@ const applyGapStyles = (node, style) => {
+         node.setGap(Yoga.GUTTER_ROW, style.rowGap ?? 0);
+     }
+ };
+-const styles = (node, style = {}) => {
++const styles = (node, style = {}, currentStyle = style) => {
+     applyPositionStyles(node, style);
+     applyMarginStyles(node, style);
+     applyPaddingStyles(node, style);
+     applyFlexStyles(node, style);
+     applyDimensionStyles(node, style);
+     applyDisplayStyles(node, style);
+-    applyBorderStyles(node, style);
++    applyBorderStyles(node, style, currentStyle);
+     applyGapStyles(node, style);
+ };
+ export default styles;

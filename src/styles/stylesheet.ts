@@ -6,7 +6,8 @@ import { Color } from "./color.js";
 import { PSEUDO_CLASS_NAMES } from "./pseudo-classes.js";
 import { axisToPercentUnit, normalizeScalar, parseScalar, Scalar, type ScalarAxis, scalarToInkValue, scalarToRawValue, StyleValueError, Unit } from "./scalar.js";
 import type { BorderValue, ResolvedInkStyles, ResolvedRuleMap } from "./resolved-styles.js";
-import { inkBorderStyle, parseEdgeType } from "./edge-types.js";
+import { edgeBoxProps, parseEdgeType, type Edge, type EdgeGrounds, type Edges } from "./edge-types.js";
+import { colorToInkValue } from "./ink-color.js";
 import {
   compareSelectorSpecificity,
   matchesSelector,
@@ -1029,10 +1030,14 @@ function parseSpacing(rawValue: string): Spacing {
   throw new StyleValueError(`Invalid spacing "${rawValue}"`);
 }
 
+// Textual's colour for a border declared without one, verified against 8.2.3:
+// `border: solid` resolves to `('solid', Color(0, 255, 0))`.
+const DEFAULT_BORDER_COLOR = Color.parse("#00ff00");
+
 function parseBorder(rawValue: string): BorderValue {
   const [style, color] = rawValue.trim().split(/\s+/, 2);
   const normalizedColor =
-    color === undefined || color.startsWith("var(") ? color : Color.parse(color);
+    color === undefined ? DEFAULT_BORDER_COLOR : color.startsWith("var(") ? color : Color.parse(color);
 
   return { style: parseEdgeType(style), color: normalizedColor };
 }
@@ -1365,13 +1370,29 @@ function withInitial(spec: PropertySpec, initialRawValue: string): PropertySpec 
   return { ...spec, initialRawValue };
 }
 
-const BORDER_LONGHAND_SPEC: PropertySpec = { parse: parseBorder, initialRawValue: "none" };
+const INITIAL_BORDER = "none";
+const BORDER_LONGHAND_SPEC: PropertySpec = { parse: parseBorder, initialRawValue: INITIAL_BORDER };
 const TEXT_STYLE_SPEC: PropertySpec = { parse: parseTextStyle, initialRawValue: "none" };
 const SPACING_EDGE_SPECS = Object.fromEntries(
   [...SPACING_EDGE_PROPERTIES.keys()].map((name) => [name, { ...makeIntegerSpec(name), initialRawValue: "0" }]),
 );
 
 const EDGES = ["top", "right", "bottom", "left"] as const;
+
+// [LAW:one-source-of-truth] A side no rule declares has the longhand's initial
+// value, parsed exactly as a declared one would be.
+const UNDECLARED_EDGE = parseBorder(INITIAL_BORDER);
+
+// [LAW:parse-dont-validate] Where a border's four longhands become the edges Ink
+// draws, each side read on its own.
+function edgesOf(rules: ResolvedRuleMap, prefix: "border" | "outline"): Edges {
+  const edge = (side: (typeof EDGES)[number]): Edge => {
+    const { style, color } = (rules[`${prefix}-${side}`] as BorderValue | undefined) ?? UNDECLARED_EDGE;
+    return { style, color: colorToInkValue(color) };
+  };
+
+  return { top: edge("top"), right: edge("right"), bottom: edge("bottom"), left: edge("left") };
+}
 
 function makeBorderShorthandSpec(prefix: "border" | "outline"): PropertySpec {
   const longhands = EDGES.map((edge) => `${prefix}-${edge}`);
@@ -1859,18 +1880,6 @@ function mapVerticalAlign(value: AlignValue["vertical"]): "flex-start" | "center
   return value === "middle" ? "center" : value === "bottom" ? "flex-end" : "flex-start";
 }
 
-export function colorToInkValue(value: Color | string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value instanceof Color) {
-    return value.alpha === 1 ? value.hex6.toLowerCase() : value.css;
-  }
-
-  return value;
-}
-
 function rulesToInk(
   rules: ResolvedRuleMap,
   viewport: {
@@ -1878,25 +1887,12 @@ function rulesToInk(
     height: number;
   },
   componentClasses: string[] = [],
-): Pick<ResolvedInkStyles, "box" | "text" | "style" | "components"> {
+): Pick<ResolvedInkStyles, "box" | "outline" | "text" | "style" | "components"> {
   const box: Record<string, unknown> = {};
   const text: Record<string, unknown> = {};
-  const borderTop = rules["border-top"] as BorderValue | undefined;
-  const borderRight = rules["border-right"] as BorderValue | undefined;
-  const borderBottom = rules["border-bottom"] as BorderValue | undefined;
-  const borderLeft = rules["border-left"] as BorderValue | undefined;
-  const border = borderTop ?? borderRight ?? borderBottom ?? borderLeft;
   const alignHorizontal = rules["align-horizontal"] as AlignValue["horizontal"] | undefined;
   const alignVertical = rules["align-vertical"] as AlignValue["vertical"] | undefined;
   const contentAlignVertical = rules["content-align-vertical"] as AlignValue["vertical"] | undefined;
-
-  if (border !== undefined) {
-    box.borderStyle = inkBorderStyle(border.style);
-
-    if (border.color !== undefined) {
-      box.borderColor = colorToInkValue(border.color);
-    }
-  }
 
   if (alignHorizontal !== undefined) {
     box.justifyContent = mapHorizontalAlign(alignHorizontal);
@@ -1979,8 +1975,20 @@ function rulesToInk(
     }
   }
 
+  // A border cell sits on the background the widget's text is painted on, or on
+  // what lies beneath the widget. Nothing here composites one widget over
+  // another, so beneath is the terminal's own background.
+  //
+  // `text.backgroundColor` is already the only spelling a border cell can be
+  // painted in: `colorToInkValue` resolves a transparent background to
+  // `undefined`, which is exactly what EdgeGrounds documents as "no background,
+  // the terminal's shows through".
+  const grounds: EdgeGrounds = { inner: text.backgroundColor as string | undefined, outer: undefined };
+  Object.assign(box, edgeBoxProps(edgesOf(rules, "border"), grounds));
+
   return {
     box,
+    outline: edgeBoxProps(edgesOf(rules, "outline"), grounds),
     text,
     // [LAW:one-source-of-truth] Rich/content style data is derived from the
     // same resolved rule map that feeds Ink props; no component owns a fork.

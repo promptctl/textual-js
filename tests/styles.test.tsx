@@ -2,6 +2,7 @@ import { App } from "../src/index.js";
 import React from "react";
 import { Box, Text } from "ink";
 import { observer } from "mobx-react-lite";
+import stripAnsi from "strip-ansi";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -152,11 +153,12 @@ describe("styles and useStyles", () => {
     expect(styled.resolvedStyles.getRule("color")).toEqual(Color.parse("white"));
     expect(styled.resolvedStyles.box.paddingLeft).toBe(2);
     expect(styled.resolvedStyles.box.paddingTop).toBe(1);
-    expect(styled.resolvedStyles.box.borderStyle).toMatchObject({ topLeft: "╭", top: "─", topRight: "╮" });
-    expect(styled.resolvedStyles.box.borderColor).toBe(normalizeColor("magenta"));
+    // The round border reaches the screen in the colour the user CSS gave it:
+    // magenta, which textual 8.2.3 resolves to (255, 0, 255).
+    expect(instance.lastFrame()).toMatch(/38;2;255;0;255[0-9;]*m(\x1b\[[0-9;]*m)*╭/);
     expect(styled.resolvedStyles.box.width).toBe(12);
     expect(styled.resolvedStyles.text.color).toBe(normalizeColor("white"));
-    expect(instance.lastFrame().replace(/[│╭╮╰╯─\s]/g, "")).toContain("styled:#ffff00:4");
+    expect(stripAnsi(instance.lastFrame()).replace(/[│╭╮╰╯─\s]/g, "")).toContain("styled:#ffff00:4");
 
     instance.unmount();
     instance.cleanup();
@@ -421,7 +423,6 @@ describe("styles and useStyles", () => {
     const widget = app.registry.getByCssId("cascade") as Widget;
 
     expect(widget.resolvedStyles.getRule("border-left")).toEqual({ style: "round", color: Color.parse("green") });
-    expect(widget.resolvedStyles.box.borderColor).toBe(normalizeColor("green"));
     expect(widget.resolvedStyles.box.paddingRight).toBe(20);
     expect(widget.resolvedStyles.box.paddingLeft).toBe(40);
     expect(widget.resolvedStyles.box.justifyContent).toBe("flex-end");

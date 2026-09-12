@@ -224,19 +224,89 @@ than its `.ansi` is two frames wearing one name.
 
 ---
 
+## Ink here is patched. Keep it patched.
+
+`patches/ink+5.2.1.patch` is applied by `patch-package` on every install —
+`"postinstall": "patch-package"` in package.json, `patch-package` 8.0.1 in
+**dependencies**. Nothing else in the tree carries the fix.
+
+Three things keep that true for a consumer installing this package, and all three
+are load-bearing: `patch-package` is a runtime dependency because `devDependencies`
+are not installed for a nested or `--omit=dev` install, `patches` is in the `files`
+array because the tarball would otherwise ship without the patch and
+`patch-package` would exit quietly having found nothing, and `ink` is pinned to
+exactly `5.2.1` because the patch is generated against that build and a floating
+`^5.2.0` may resolve to one whose `styles.js` it cannot apply to.
+
+**What it changes.** Ink's `commitUpdate` (`node_modules/ink/build/reconciler.js`)
+applies only the style keys that *changed* between renders, and stock
+`applyBorderStyles` read the four per-side flags — `borderTop`, `borderRight`,
+`borderBottom`, `borderLeft` — out of that diff. So a re-render that built a fresh
+`borderStyle` object while the side flags stayed `false` left the flags out of the
+diff entirely, `style.borderTop !== false` was true for a flag that was simply
+absent, and Ink reserved a border cell on **every** side. The patch backports the fix
+Ink 7.1.1 ships: `applyBorderStyles` takes the whole current style as a third
+argument and sets each side from `currentStyle.borderTop === false ? 0 :
+borderWidth`, with the reconciler passing `newProps['style']` through.
+
+Ink 7 itself is not the escape. It wants React >= 19.2 and Node >= 22 — check with
+`npm view ink@7.1.1 peerDependencies engines` — and this repo is React 18.3 with
+`engines.node >= 18`.
+
+**The symptom, so you recognise it.** An install that skipped scripts leaves the
+patch off, and nothing in the failure says Ink, or border, or `node_modules`. It says
+this:
+
+```
+ ❯ tests/placeholder.test.tsx (37 tests | 3 failed)
+ ❯ tests/input-render.test.tsx (22 tests | 2 failed)
+     → expected '\n\n                                 …' to contain '80 x 5'
+```
+
+A Placeholder measuring 80 x 5 reports **80 x 7**, with a blank row between every
+painted one, and any re-cascaded or clicked widget lays out one cell inside where it
+belongs. Two commands settle it — the first says whether the patch is on, the second
+puts it back:
+
+```bash
+grep -c currentStyle node_modules/ink/build/styles.js   # 8 patched, 0 not
+npm run postinstall                                     # -> ink@5.2.1 ✔
+```
+
+You will meet this mid-ticket, with your own diff on screen, and the thought will be:
+*"my last edit broke the layout — I'll go read the widget."* Run the grep first. It
+costs a second, and the alternative is an afternoon spent debugging a widget that is
+fine. And when the patch is off, the fix is `npm run postinstall` — never an edit
+inside `node_modules`, which the next install reverts without a word. Changing Ink's
+behaviour means changing `patches/ink+5.2.1.patch`.
+
+---
+
 ## Ink is not a compositor
 
-Five traps, each of which type-checks, renders, and is wrong:
+Six traps, each of which type-checks, renders, and is wrong:
 
 - **`backgroundColor` belongs to `<Text>`, not `<Box>`.** A widget's background exists
   only where the widget emits a glyph. Anything Textual draws as a filled block must
   emit its *whole region* as content via `alignContentInBox` /
   `alignContentInPaddedBox` in `src/content/align.ts`. CSS `align` + `padding` will
   position the text correctly and leave the surrounding cells transparent.
+- **A border cell reaches Ink as pre-rendered ANSI, never as a `borderColor`.** Every
+  cell is painted by `renderContentToAnsi` before Ink sees it: `edgeBoxProps`
+  (`src/styles/edge-types.ts:147`) does it for widget borders — one cell style per
+  role in Textual's `get_box`, the edge colour over the widget's own background, over
+  the ground beneath the widget, and those two reversed — and `edgeFill`
+  (`src/widgets/rule-component.tsx:50`) does it for Rule. The reason is the one Gate 2
+  already gives for forbidding `<Text>`'s colour: Ink resolves a border's colour
+  through chalk, chalk settles at level 1 inside the visual-test xterm, and the
+  truecolour quantises to the 16-colour palette. Ink also gives a border no background
+  at all, so the ground has to be in the ANSI too. Ink tiles whatever string you hand
+  it. The `borderTop`/`borderRight`/`borderBottom`/`borderLeft` flags returned
+  alongside are the ones the Ink patch above keeps honest across a re-render.
 - **`"1fr"` resolves to ONE CELL here.** `scalarToInkValue` defaults `fractionBasis = 1`
   (`src/styles/scalar.ts:164`), so `1 * 1 = 1`. Write `width: 100%`.
 - **A widget's DEFAULT_CSS cannot style its children.** `resolveStylesForWidget`
-  (`src/styles/stylesheet.ts:2008`) builds a widget's cascade from *its own type's*
+  (`src/styles/stylesheet.ts:2000`) builds a widget's cascade from *its own type's*
   default stylesheets plus the screen's user CSS. Textual puts every mounted class's
   `DEFAULT_CSS` into one app stylesheet, so upstream's `Welcome #text { margin: 0 1 }`
   reaches the child Static; written here it parses, registers, matches nothing, and
