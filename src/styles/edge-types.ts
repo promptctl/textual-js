@@ -123,6 +123,42 @@ const ROLE_PAINT: Record<Role, { readonly ground: keyof EdgeGrounds; readonly in
   3: { ground: "inner", inverse: true },
 };
 
+// A painted cell is a pure function of the four things that reach rich-js, and
+// the same handful of cells is repainted constantly: `rulesToInk` paints a
+// border and an outline for every widget on every style recalculation, and a
+// widget that declares neither still paints eight space glyphs. One cell costs
+// ~6µs to render, so a tree-wide recascade spent milliseconds re-deriving bytes
+// it had already derived.
+//
+// [LAW:dataflow-not-control-flow] Caching keeps every widget on one path: every
+// cell is always painted, and only the cost varies. Skipping the paint for an
+// undeclared border instead would make the operations themselves depend on the
+// input, which is the variance this table exists to remove.
+//
+// [LAW:no-shared-mutable-globals] Owned by this module and reachable only
+// through `paintCell`. Every entry is recomputable from its key, so dropping
+// the whole cache is always safe — which is what keeps it bounded when a border
+// colour animates and every frame mints a key nothing will ask for again.
+const PAINTED_CELL_LIMIT = 4096;
+const paintedCells = new Map<string, string>();
+
+function paintedCell(key: string, paint: () => string): string {
+  const painted = paintedCells.get(key);
+
+  if (painted !== undefined) {
+    return painted;
+  }
+
+  if (paintedCells.size >= PAINTED_CELL_LIMIT) {
+    paintedCells.clear();
+  }
+
+  const value = paint();
+  paintedCells.set(key, value);
+
+  return value;
+}
+
 // [LAW:single-enforcer] A border cell reaches Ink already rendered by the bridge
 // that paints every widget's text, never through Ink's `borderColor`. Ink colours
 // a border through chalk, which settles at 16 colours inside the visual-test
@@ -131,8 +167,16 @@ const ROLE_PAINT: Record<Role, { readonly ground: keyof EdgeGrounds; readonly in
 function paintCell(box: BorderBox, row: 0 | 1 | 2, column: 0 | 1 | 2, edge: Edge, grounds: EdgeGrounds): string {
   const [glyph, role] = box[row][column];
   const { ground, inverse } = ROLE_PAINT[role];
+  const background = grounds[ground];
 
-  return renderContentToAnsi(new Content(glyph), { color: edge.color, backgroundColor: grounds[ground], inverse }, 1);
+  // NUL joins the fields because it is the one character none of them can hold.
+  // A space would not: every undeclared edge paints a space glyph, so a space
+  // separator would let two distinct cells collide on one key.
+  const key = [glyph, edge.color ?? "", background ?? "", String(inverse)].join("\u0000");
+
+  return paintedCell(key, () =>
+    renderContentToAnsi(new Content(glyph), { color: edge.color, backgroundColor: background, inverse }, 1),
+  );
 }
 
 export type EdgeBoxProps = Required<
