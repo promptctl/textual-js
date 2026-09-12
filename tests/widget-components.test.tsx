@@ -786,22 +786,35 @@ describe("ProgressBar", () => {
 });
 
 describe("Checkbox", () => {
-  it("renders the label and unchecked indicator by default", async () => {
-    const session = await runTest(<Checkbox id="cb" label="Accept" />);
+  // [LAW:behavior-not-structure] The contract is upstream's: BUTTON_INNER is
+  // ALWAYS painted, and the two states differ in the colour the
+  // `.toggle--button` component class gives it — $panel-darken-2 off,
+  // $text-success on. These tests asserted a blank `▐ ▌` for the off state,
+  // which is the bug the committed Python baseline disproves on every row.
+  it("always paints the inner glyph, whatever the value", async () => {
+    const off = await runTest(<Checkbox id="cb" label="Accept" />);
+    const on = await runTest(<Checkbox id="cb" label="Accept" value />);
 
-    const frame = session.lastFrame();
-    expect(frame).toContain("Accept");
-    expect(frame).toContain("▐ ▌");
+    expect(stripAnsi(off.lastFrame() ?? "")).toContain("Accept");
+    expect(stripAnsi(off.lastFrame() ?? "")).toContain("▐X▌");
+    expect(stripAnsi(on.lastFrame() ?? "")).toContain("▐X▌");
 
-    session.unmount();
+    off.unmount();
+    on.unmount();
   });
 
-  it("renders the X indicator when value is true", async () => {
-    const session = await runTest(<Checkbox id="cb" label="Accept" value />);
+  // Asserted as the raw colour triple rather than a whole escape sequence: the
+  // renderer is free to pack SGR parameters however it likes, and a test that
+  // pins the packing is testing the emitter, not the colour.
+  it("colours the inner glyph by state", async () => {
+    const off = await runTest(<Checkbox id="cb" label="Accept" />);
+    const on = await runTest(<Checkbox id="cb" label="Accept" value />);
 
-    expect(session.lastFrame()).toContain("▐X▌");
+    expect(off.lastFrame()).toContain("38;2;0;15;24");
+    expect(on.lastFrame()).toContain("38;2;138;212;161");
 
-    session.unmount();
+    off.unmount();
+    on.unmount();
   });
 
   it("applies the -on class when value is true", async () => {
@@ -890,22 +903,27 @@ describe("Checkbox", () => {
 });
 
 describe("RadioButton", () => {
-  it("renders the label and unselected indicator by default", async () => {
-    const session = await runTest(<RadioButton id="rb" label="Option" />);
+  it("always paints the inner glyph, whatever the value", async () => {
+    const off = await runTest(<RadioButton id="rb" label="Option" />);
+    const on = await runTest(<RadioButton id="rb" label="Option" value />);
 
-    const frame = session.lastFrame();
-    expect(frame).toContain("Option");
-    expect(frame).toContain("▐ ▌");
+    expect(stripAnsi(off.lastFrame() ?? "")).toContain("Option");
+    expect(stripAnsi(off.lastFrame() ?? "")).toContain("▐●▌");
+    expect(stripAnsi(on.lastFrame() ?? "")).toContain("▐●▌");
 
-    session.unmount();
+    off.unmount();
+    on.unmount();
   });
 
-  it("renders the ● indicator when value is true", async () => {
-    const session = await runTest(<RadioButton id="rb" label="Option" value />);
+  it("colours the inner glyph by state", async () => {
+    const off = await runTest(<RadioButton id="rb" label="Option" />);
+    const on = await runTest(<RadioButton id="rb" label="Option" value />);
 
-    expect(session.lastFrame()).toContain("▐●▌");
+    expect(off.lastFrame()).toContain("38;2;0;15;24");
+    expect(on.lastFrame()).toContain("38;2;138;212;161");
 
-    session.unmount();
+    off.unmount();
+    on.unmount();
   });
 
   it("applies the -on class when value is true", async () => {
