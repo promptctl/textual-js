@@ -32,7 +32,7 @@
 //   3. `colorToInkValue(...) ?? "#hex"`      — duplicating a CSS default at the consumer
 //
 // This is the *mechanical* enforcement. Comments and LAW markers do not
-// fail CI; this script does. Run via `npm run lint`.
+// fail CI; this script does. Run via `pnpm run lint`.
 //
 // Scope: `src/widgets/**` only. Framework code (mobx makeAutoObservable
 // type holes, csstree node casts) is addressed in a separate ticket.

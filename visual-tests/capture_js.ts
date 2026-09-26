@@ -7,7 +7,7 @@
  *   - A plain-text grid (diagnostic only)
  *
  * Usage:
- *   npx tsx visual-tests/capture_js.ts [fixture_name]
+ *   pnpm exec tsx visual-tests/capture_js.ts [fixture_name]
  *
  * Output goes to visual-tests/snapshots/js/<fixture_name>.ansi
  *                                          <fixture_name>.txt

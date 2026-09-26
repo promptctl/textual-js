@@ -18,7 +18,7 @@ Phase 7 split the `TextualFramework` god-object into ten cohesive internal servi
 - `.6` Verify `TextualApp` makes no runtime decisions — `[LAW:single-enforcer]` header documents host-bridge role.
 - `.7` README and design docs updated to describe App as authority.
 - `.8` LAW markers asserting App as runtime root.
-- `.9` Architectural guard `scripts/check-framework-imports.ts` — forbids `TextualFramework` imports outside `src/framework/` and `src/app/`, wired into `npm run lint`.
+- `.9` Architectural guard `scripts/check-framework-imports.ts` — forbids `TextualFramework` imports outside `src/framework/` and `src/app/`, wired into `pnpm run lint`.
 
 **Phase 2 ("Collapse Identity Models" — reframed as service extraction) — CLOSED.** Epic `textual-true-north-o1w`.
 

@@ -82,10 +82,10 @@ contradiction found," and go looking for where the contradiction would be visibl
 All four, in order, none skipped. Do not run Gate 4 over code failing 1–3.
 
 ```bash
-npm run build          # 1. tsc
-npm run lint           # 2. tsc --noEmit + two architectural scanners
-npm test               # 3. vitest run
-bash visual-tests/run.sh   # 4. real xterm PNGs vs committed Python baselines (npm run visual)
+pnpm run build          # 1. tsc
+pnpm run lint           # 2. tsc --noEmit + two architectural scanners
+pnpm test               # 3. vitest run
+bash visual-tests/run.sh   # 4. real xterm PNGs vs committed Python baselines (pnpm run visual)
 ```
 
 **Gate 2 is two things.** Beyond `tsc --noEmit` it runs
@@ -178,7 +178,7 @@ one-hour timeout to make the toast the resting state.
 The container PNG round trip is the confirmation, not the iteration:
 
 ```bash
-npx tsx visual-tests/capture_js.ts <fixture>   # -> snapshots/js/<name>.txt, .ansi, .json
+pnpm exec tsx visual-tests/capture_js.ts <fixture>   # -> snapshots/js/<name>.txt, .ansi, .json
 diff visual-tests/snapshots/js/<name>.txt visual-tests/snapshots/python/<name>.txt
 ```
 
@@ -219,7 +219,7 @@ second copy. A stored grid is a baseline that can disagree with the one Gate 4
 measures.
 
 Regenerate the three **together**: `bash visual-tests/update-python-baselines.sh
-[fixture]` (`npm run visual:update-python`). Never refresh one alone — a `.png` newer
+[fixture]` (`pnpm run visual:update-python`). Never refresh one alone — a `.png` newer
 than its `.ansi` is two frames wearing one name.
 
 ---

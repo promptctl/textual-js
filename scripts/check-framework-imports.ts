@@ -5,7 +5,7 @@
 // it lives) and `src/app/` (where `App` constructs and drives it).
 //
 // This is the *mechanical* enforcement of the rule — comments and LAW
-// markers do not fail CI; this script does. Run via `npm run lint`.
+// markers do not fail CI; this script does. Run via `pnpm run lint`.
 //
 // Forbidden symbol set: `AppRuntime`, `AppRuntimeOptions`.
 // Other imports from `_app-runtime.js` (e.g. `Screen`, `SimpleCommand`,
