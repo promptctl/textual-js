@@ -29,7 +29,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH=/root/.local/bin:${PATH}
 
 # tsx executes the JS runner and orchestrator helpers without a build step
-RUN npm install -g tsx
+ENV PNPM_HOME=/usr/local/bin
+RUN corepack enable && corepack prepare pnpm@10.28.2 --activate && pnpm add -g tsx
 
 # Python venv lives outside /work so bind-mounted host source cannot shadow it.
 # uv auto-syncs /deps/venv on first `uv run` per pyproject.toml + uv.lock.

@@ -16,7 +16,7 @@ Compares textual-js PNG screenshots against committed Python Textual baseline PN
 
    A missing PNG is never excused by a todo entry; only a *difference* is.
 
-2. **Python baselines** — `npm run visual:update-python` renders Python Textual fixtures and commits `visual-tests/snapshots/python/*.png` as reviewed reference artifacts. The default gate does not regenerate these files. Python-only future fixtures are rendered only when listed in `fixture-todos.json`.
+2. **Python baselines** — `pnpm visual:update-python` renders Python Textual fixtures and commits `visual-tests/snapshots/python/*.png` as reviewed reference artifacts. The default gate does not regenerate these files. Python-only future fixtures are rendered only when listed in `fixture-todos.json`.
 
 3. **JS capture** — `visual-tests/run.sh` renders textual-js fixtures headlessly at a fixed terminal size (80x24), starts an Xvfb display inside Docker, opens an `xterm` window in that isolated display, displays each JS ANSI frame, and captures that terminal window to PNG.
 
@@ -32,7 +32,7 @@ Compares textual-js PNG screenshots against committed Python Textual baseline PN
 ./visual-tests/run.sh static_basic
 
 # Refresh all Python reference PNGs after intentionally changing baselines
-npm run visual:update-python
+pnpm visual:update-python
 ```
 
 The hard gate requires `tsx`, Docker, and ImageMagick's `magick` CLI. Python baseline generation additionally requires `uv`, which resolves Python and `textual` automatically from `visual-tests/pyproject.toml`. There is no manual `pip install` step.
@@ -41,7 +41,7 @@ The hard gate requires `tsx`, Docker, and ImageMagick's `magick` CLI. Python bas
 
 ```bash
 # Refresh committed Python baselines (via uv — installs textual automatically)
-npm run visual:update-python
+pnpm visual:update-python
 
 # JS only
 tsx visual-tests/capture_js.ts
@@ -89,7 +89,7 @@ visual-tests/
 
 1. Create `fixtures/<name>.py` with a Textual `App` class assigned to `app`.
 2. If the textual-js implementation is not ready yet, add `<name>` to `fixture-todos.json` with the target stage, component, and reason.
-3. Run `npm run visual:update-python -- <name>` to generate and review the Python baseline PNG.
+3. Run `pnpm visual:update-python -- <name>` to generate and review the Python baseline PNG.
 4. Commit `visual-tests/snapshots/python/<name>.png`.
 5. When implementing the textual-js side, create `fixtures/<name>.tsx` with a default-exported React component that renders the same widget layout.
 6. Remove `<name>` from `fixture-todos.json`; this makes the fixture part of the hard visual gate. If it is implemented but still expected to differ for a reason you can name and schedule, rewrite the entry's `reason` instead of removing it — the pair is then compared and reported as `KNOWN DIFF`.
@@ -118,8 +118,8 @@ Open the `snapshots/diff/*.png` files to inspect mismatches visually.
 
 ## Prerequisites
 
-- **tsx** — `npm install -g tsx`. Runs the TypeScript capture and compare scripts.
+- **tsx** — `pnpm add -g tsx`. Runs the TypeScript capture and compare scripts.
 - **Docker** — Required so the harness can render and capture a terminal window in an isolated Xvfb display without touching the active desktop session.
 - **ImageMagick** — Provides the `magick` CLI for pixel diffs.
 - **uv** — [Install](https://docs.astral.sh/uv/getting-started/installation/). Required only when refreshing Python baselines.
-- **Node 18+** with project dependencies (`npm install`).
+- **Node 18+** with project dependencies (`pnpm install`).

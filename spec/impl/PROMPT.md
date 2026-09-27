@@ -29,7 +29,7 @@ Run: `git status`
 Read the full output. If there are modified files (`M`), staged changes, or untracked files under `src/` or `tests/`, this is evidence of in-progress or completed-but-never-committed work from a prior session. Do not ignore it. Before starting any new work:
 
 1. Read each modified or untracked source/test file to understand what it contains.
-2. Run `npm run build`, `npm run lint`, and `npm test` to see whether the uncommitted work is in a passing state.
+2. Run `pnpm run build`, `pnpm run lint`, and `pnpm test` to see whether the uncommitted work is in a passing state.
 3. If it passes: commit it with a descriptive message before proceeding. These are deliverables, not drafts — treat them as your responsibility.
 4. If it fails: investigate and fix the failures, then commit. Do not start new work on top of a broken uncommitted state.
 
@@ -78,9 +78,9 @@ Read every path in the output with the Read tool. These are the test cases organ
 ### Step 0.8 — Verify the current build state
 
 Run each of these commands. Read the full output of each:
-- `npm run build`
-- `npm run lint`
-- `npm test`
+- `pnpm run build`
+- `pnpm run lint`
+- `pnpm test`
 - `bash visual-tests/run.sh`
 
 If any of the first three fail, the codebase is in a broken state. Do not start new work on a broken codebase. Investigate the failures first.
@@ -137,7 +137,7 @@ Read every `spec/spec-tests/*.md` file listed for the active stage that you have
 
 3. Keep it simple. Do not add features, abstractions, or error handling beyond what the phase file asks for. Do not refactor surrounding code. Do not add comments to code you did not write.
 
-4. All prior phase tests must still pass when you are done. Run `npm test` and verify.
+4. All prior phase tests must still pass when you are done. Run `pnpm test` and verify.
 
 5. Verify every exit criterion in the phase file that corresponds to the active stage. Each one is machine-verifiable — run the check, do not assume it passes.
 
@@ -209,7 +209,7 @@ Examples:
 
 ### GOALS MUST BE MACHINE-VERIFIABLE
 
-Any goal you plan must have well-defined, concrete criteria by which a deterministic process can gauge success or failure. Every exit criterion in your phase file is testable — run the tests, check the output. Do not declare a phase complete based on "it looks right." Run `npm test`, `npm run build`, `npm run lint`. Check every exit criterion.
+Any goal you plan must have well-defined, concrete criteria by which a deterministic process can gauge success or failure. Every exit criterion in your phase file is testable — run the tests, check the output. Do not declare a phase complete based on "it looks right." Run `pnpm test`, `pnpm run build`, `pnpm run lint`. Check every exit criterion.
 
 Examples:
 - WRONG: "The reactive system works correctly." — not verifiable.
@@ -246,9 +246,9 @@ Examples:
 
 Run each of these and confirm the result before reporting completion:
 
-1. `npm run build` — must pass.
-2. `npm run lint` — must pass.
-3. `npm test` — must pass. All suites, including those from prior stages.
+1. `pnpm run build` — must pass.
+2. `pnpm run lint` — must pass.
+3. `pnpm test` — must pass. All suites, including those from prior stages.
 4. `bash visual-tests/run.sh` — must run to completion. Read the comparison output. Any fixture where text content diverges (not just border characters) is a bug to fix before declaring done.
 5. Walk through every exit criterion in the phase file that corresponds to the active stage. For each one, run the specific check the criterion describes. Do not declare a criterion satisfied unless you have run its check and seen it pass.
 6. Retroactive check: re-verify that every behavior required by the active stage's spec-tests files has a passing test. If you find a gap you missed during implementation, fill it now.

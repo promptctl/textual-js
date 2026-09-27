@@ -115,7 +115,7 @@ This is clean because:
 6. Animator batching: multiple simultaneous animations produce a single MobX transaction per tick.
 7. `spec/impl/CONFORMANCE.md` exists and accounts for every `spec/spec-tests/` file.
 8. All prior phase tests still pass.
-9. `npm run build` and `npm run lint` pass.
+9. `pnpm build` and `pnpm lint` pass.
 10. `bash visual-tests/run.sh` runs to completion. The final conformance audit must include visual comparison results — all widget fixtures must be present and text-content divergence must be zero.
 
 ## What Comes After

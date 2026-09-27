@@ -62,7 +62,7 @@ MobX's `intercept` → `observable` → `reaction` → `computed` pipeline maps 
 - Add dev dependencies: `@types/react`, `ink-testing-library`, `@testing-library/react` (if useful)
 - Configure `tsconfig.json` for JSX: `"jsx": "react-jsx"`, `"jsxImportSource": "react"`
 - Update `package.json` description, keywords
-- Verify `npm run build` and `npm run lint` pass with new dependencies
+- Verify `pnpm build` and `pnpm lint` pass with new dependencies
 
 ### TextualApp component
 
@@ -193,7 +193,7 @@ Keep `src/geometry/` as-is. These are pure value types with no dependencies on t
 
 ## Exit Criteria
 
-1. `npm test` runs non-empty suites and passes.
+1. `pnpm test` runs non-empty suites and passes.
 2. A TextualApp component renders in ink-testing-library.
 3. MobX reactive pipeline tests cover: validator ordering, watcher ordering, init dispatch, always_update, compute-backed values, mutation via actions.
 4. Message dispatch tests cover: handler resolution, coalescing, bubbling through React tree.
@@ -201,7 +201,7 @@ Keep `src/geometry/` as-is. These are pure value types with no dependencies on t
 6. `runTest()` + Pilot can render an app, post a key event, and verify state change.
 7. `configure({ enforceActions: "always" })` is set — mutations outside actions fail.
 8. Old `src/layout/` directory removed. Old `src/dom-node.ts`, `src/node-list.ts` replaced.
-9. `npm run build` and `npm run lint` pass.
+9. `pnpm build` and `pnpm lint` pass.
 
 ## What the Next Phase Expects
 
