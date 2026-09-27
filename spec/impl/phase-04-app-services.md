@@ -142,7 +142,7 @@ App-level signals (MobX observables on the app store):
 7. Validation tests: validator lifecycle, valid_empty, CSS class toggling.
 8. Suggester tests: prefix matching, cache, SuggestionReady message.
 9. All prior phase tests still pass.
-10. `npm run build` and `npm run lint` pass.
+10. `pnpm build` and `pnpm lint` pass.
 
 ## What the Next Phase Expects
 

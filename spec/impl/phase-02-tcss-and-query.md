@@ -165,7 +165,7 @@ const Button = observer(({ id, classes, children }) => {
 7. CSS variables resolve correctly through the cascade.
 8. `useStyles()` hook returns correct styles and triggers re-render on change.
 9. All Phase 1 tests still pass.
-10. `npm run build` and `npm run lint` pass.
+10. `pnpm build` and `pnpm lint` pass.
 
 ## What the Next Phase Expects
 

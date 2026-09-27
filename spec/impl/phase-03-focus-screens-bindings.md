@@ -137,7 +137,7 @@ Make the framework interactive: focus management, screen stack with modes, and t
 8. Loading-state tests: loading widget suppresses all interaction.
 9. Tab/Shift+Tab navigate focus — verified via Pilot.
 10. All prior phase tests still pass.
-11. `npm run build` and `npm run lint` pass.
+11. `pnpm build` and `pnpm lint` pass.
 
 ## What the Next Phase Expects
 
